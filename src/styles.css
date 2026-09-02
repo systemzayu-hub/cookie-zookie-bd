@@ -115,7 +115,7 @@ h1,h2,h3,h4 { font-family: var(--font-display); font-weight: 600; line-height: 1
 .app { display: flex; min-height: 100vh; }
 
 .sidebar {
-  width: 256px; flex-shrink: 0; padding: var(--sp-10) var(--sp-5);
+  width: 256px; flex-shrink: 0; padding: var(--sp-6) var(--sp-5);
   background: var(--sidebar); color: #EDE2D3;
   display: flex; flex-direction: column; gap: var(--sp-2);
   position: sticky; top: 0; height: 100vh; z-index: 100;
@@ -144,7 +144,21 @@ h1,h2,h3,h4 { font-family: var(--font-display); font-weight: 600; line-height: 1
 }
 .nav-item .icon { width: 19px; height: 19px; flex-shrink: 0; }
 
-.sidebar-footer { margin-top: auto; border-top: 1px solid rgba(255,255,255,0.08); padding-top: var(--sp-4); }
+.sidebar-nav {
+  flex: 1 1 auto;
+  overflow-y: auto;
+  overflow-x: hidden;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-height: 0;
+  padding-right: 2px;
+  scrollbar-width: thin;
+}
+.sidebar-nav::-webkit-scrollbar { width: 5px; }
+.sidebar-nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 4px; }
+
+.sidebar-footer { margin-top: auto; border-top: 1px solid rgba(255,255,255,0.08); padding-top: var(--sp-4); flex-shrink: 0; }
 .theme-toggle {
   display: flex; align-items: center; gap: var(--sp-3); width: 100%;
   padding: var(--sp-3) var(--sp-4); background: transparent; border: none; cursor: pointer;

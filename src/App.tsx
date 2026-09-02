@@ -163,11 +163,13 @@ export default function App() {
             <div className="brand-sub">Banco de Dados</div>
           </div>
         </div>
-        {nav.map(n => (
-          <button key={n.id} className={`nav-item ${tab === n.id ? 'active' : ''}`} onClick={() => setTab(n.id)}>
-            {n.icon} {n.label}
-          </button>
-        ))}
+        <nav className="sidebar-nav">
+          {nav.map(n => (
+            <button key={n.id} className={`nav-item ${tab === n.id ? 'active' : ''}`} onClick={() => setTab(n.id)}>
+              {n.icon} {n.label}
+            </button>
+          ))}
+        </nav>
         <div className="sidebar-footer">
           <div className="auth-box">
             {user ? (

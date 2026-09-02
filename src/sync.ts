@@ -41,8 +41,8 @@ export async function authLoginGoogle(): Promise<User | null> {
     const provider = new GoogleAuthProvider()
     const result = await signInWithPopup(auth, provider)
     return result.user
-  } catch {
-    return null
+  } catch (e) {
+    throw e
   }
 }
 

@@ -43,11 +43,17 @@ export default function App() {
   }, [])
 
   const doLogin = async () => {
-    const u = await authLoginGoogle()
-    if (u) {
-      pushToast(`Olá, ${u.displayName ?? u.email ?? 'funcionário(a)'}! 🍪`)
-      logAction('login', `${u.displayName || u.email || 'alguém'} entrou no sistema`)
-    } else pushToast('Login cancelado ou falhou.', 'error')
+    try {
+      const u = await authLoginGoogle()
+      if (u) {
+        pushToast(`Olá, ${u.displayName ?? u.email ?? 'funcionário(a)'}! 🍪`)
+        logAction('login', `${u.displayName || u.email || 'alguém'} entrou no sistema`)
+      }
+    } catch (e) {
+      const emsg = (e as { code?: string; message?: string }).message || String(e)
+      console.error('[login]', e)
+      pushToast(`Falha no login: ${emsg}`.slice(0, 120), 'error')
+    }
   }
 
   const doLogout = async () => {

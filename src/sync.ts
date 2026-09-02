@@ -71,7 +71,7 @@ export async function authLogout(): Promise<void> {
 }
 
 /** Puxa dados do Firestore (collection 'loja', doc 'dados'). */
-export async function syncPull(): Promise<{ products: unknown[]; sales: unknown[]; customers: unknown[] } | null> {
+export async function syncPull(): Promise<{ products: unknown[]; sales: unknown[]; customers: unknown[]; pendencias: unknown[] } | null> {
   const ready = await firebaseReady()
   if (!ready || !db) return null
   try {
@@ -82,6 +82,7 @@ export async function syncPull(): Promise<{ products: unknown[]; sales: unknown[
       products: data.products ?? [],
       sales: data.sales ?? [],
       customers: data.customers ?? [],
+      pendencias: data.pendencias ?? [],
     }
   } catch {
     return null
@@ -89,7 +90,7 @@ export async function syncPull(): Promise<{ products: unknown[]; sales: unknown[
 }
 
 /** Empurra dados para o Firestore (collection 'loja', doc 'dados'). */
-export async function syncPush(products: unknown[], sales: unknown[], customers: unknown[]): Promise<void> {
+export async function syncPush(products: unknown[], sales: unknown[], customers: unknown[], pendencias?: unknown[]): Promise<void> {
   const ready = await firebaseReady()
   if (!ready || !db) return
   try {
@@ -97,6 +98,7 @@ export async function syncPush(products: unknown[], sales: unknown[], customers:
       products,
       sales,
       customers,
+      ...(pendencias ? { pendencias } : {}),
       updatedAt: new Date().toISOString(),
     })
   } catch {
@@ -105,7 +107,7 @@ export async function syncPush(products: unknown[], sales: unknown[], customers:
 }
 
 /** Observa mudanças remotas no doc 'dados'. Retorna função de unsubscribe. */
-export function onRemoteChanges(cb: (data: { products: unknown[]; sales: unknown[]; customers: unknown[] }) => void): () => void {
+export function onRemoteChanges(cb: (data: { products: unknown[]; sales: unknown[]; customers: unknown[]; pendencias: unknown[] }) => void): () => void {
   if (!db) return () => {}
   const unsub = onSnapshot(doc(db, 'loja', 'dados'), (snap) => {
     if (!snap.exists()) return
@@ -114,6 +116,7 @@ export function onRemoteChanges(cb: (data: { products: unknown[]; sales: unknown
       products: data.products ?? [],
       sales: data.sales ?? [],
       customers: data.customers ?? [],
+      pendencias: data.pendencias ?? [],
     })
   })
   return unsub

@@ -4,6 +4,7 @@ import { Pendencia } from '../types'
 import PENDENCIAS_SEED from '../pendencias-seed'
 import { load, save } from '../data'
 import { fmtBRL } from '../types'
+import { authCurrentUser, syncPull, syncPush } from '../sync'
 
 export function CobrancaView() {
   const [pendencias, setPendencias] = useState<Pendencia[]>(() => load<Pendencia[]>('cc_pendencias', PENDENCIAS_SEED))
@@ -12,6 +13,36 @@ export function CobrancaView() {
 
   useEffect(() => {
     save('cc_pendencias', pendencias)
+  }, [pendencias])
+
+  // Sincronizar pendentes com Firebase (subir/descer quando logado)
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      // 1) Puxa pendentes do Firestore no primeiro carregamento
+      if (authCurrentUser()) {
+        const remoto = await syncPull()
+        if (cancelled) return
+        if (remoto && remoto.pendencias && remoto.pendencias.length) {
+          // Há dados remotos: usa-os (sincroniza entre funcionários)
+          setPendencias(remoto.pendencias as Pendencia[])
+        } else if (remoto) {
+          // Doc existe mas sem pendentes ainda: sobe o seed inicial (1ª vez)
+          const ps = load<Pendencia[]>('cc_pendencias', PENDENCIAS_SEED)
+          if (ps.length) syncPush(load('cc_products', []), load('cc_sales', []), load('cc_customers', []), ps)
+        }
+      }
+    })()
+    return () => { cancelled = true }
+  }, [])
+
+  // 2) A cada edição local, empurra para o Firestore (se logado)
+  useEffect(() => {
+    if (!authCurrentUser()) return
+    const ready = load('cc_products', [])
+    const rv = load('cc_sales', [])
+    const rc = load('cc_customers', [])
+    syncPush(ready, rv, rc, pendencias)
   }, [pendencias])
 
   const buildMessage = (p: Pendencia) =>

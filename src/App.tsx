@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, Suspense, lazy } from 'react'
-import { LayoutDashboard, ShoppingCart, Package, BarChart3, Boxes, Users, Sun, Moon, Cookie, Download, Upload, HandCoins, LogIn, LogOut, Lock, AlertTriangle, Percent, ClipboardPaste, ShieldCheck } from 'lucide-react'
+import { LayoutDashboard, ShoppingCart, Package, BarChart3, Boxes, Users, Sun, Moon, Cookie, Download, Upload, HandCoins, LogIn, LogOut, Lock, AlertTriangle, Percent, ClipboardPaste, ShieldCheck, Menu, X } from 'lucide-react'
 import { Product, Sale, Customer, Tab, Pendencia, fmtBRL } from './types'
 import { seedProducts, seedCustomers, seedSales, load, save } from './data'
 import { baixarBackup, aplicarBackup } from './db'
@@ -23,6 +23,7 @@ const QuickSaleView = lazy(() => import('./views/QuickSale').then(m => ({ defaul
 export default function App() {
   const [tab, setTab] = useState<Tab>('dashboard')
   const [dark, setDark] = useState<boolean>(() => load('cc_theme', false))
+  const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [products, setProducts] = useState<Product[]>(() => load<Product[]>('cc_products', seedProducts))
   const [sales, setSales] = useState<Sale[]>(() => load<Sale[]>('cc_sales', seedSales))
   const [customers, setCustomers] = useState<Customer[]>(() => load<Customer[]>('cc_customers', seedCustomers))
@@ -153,9 +154,13 @@ export default function App() {
   }
 
   return (
-    <PasswordProvider>
-    <div className="app">
-      <aside className="sidebar">
+      <PasswordProvider>
+      <div className="app">
+        <button className="menu-toggle" aria-label="Abrir menu" onClick={() => setIsMenuOpen(true)}>
+          <Menu className="icon" />
+        </button>
+        <div className={`sidebar-overlay ${isMenuOpen ? 'open' : ''}`} onClick={() => setIsMenuOpen(false)} />
+        <aside className={`sidebar ${isMenuOpen ? 'open' : ''}`}>
         <div className="brand">
           <div className="brand-logo"><img src={logoUrl} alt="Cookie Zookie" /></div>
           <div>
@@ -164,12 +169,12 @@ export default function App() {
           </div>
         </div>
         <nav className="sidebar-nav">
-          {nav.map(n => (
-            <button key={n.id} className={`nav-item ${tab === n.id ? 'active' : ''}`} onClick={() => setTab(n.id)}>
-              {n.icon} {n.label}
-            </button>
-          ))}
-        </nav>
+                  {nav.map(n => (
+                    <button key={n.id} className={`nav-item ${tab === n.id ? 'active' : ''}`} onClick={() => { setTab(n.id); setIsMenuOpen(false); }}>
+                      {n.icon} {n.label}
+                    </button>
+                  ))}
+                </nav>
         <div className="sidebar-footer">
           <div className="auth-box">
             {user ? (

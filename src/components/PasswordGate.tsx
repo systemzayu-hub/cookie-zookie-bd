@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
 import { Lock } from 'lucide-react'
 
-/** SHA-256 hash da senha "CookiZo0406" — nunca armazenar em texto plano */
+/** SHA-256 hash da senha de edição — nunca armazenar em texto plano */
 const PW_HASH = '70e58a3aeb9d8ade3ca32d518e28de7f9c889b50b82c667d344eb062234f6215'
 
 interface Ctx { guard: (label: string, fn: () => void) => void }

@@ -1,7 +1,7 @@
 /* ================= AUDITORIA / LOG DE AÇÕES =================
  * Registra o que cada pessoa (conta Google logada) fez no sistema.
  * Fonte de verdade: Firestore (coleção 'audit'), com localStorage como cache local.
- * SHA-256 da senha de acesso à auditoria "CoZooAdm0406" — nunca em texto plano.
+ * Acesso à auditoria é fechado por senha guardada apenas como hash SHA-256 (nunca em texto plano).
  */
 import { auditPushDB, auditPullDB, type AuditEntryDB } from './sync'
 
@@ -60,7 +60,7 @@ export function logAction(action: string, detail: string): AuditEntry {
   return entry
 }
 
-/** SHA-256 (para checar a senha de auditoria CoZooAdm0406). */
+/** SHA-256 — checa a senha de acesso à auditoria. */
 export async function auditHash(pw: string): Promise<string> {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pw))
   return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')

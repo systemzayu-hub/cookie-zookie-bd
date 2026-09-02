@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, Suspense, lazy } from 'react'
-import { LayoutDashboard, ShoppingCart, Package, BarChart3, Boxes, Users, Sun, Moon, Cookie, Download, Upload, HandCoins, LogIn, LogOut } from 'lucide-react'
+import { LayoutDashboard, ShoppingCart, Package, BarChart3, Boxes, Users, Sun, Moon, Cookie, Download, Upload, HandCoins, LogIn, LogOut, Lock, AlertTriangle, Percent } from 'lucide-react'
 import { Product, Sale, Customer, Tab, Pendencia } from './types'
 import { seedProducts, seedCustomers, seedSales, load, save } from './data'
 import { baixarBackup, aplicarBackup } from './db'
@@ -12,6 +12,8 @@ const ReportsView = lazy(() => import('./views/Reports').then(m => ({ default: m
 const StockView = lazy(() => import('./views/Stock').then(m => ({ default: m.StockView })))
 const CustomersView = lazy(() => import('./views/Customers').then(m => ({ default: m.CustomersView })))
 const CobrancaView = lazy(() => import('./views/Cobranca').then(m => ({ default: m.CobrancaView })))
+const PerdasView = lazy(() => import('./views/Perdas').then(m => ({ default: m.PerdasView })))
+const CustosView = lazy(() => import('./views/Custos').then(m => ({ default: m.CustosView })))
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('dashboard')
@@ -22,11 +24,15 @@ export default function App() {
   const [toasts, setToasts] = useState<{ id: string; msg: string; type: 'success' | 'error' }[]>([])
   const [user, setUser] = useState<{ email: string | null; name: string | null } | null>(null)
   const [firebaseOn, setFirebaseOn] = useState(false)
+  const [authLoading, setAuthLoading] = useState(true)
   const fileRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
     firebaseReady().then(on => setFirebaseOn(on))
-    const unsub = authOnChange(u => setUser(u ? { email: u.email, name: u.displayName } : null))
+    const unsub = authOnChange(u => {
+      setUser(u ? { email: u.email, name: u.displayName } : null)
+      setAuthLoading(false)
+    })
     return () => unsub()
   }, [])
 
@@ -85,7 +91,46 @@ export default function App() {
     { id: 'estoque', label: 'Estoque', icon: <Boxes className="icon" /> },
     { id: 'clientes', label: 'Clientes', icon: <Users className="icon" /> },
     { id: 'cobranca', label: 'Cobrança', icon: <HandCoins className="icon" /> },
+    { id: 'perdas', label: 'Perdas', icon: <AlertTriangle className="icon" /> },
+    { id: 'custos', label: 'Custos', icon: <Percent className="icon" /> },
   ]
+
+  // Tela de carregamento/verificação de login obrigatório
+  if (authLoading) {
+    return (
+      <div className="login-gate login-loading">
+        <Cookie size={48} className="login-cookie" />
+        <div>Cookie Zookie</div>
+        <div className="login-sub">Carregando...</div>
+      </div>
+    )
+  }
+
+  // LOGIN OBRIGATÓRIO — sem conta Google autenticada, bloqueia todo o dashboard
+  if (!user) {
+    return (
+      <div className="login-gate">
+        <div className="login-gate-card">
+          <div className="login-logo"><Cookie size={40} /></div>
+          <h1 className="login-title">Cookie Zookie</h1>
+          <div className="login-sub">Banco de Dados · Área restrita</div>
+          <p className="login-desc">
+            Este painel é privado. Entre com sua conta Google para acessar as informações
+            e sincronizar os dados com a equipe.
+          </p>
+          <button className="login-button" onClick={doLogin}>
+            <svg width="18" height="18" viewBox="0 0 24 24">
+              <path fill="#4285F4" d="M23.5 12.27c0-.85-.08-1.66-.22-2.45H12v4.64h6.45a5.5 5.5 0 0 1-2.39 3.61v3h3.87c2.26-2.09 3.57-5.17 3.57-8.8z"/>
+              <path fill="#34A853" d="M12 24c3.24 0 5.96-1.07 7.94-2.91l-3.87-3c-1.08.72-2.45 1.15-4.07 1.15-3.13 0-5.78-2.11-6.73-4.96H1.29v3.1A12 12 0 0 0 12 24z"/>
+              <path fill="#FBBC05" d="M5.27 14.28A7.2 7.2 0 0 1 4.89 12c0-.79.14-1.56.38-2.28V6.62H1.29a12 12 0 0 0 0 10.76l3.98-3.1z"/>
+              <path fill="#EA4335" d="M12 4.77c1.76 0 3.34.6 4.58 1.79L20.14 2.98A12 12 0 0 0 12 0 12 12 0 0 0 1.29 6.62l3.98 3.1C6.27 6.88 8.93 4.77 12 4.77z"/>
+            </svg>
+            Entrar com Google
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="app">
@@ -149,6 +194,8 @@ export default function App() {
           {tab === 'estoque' && <StockView products={products} setProducts={setProducts} pushToast={pushToast} />}
           {tab === 'clientes' && <CustomersView customers={customers} setCustomers={setCustomers} sales={sales} pushToast={pushToast} />}
           {tab === 'cobranca' && <CobrancaView />}
+          {tab === 'perdas' && <PerdasView />}
+          {tab === 'custos' && <CustosView />}
         </Suspense>
       </main>
 

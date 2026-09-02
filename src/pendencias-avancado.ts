@@ -1,0 +1,15 @@
+export const CUSTOS_PRODUCAO = [
+  { id: 'nutella', name: 'Nutella', precoVenda: 8.5, custoUnitario: 3.03, lucroUnitario: 5.47, margem: 0.6435 },
+  { id: 'kinder', name: 'Kinder', precoVenda: 8.5, custoUnitario: 3.29, lucroUnitario: 5.21, margem: 0.6129 },
+  { id: 'tradicional', name: 'Tradicional', precoVenda: 6, custoUnitario: 1.6, lucroUnitario: 4.4, margem: 0.7333 },
+  { id: 'meio-amargo', name: 'Meio Amargo', precoVenda: 7, custoUnitario: 2.125, lucroUnitario: 4.875, margem: 0.6964 },
+  { id: 'classico', name: 'Classico', precoVenda: 6, custoUnitario: 1.6, lucroUnitario: 4.4, margem: 0.7333 },
+] as const;
+
+export const SEED_PERDAS = [
+  { id: 'p1', date: '2026-08-26', produto: 'Nutella', qtd: 1, motivo: 'Saiu feio - Comi', custoUnit: 3.03, custoTotal: 3.03 },
+  { id: 'p2', date: '2026-08-27', produto: 'Nutella', qtd: 1, motivo: 'Feio - Comi', custoUnit: 3.03, custoTotal: 3.03 },
+  { id: 'p3', date: '2026-08-29', produto: 'Nutella', qtd: 1, motivo: 'Comi', custoUnit: 3.03, custoTotal: 3.03 },
+  { id: 'p4', date: '2026-08-29', produto: 'Meio Amargo', qtd: 1, motivo: 'Mae', custoUnit: 2.125, custoTotal: 2.125 },
+  { id: 'p5', date: '2026-08-30', produto: 'Tradicional', qtd: 1, motivo: 'Teste', custoUnit: 1.6, custoTotal: 1.6 },
+] as const;

@@ -1,6 +1,7 @@
 import { DollarSign, TrendingUp, ShoppingBag, Users, AlertTriangle, CheckCircle2, Plus, Wallet, Clock3 } from 'lucide-react'
 import { ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from 'recharts'
 import { Product, Sale, Customer, LOW_STOCK_THRESHOLD, fmtBRL, CHANNELS } from '../types'
+import { CookieArt } from '../components/CookieArt'
 
 export function StatusBadge({ status }: { status?: string }) {
   const map: Record<string, string> = {
@@ -56,6 +57,20 @@ export function Dashboard({ sales, products, customers, onNewSale }: {
         <button className="btn btn-primary" onClick={onNewSale}><Plus size={16} /> Registrar Venda</button>
       </div>
 
+      {/* Galeria de sabores */}
+      {products.length > 0 && (
+        <div className="product-grid" style={{ marginBottom: 'var(--sp-6)' }}>
+          {products.slice(0, 4).map(p => (
+            <div key={p.id} className="product-card" style={{ textAlign: 'center', padding: 'var(--sp-4)' }}>
+              <CookieArt name={p.name} size={64} />
+              <div className="p-name">{p.name}</div>
+              <div className="p-price">{fmtBRL(p.price)}</div>
+              <span className={`badge ${p.stock <= LOW_STOCK_THRESHOLD ? 'badge-warning' : 'badge-brand'}`}>Estoque: {p.stock}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       <div className="grid grid-stats" style={{ marginBottom: 'var(--sp-6)' }}>
         <StatCard icon={<DollarSign size={20} />} color="linear-gradient(135deg,#22C55E,#16A34A)" label="Faturamento total" value={fmtBRL(revenue)} sub={`${sales.length} vendas registradas`} />
         <StatCard icon={<Wallet size={20} />} color="linear-gradient(135deg,#3B82F6,#2563EB)" label="Pago" value={fmtBRL(sales.filter(s => s.status === 'Pago').reduce((a, s) => a + s.total, 0))} sub={`${paidCount} vendas pagas`} />
@@ -99,6 +114,7 @@ export function Dashboard({ sales, products, customers, onNewSale }: {
               {topProducts.map(([name, qty], i) => (
                 <div key={name} style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)' }}>
                   <span style={{ fontWeight: 700, color: 'var(--cz-600)', width: 22 }}>{['🥇','🥈','🥉','4º'][i]}</span>
+                  <CookieArt name={name} size={32} />
                   <span style={{ flex: 1 }}>{name}</span>
                   <span className="badge badge-brand">{qty} un</span>
                 </div>
@@ -116,6 +132,7 @@ export function Dashboard({ sales, products, customers, onNewSale }: {
                 {lowStock.map(p => (
                   <div key={p.id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)' }}>
                     <AlertTriangle size={16} color="var(--warn-500)" />
+                    <CookieArt name={p.name} size={26} />
                     <span style={{ flex: 1 }}>{p.name}</span>
                     <span className={`badge ${p.stock === 0 ? 'badge-danger' : 'badge-warning'}`}>{p.stock} restantes</span>
                   </div>

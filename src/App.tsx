@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState, Suspense, lazy } from 'react'
-import { LayoutDashboard, ShoppingCart, Package, BarChart3, Boxes, Users, Sun, Moon, Cookie, Download, Upload, HandCoins, LogIn, LogOut, Lock, AlertTriangle, Percent } from 'lucide-react'
-import { Product, Sale, Customer, Tab, Pendencia } from './types'
+import { LayoutDashboard, ShoppingCart, Package, BarChart3, Boxes, Users, Sun, Moon, Cookie, Download, Upload, HandCoins, LogIn, LogOut, Lock, AlertTriangle, Percent, ClipboardPaste, ShieldCheck } from 'lucide-react'
+import { Product, Sale, Customer, Tab, Pendencia, fmtBRL } from './types'
 import { seedProducts, seedCustomers, seedSales, load, save } from './data'
 import { baixarBackup, aplicarBackup } from './db'
 import { authLoginGoogle, authLogout, authOnChange, firebaseReady } from './sync'
 import { PasswordProvider } from './components/PasswordGate'
+import { setAuditActor, logAction } from './audit'
+import logoUrl from './assets/logo.png'
 
 const Dashboard = lazy(() => import('./views/Dashboard').then(m => ({ default: m.Dashboard })))
 const SalesView = lazy(() => import('./views/Sales').then(m => ({ default: m.SalesView })))
@@ -15,6 +17,8 @@ const CustomersView = lazy(() => import('./views/Customers').then(m => ({ defaul
 const CobrancaView = lazy(() => import('./views/Cobranca').then(m => ({ default: m.CobrancaView })))
 const PerdasView = lazy(() => import('./views/Perdas').then(m => ({ default: m.PerdasView })))
 const CustosView = lazy(() => import('./views/Custos').then(m => ({ default: m.CustosView })))
+const AuditView = lazy(() => import('./views/Audit').then(m => ({ default: m.AuditView })))
+const QuickSaleView = lazy(() => import('./views/QuickSale').then(m => ({ default: m.QuickSaleView })))
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('dashboard')
@@ -32,6 +36,7 @@ export default function App() {
     firebaseReady().then(on => setFirebaseOn(on))
     const unsub = authOnChange(u => {
       setUser(u ? { email: u.email, name: u.displayName } : null)
+      setAuditActor(u?.displayName || u?.email || null, u?.email || null)
       setAuthLoading(false)
     })
     return () => unsub()
@@ -39,11 +44,14 @@ export default function App() {
 
   const doLogin = async () => {
     const u = await authLoginGoogle()
-    if (u) pushToast(`Olá, ${u.displayName ?? u.email ?? 'funcionário(a)'}! 🍪`)
-    else pushToast('Login cancelado ou falhou.', 'error')
+    if (u) {
+      pushToast(`Olá, ${u.displayName ?? u.email ?? 'funcionário(a)'}! 🍪`)
+      logAction('login', `${u.displayName || u.email || 'alguém'} entrou no sistema`)
+    } else pushToast('Login cancelado ou falhou.', 'error')
   }
 
   const doLogout = async () => {
+    logAction('login', `${user?.name || user?.email || 'alguém'} saiu do sistema`)
     await authLogout()
     pushToast('Você saiu da conta.')
   }
@@ -68,6 +76,9 @@ export default function App() {
       const item = s.items.find(i => i.productId === p.id)
       return item ? { ...p, stock: Math.max(0, p.stock - item.qty) } : p
     }))
+    const det = s.items.map(i => `${i.qty}x ${i.name}`).join(' + ')
+    const cliente = customers.find(c => c.id === s.customerId)?.name
+    logAction('venda', `${det} — ${fmtBRL(s.total)} (${s.status})${cliente ? ` · ${cliente}` : ''}`)
     pushToast('Venda registrada!')
   }
 
@@ -87,6 +98,7 @@ export default function App() {
   const nav: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="icon" /> },
     { id: 'vendas', label: 'Nova Venda', icon: <ShoppingCart className="icon" /> },
+    { id: 'venda-rapida', label: 'Venda Rápida', icon: <ClipboardPaste className="icon" /> },
     { id: 'produtos', label: 'Produtos', icon: <Package className="icon" /> },
     { id: 'relatorios', label: 'Relatórios', icon: <BarChart3 className="icon" /> },
     { id: 'estoque', label: 'Estoque', icon: <Boxes className="icon" /> },
@@ -94,13 +106,14 @@ export default function App() {
     { id: 'cobranca', label: 'Cobrança', icon: <HandCoins className="icon" /> },
     { id: 'perdas', label: 'Perdas', icon: <AlertTriangle className="icon" /> },
     { id: 'custos', label: 'Custos', icon: <Percent className="icon" /> },
+    { id: 'audit', label: 'Auditoria', icon: <ShieldCheck className="icon" /> },
   ]
 
   // Tela de carregamento/verificação de login obrigatório
   if (authLoading) {
     return (
       <div className="login-gate login-loading">
-        <Cookie size={48} className="login-cookie" />
+        <img src={logoUrl} alt="Cookie Zookie" className="login-cookie" />
         <div>Cookie Zookie</div>
         <div className="login-sub">Carregando...</div>
       </div>
@@ -112,7 +125,7 @@ export default function App() {
     return (
       <div className="login-gate">
         <div className="login-gate-card">
-          <div className="login-logo"><Cookie size={40} /></div>
+          <div className="login-logo"><img src={logoUrl} alt="Cookie Zookie" /></div>
           <h1 className="login-title">Cookie Zookie</h1>
           <div className="login-sub">Banco de Dados · Área restrita</div>
           <p className="login-desc">
@@ -138,7 +151,7 @@ export default function App() {
     <div className="app">
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-logo"><Cookie size={24} /></div>
+          <div className="brand-logo"><img src={logoUrl} alt="Cookie Zookie" /></div>
           <div>
             <div className="brand-name">Cookie Zookie</div>
             <div className="brand-sub">Banco de Dados</div>
@@ -198,6 +211,8 @@ export default function App() {
           {tab === 'cobranca' && <CobrancaView />}
           {tab === 'perdas' && <PerdasView />}
           {tab === 'custos' && <CustosView />}
+          {tab === 'audit' && <AuditView />}
+          {tab === 'venda-rapida' && <QuickSaleView products={products} customers={customers} onSaleAdded={handleSaleAdded} pushToast={pushToast} />}
         </Suspense>
       </main>
 

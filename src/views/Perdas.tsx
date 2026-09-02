@@ -3,6 +3,7 @@ import { Plus, Trash2, AlertTriangle, Package, Lock } from 'lucide-react'
 import { SEED_PERDAS } from '../pendencias-avancado'
 import { load, save } from '../data'
 import { usePasswordGuard } from '../components/PasswordGate'
+import { logAction } from '../audit'
 
 export interface Perda {
   id: string
@@ -47,13 +48,17 @@ export function PerdasView() {
     setPerdas(prev => [nova, ...prev])
     setForm({ date: '', produto: '', qtd: '', motivo: '', custoUnit: '' })
     setShowForm(false)
+    logAction('perda', `Registrou perda de ${qtd} un de "${produto}" (${fmtBRL_audit(Number(qtd) * Number(custoUnit))}) — ${motivo}`)
   }
 
   const removePerda = (id: string) => guard('Excluir perda', () => {
+    const p = perdas.find(x => x.id === id)
     setPerdas(prev => prev.filter(p => p.id !== id))
+    logAction('perda', `Excluiu perda${p ? ` de ${p.qtd} un de "${p.produto}"` : ''}`)
   })
 
   const fmtBRL = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+  const fmtBRL_audit = fmtBRL
 
   return (
     <>

@@ -2,6 +2,8 @@ import { useState } from 'react'
 import { Plus, Pencil, Trash2, X, Package } from 'lucide-react'
 import { Product, CATEGORIES, CAT_LABEL, LOW_STOCK_THRESHOLD, fmtBRL } from '../types'
 import { usePasswordGuard } from '../components/PasswordGate'
+import { logAction } from '../audit'
+import { CookieArt } from '../components/CookieArt'
 
 export function ProductsView({ products, setProducts, pushToast }: {
   products: Product[]; setProducts: React.Dispatch<React.SetStateAction<Product[]>>; pushToast: (m: string, t?: 'success' | 'error') => void
@@ -24,16 +26,22 @@ export function ProductsView({ products, setProducts, pushToast }: {
       guard('Alterar produto', () => {
         setProducts(ps => ps.map(p => p.id === editing.id ? { ...p, ...data } : p))
         setShowModal(false)
+        logAction('produto', `Editou produto "${editing.name}" → "${name}" (${fmtBRL(price)})`)
         pushToast('Produto atualizado!')
       })
     } else {
       setProducts(ps => [{ id: Math.random().toString(36).slice(2) + Date.now().toString(36), ...data }, ...ps])
+      logAction('produto', `Cadastrou produto "${name}" (${fmtBRL(price)})`)
       pushToast('Produto adicionado!')
     }
     if (!editing) setShowModal(false)
   }
 
-  const remove = (id: string) => guard('Excluir produto', () => { setProducts(ps => ps.filter(p => p.id !== id)); pushToast('Produto removido.') })
+  const remove = (id: string) => guard('Excluir produto', () => {
+    const p = products.find(x => x.id === id)
+    setProducts(ps => ps.filter(p => p.id !== id)); pushToast('Produto removido.')
+    logAction('produto', `Excluiu produto "${p?.name || id}"`)
+  })
 
   return (
     <>
@@ -48,7 +56,7 @@ export function ProductsView({ products, setProducts, pushToast }: {
         <div className="product-grid">
           {products.map(p => (
             <div key={p.id} className="product-card">
-              <div className="p-emoji">{p.emoji}</div>
+              <div className="p-emoji"><CookieArt name={p.name} size={64} /></div>
               <div className="p-name">{p.name}</div>
               <div className="p-price">{fmtBRL(p.price)}</div>
               <span className="badge p-cat badge-neutral">{CAT_LABEL[p.category]}</span>

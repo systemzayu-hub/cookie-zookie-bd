@@ -1,15 +1,20 @@
 import { Plus, Minus, AlertTriangle, Boxes } from 'lucide-react'
 import { Product, LOW_STOCK_THRESHOLD, CAT_LABEL } from '../types'
 import { usePasswordGuard } from '../components/PasswordGate'
+import { logAction } from '../audit'
 
 export function StockView({ products, setProducts, pushToast }: {
   products: Product[]; setProducts: React.Dispatch<React.SetStateAction<Product[]>>; pushToast: (m: string, t?: 'success' | 'error') => void
 }) {
   const { guard } = usePasswordGuard()
-  const adjust = (id: string, delta: number) => guard(delta > 0 ? 'Repor estoque' : 'Registrar saída', () => {
-    setProducts(ps => ps.map(p => p.id === id ? { ...p, stock: Math.max(0, p.stock + delta) } : p))
-    pushToast(delta > 0 ? 'Reposição registrada!' : 'Saída registrada.')
-  })
+  const adjust = (id: string, delta: number) => {
+    const p = products.find(x => x.id === id)
+    guard(delta > 0 ? 'Repor estoque' : 'Registrar saída', () => {
+      setProducts(ps => ps.map(p => p.id === id ? { ...p, stock: Math.max(0, p.stock + delta) } : p))
+      logAction('estoque', `${delta > 0 ? 'Repôs +' : 'Registrou saída de '}${Math.abs(delta)} un de "${p?.name || id}"`)
+      pushToast(delta > 0 ? 'Reposição registrada!' : 'Saída registrada.')
+    })
+  }
   const low = products.filter(p => p.stock <= LOW_STOCK_THRESHOLD)
 
   return (

@@ -3,6 +3,7 @@ import { Edit2, Package, TrendingUp, Calculator } from 'lucide-react'
 import { CUSTOS_PRODUCAO } from '../pendencias-avancado'
 import { load, save } from '../data'
 import { usePasswordGuard } from '../components/PasswordGate'
+import { logAction } from '../audit'
 
 export interface CustoProducao {
   id: string
@@ -46,16 +47,18 @@ export function CustosView() {
   const saveEdit = (id: string) => {
     const novoCusto = Number(editValue)
     if (isNaN(novoCusto) || novoCusto < 0) return
+    const c = custos.find(x => x.id === id)
     guard('Alterar custo de produção', () => {
-      setCustos(prev => prev.map(c => {
-        if (c.id !== id) return c
-        const precoVenda = c.precoVenda
+      setCustos(prev => prev.map(cc => {
+        if (cc.id !== id) return cc
+        const precoVenda = cc.precoVenda
         const lucroUnitario = precoVenda - novoCusto
         const margem = precoVenda > 0 ? lucroUnitario / precoVenda : 0
-        return { ...c, custoUnitario: novoCusto, lucroUnitario, margem }
+        return { ...cc, custoUnitario: novoCusto, lucroUnitario, margem }
       }))
       setEditingId(null)
       setEditValue('')
+      logAction('custo', `Alterou custo de "${c?.name || id}" para ${novoCusto.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`)
     })
   }
 

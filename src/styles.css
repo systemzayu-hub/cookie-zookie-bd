@@ -125,8 +125,9 @@ h1,h2,h3,h4 { font-family: var(--font-display); font-weight: 600; line-height: 1
   width: 46px; height: 46px; border-radius: var(--r-full);
   background: radial-gradient(circle at 30% 25%, #FCC98A, #E8923F 60%, #D47A27);
   display: flex; align-items: center; justify-content: center; color: #3D2410;
-  box-shadow: 0 4px 14px rgba(0,0,0,0.35); flex-shrink: 0;
+  box-shadow: 0 4px 14px rgba(0,0,0,0.35); flex-shrink: 0; overflow: hidden;
 }
+.brand-logo img { width: 100%; height: 100%; object-fit: cover; }
 .brand-name { font-family: var(--font-display); font-weight: 700; font-size: 1.3rem; color: #FFF; letter-spacing: 0.2px; }
 .brand-sub { font-size: 0.72rem; color: #B79E8A; text-transform: uppercase; letter-spacing: 0.08em; }
 
@@ -299,11 +300,12 @@ table.table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
   box-shadow: var(--sh-lg); animation: slideUp 240ms ease;
 }
 .login-logo {
-  width: 72px; height: 72px; margin: 0 auto var(--sp-5);
+  width: 96px; height: 96px; margin: 0 auto var(--sp-5);
   border-radius: 50%; display: flex; align-items: center; justify-content: center;
   background: linear-gradient(135deg, #E0973F, #E0693A); color: #241509;
-  box-shadow: 0 8px 24px rgba(224,151,63,0.35);
+  box-shadow: 0 8px 24px rgba(224,151,63,0.35); overflow: hidden; border: 3px solid rgba(255,255,255,0.15);
 }
+.login-logo img { width: 100%; height: 100%; object-fit: cover; }
 .login-title { font-family: var(--font-display); font-size: 1.9rem; margin-bottom: var(--sp-1); }
 .login-sub { color: var(--tx-3); margin-bottom: var(--sp-5); font-weight: 600; }
 .login-desc { color: var(--tx-2); font-size: 0.92rem; line-height: 1.5; margin-bottom: var(--sp-7); }
@@ -316,7 +318,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
 }
 .login-button:hover { transform: translateY(-2px); box-shadow: var(--sh-md); }
 .login-loading { flex-direction: column; gap: var(--sp-3); font-family: var(--font-display); font-size: 1.4rem; }
-.login-cookie { animation: pulse 1.4s ease-in-out infinite; }
+.login-cookie { width: 72px; height: 72px; border-radius: 50%; object-fit: cover; animation: pulse 1.4s ease-in-out infinite; box-shadow: 0 6px 20px rgba(224,151,63,0.4); }
 @keyframes pulse { 0%,100% { transform: scale(1); opacity: 0.6; } 50% { transform: scale(1.15); opacity: 1; } }
 
 /* ============ BADGES ============ */

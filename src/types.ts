@@ -9,7 +9,7 @@ export type Sale = {
 }
 export type Customer = { id: string; name: string; contact: string; createdAt: string }
 export type Pendencia = { nome: string; qtd: number; total: number; produtos: string; telefone: string; instagram: string; pago: boolean; pagoEm?: string }
-export type Tab = 'dashboard' | 'vendas' | 'produtos' | 'relatorios' | 'estoque' | 'clientes' | 'cobranca' | 'perdas' | 'custos'
+export type Tab = 'dashboard' | 'vendas' | 'venda-rapida' | 'produtos' | 'relatorios' | 'estoque' | 'clientes' | 'cobranca' | 'perdas' | 'custos' | 'audit'
 
 export const CHANNELS: Sale['channel'][] = ['loja', 'delivery', 'encomenda']
 export const PAYMENTS: Sale['payment'][] = ['dinheiro', 'cartão', 'pix']

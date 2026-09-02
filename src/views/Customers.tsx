@@ -2,6 +2,7 @@ import { useState, useMemo } from 'react'
 import { Plus, Pencil, Trash2, X, Users, ShoppingBag, AlertCircle, CheckCircle2 } from 'lucide-react'
 import { Customer, Sale, fmtBRL } from '../types'
 import { usePasswordGuard } from '../components/PasswordGate'
+import { logAction } from '../audit'
 
 export function CustomersView({ customers, setCustomers, sales, pushToast }: {
   customers: Customer[]; setCustomers: React.Dispatch<React.SetStateAction<Customer[]>>; sales: Sale[]; pushToast: (m: string, t?: 'success' | 'error') => void
@@ -20,16 +21,22 @@ export function CustomersView({ customers, setCustomers, sales, pushToast }: {
       guard('Alterar cliente', () => {
         setCustomers(cs => cs.map(c => c.id === editing.id ? { ...c, name: form.name.trim(), contact: form.contact.trim() } : c))
         setShowModal(false)
+        logAction('cliente', `Editou cliente "${editing.name}"`)
         pushToast('Cliente atualizado!')
       })
     } else {
       setCustomers(cs => [{ id: Math.random().toString(36).slice(2), name: form.name.trim(), contact: form.contact.trim(), createdAt: new Date().toISOString().slice(0, 10) }, ...cs])
+      logAction('cliente', `Cadastrou cliente "${form.name.trim()}"`)
       pushToast('Cliente adicionado!')
       setShowModal(false)
     }
   }
 
-  const remove = (id: string) => guard('Excluir cliente', () => { setCustomers(cs => cs.filter(c => c.id !== id)); pushToast('Cliente removido.') })
+  const remove = (id: string) => guard('Excluir cliente', () => {
+    const c = customers.find(x => x.id === id)
+    setCustomers(cs => cs.filter(c => c.id !== id)); pushToast('Cliente removido.')
+    logAction('cliente', `Excluiu cliente "${c?.name || id}"`)
+  })
 
   const spendOf = (id: string) => sales.filter(s => s.customerId === id).reduce((a, s) => a + s.total, 0)
   const countOf = (id: string) => sales.filter(s => s.customerId === id).length

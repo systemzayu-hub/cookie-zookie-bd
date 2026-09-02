@@ -1,0 +1,27 @@
+{
+  "credenciais_expostas": false,
+  "riscos": [
+    "Dados reais de 63 clientes (nomes) e 152 vendas hardcoded em src/data.ts — expostos no código-fonte e no bundle de produção.",
+    "Campo 'contact' vazio nos seeds, mas estrutura permite armazenar telefone/e-mail (PII) sem criptografia nem consentimento (LGPD).",
+    "localStorage armazena tudo em texto plano (cc_products, cc_sales, cc_customers, cc_theme) — acessível a qualquer script na mesma origem, sem proteção contra XSS ou acesso não autorizado.",
+    "Função save() em data.ts ignora erros silenciosamente (catch { /* ignore */ }) — falhas de quota, corrupção ou storage desabilitado passam despercebidas.",
+    "Backup JSON exporta/importa TODOS os dados sem validação de integridade (checksum), versão ou confirmação explícita — risco de sobrescrita acidental ou restauração de backup corrompido/incompatível.",
+    "Sem autenticação/autorização: qualquer pessoa com a URL acessa, edita, apaga ou exporta todos os dados de clientes e vendas.",
+    "Sem trilha de auditoria: não há log de quem alterou o quê, quando — inviabiliza accountability em uso compartilhado por funcionários.",
+    "Nomes de clientes contêm identificadores escolares (ex: '2°M', '1°M', '9°', '(E)') — dado sensível adicional que pode revelar turma/turno de menores.",
+    "Se implantado publicamente (GitHub Pages, Vercel, Netlify), o bundle JS inclui os seeds — dados vazam no build de produção.",
+    "Quota de localStorage (~5-10 MB) não monitorada; crescimento contínuo de vendas pode travar a aplicação sem aviso."
+  ],
+  "recomendacoes": [
+    "Remover seeds reais do código-fonte: mover seedCustomers e seedSales para arquivo separado (ex: data/seed.json) adicionado ao .gitignore, ou carregar via variável de ambiente/build-time apenas em desenvolvimento.",
+    "Antes de compartilhar com funcionários, anonimizar/pseudonimizar nomes nos seeds (ex: 'Cliente 001', 'Cliente 002') ou fornecer script de seed limpo.",
+    "Implementar camada de autenticação simples (ex: senha única da loja via hash no localStorage + prompt no carregamento) antes de compartilhar a URL.",
+    "Adicionar validação no aplicarBackup: verificar version, checksum (ex: SHA-256 dos arrays), e exigir confirmação dupla antes de sobrescrever dados.",
+    "Substituir catch vazio em save() por tratamento explícito: logar erro, notificar usuário via toast, e tentar fallback (ex: IndexedDB via idb).",
+    "Migrar persistência para IndexedDB (maior quota, assíncrono, suporta índices) mantendo localStorage apenas para preferências leves (tema).",
+    "Implementar log de auditoria mínimo: array de {timestamp, userId, action, entity, entityId, before?, after?} persistido junto aos dados.",
+    "Adicionar aviso LGPD no app: informar que dados de clientes ficam armazenados localmente no navegador, permitir exportação/exclusão sob demanda do titular.",
+    "Configurar .gitignore para excluir arquivos de backup gerados (*.json) e qualquer futuro arquivo de credenciais (firebase-config.json, .env).",
+    "Documentar procedimento de backup/restauração seguro para funcionários: frequência, armazenamento criptografado (ex: 7z com senha), teste de restauração periódico."
+  ]
+}

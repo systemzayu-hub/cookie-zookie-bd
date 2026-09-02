@@ -1,0 +1,47 @@
+{
+  "tarefas": [
+    {
+      "nome": "Corrigir bug do tema escuro nos gráficos Recharts",
+      "escopo": "Os componentes PieChart e Legend do Recharts não respeitam as variáveis CSS do tema escuro (--tx-1, --tx-2, --tx-3). Em [data-theme=dark], os labels das fatias e a legenda aparecem pretos (cor padrão do Recharts) sobre fundo escuro, tornando-os ilegíveis. Afeta 3 gráficos de pizza: Dashboard (Vendas por canal), Relatórios (Por canal de venda e Por forma de pagamento).",
+      "arquivos": [
+        "src/views/Dashboard.tsx (linhas 80-93: PieChart 'Vendas por canal')",
+        "src/views/Reports.tsx (linhas 100-111: PieChart 'Por canal de venda'; linhas 113-124: PieChart 'Por forma de pagamento')",
+        "src/styles.css (adicionar regras CSS para .recharts-text, .recharts-legend-item-text, .recharts-pie-label-text)"
+      ],
+      "criterio_pronto": "Em tema escuro (data-theme=dark), todos os textos dos 3 PieCharts (labels das fatias, legenda, tooltips) usam cores do design system (var(--tx-1), var(--tx-2), var(--tx-3)) e são legíveis. Em tema claro, mantêm aparência atual."
+    },
+    {
+      "nome": "Adicionar divisão/seção para 'Clientes Pagos'",
+      "escopo": "A view Clientes (CustomersView) lista todos os clientes sem distinção de status de pagamento. O usuário quer uma seção/filtro que mostre apenas clientes com vendas de status 'Pago'. O tipo Sale já possui campo status ('Pago' | 'Pendente' | 'Debitado' | 'Presente'). Implementar: (1) aba ou filtro 'Clientes Pagos' na view Clientes; (2) lógica para identificar clientes que têm ao menos uma venda com status 'Pago'; (3) exibir métricas específicas (total gasto em vendas pagas, contagem de compras pagas).",
+      "arquivos": [
+        "src/views/Customers.tsx (adicionar estado de filtro/aba, computar topPaid, renderizar seção separada ou tabs)",
+        "src/types.ts (opcional: adicionar helper type para CustomerWithPaidStats se necessário)"
+      ],
+      "criterio_pronto": "Na view Clientes, existe uma aba/filtro 'Pagos' que lista apenas clientes com ≥1 venda status='Pago', mostrando colunas: nome, contato, nº de compras pagas, total gasto em compras pagas. A aba 'Todos' continua funcionando como antes."
+    },
+    {
+      "nome": "Criar 'espaço para números' (campos numéricos estilizados tipo site de exemplo)",
+      "escopo": "O usuário deseja uma área/visualização dedicada a exibir números/métricas de forma visualmente impactante (estilo 'number showcase' / dashboard de métricas com contadores animados, cards grandes, tipografia display). Pode ser nova view 'Números' no menu lateral ou seção no Dashboard. Reutilizar design system: --font-display (Fraunces), gradientes de brand, stat-cards existentes. Incluir: contadores animados (count-up), formatação BRL, ícones lucide, layout responsivo grid.",
+      "arquivos": [
+        "src/views/Numbers.tsx (NOVO - nova view com NumberShowcase, AnimatedCounter, MetricCard componentes)",
+        "src/App.tsx (importar nova view, adicionar 'numeros' ao type Tab, adicionar item no nav sidebar com ícone TrendingUp/Calculator)",
+        "src/types.ts (adicionar 'numeros' ao type Tab)",
+        "src/styles.css (adicionar .number-showcase, .animated-counter, .metric-card-large se necessário)"
+      ],
+      "criterio_pronto": "Nova aba 'Números' acessível no menu lateral. Exibe 6-8 cards de métricas principais (faturamento total, ticket médio, cookies vendidos, clientes pagos, ticket médio pago, % conversão, etc.) com contadores animados ao entrar na view, tipografia Fraunces grande, cores do brand, responsivo. Dados vêm de sales/products/customers do contexto App."
+    },
+    {
+      "nome": "Tornar o site compartilhável (multi-dispositivo / nuvem)",
+      "escopo": "Hoje 100% localStorage (offline, 1 device). db.ts já tem estrutura de backup export/import (JSON) e comentários preparando Firebase. Opções: (A) Firebase Firestore (já referenciado em db.ts) — sincronização real-time, auth opcional; (B) Supabase (PostgreSQL + realtime); (C) PocketBase (single binary, simples); (D) Backend próprio simples (Node/Express + SQLite). Recomendação: Firebase pela integração já documentada. Entregáveis: configuração Firebase, listener onSnapshot para sync bidirecional, fallback localStorage quando offline, indicador de status de sync na UI, migração de dados existentes.",
+      "arquivos": [
+        "src/db.ts (implementar syncFirebase: init, onSnapshot listeners, write com merge, tratamento offline/online)",
+        "src/App.tsx (usar novo hook/useSync, mostrar indicador de status de sincronização no sidebar/header)",
+        "src/types.ts (opcional: adicionar SyncStatus type)",
+        "package.json (adicionar firebase dependency)",
+        ".env.local (firebaseConfig - não versionar)",
+        "README.md (instruções de deploy Firebase)"
+      ],
+      "criterio_pronto": "Dois usuários em dispositivos diferentes abrem a URL, fazem login (ou acesso anônimo se configurado), veem os mesmos dados em tempo real. Edições em um aparecem no outro em <2s. Funciona offline (localStorage) e sincroniza ao voltar online. Indicador visual de status (synced/pending/offline) visível na sidebar. Backup JSON import/export continua funcionando."
+    }
+  ]
+}

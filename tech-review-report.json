@@ -1,0 +1,70 @@
+{
+  "bugs": [
+    {
+      "localizacao": "src/views/Dashboard.tsx:90",
+      "descricao": "Componente <Legend /> do Recharts sem estilização para tema escuro. O Legend renderiza texto em preto (padrão do Recharts) tornando-o ilegível no tema escuro (fundo escuro).",
+      "severidade": "alta"
+    },
+    {
+      "localizacao": "src/views/Reports.tsx:108",
+      "descricao": "Componente <Legend /> do Recharts sem estilização para tema escuro no gráfico 'Por canal de venda'. Mesmo problema do Dashboard.",
+      "severidade": "alta"
+    },
+    {
+      "localizacao": "src/views/Reports.tsx:121",
+      "descricao": "Componente <Legend /> do Recharts sem estilização para tema escuro no gráfico 'Por forma de pagamento'. Mesmo problema.",
+      "severidade": "alta"
+    },
+    {
+      "localizacao": "src/views/Reports.tsx:78-82,91-95",
+      "descricao": "Gráficos BarChart usam variáveis CSS inexistentes: --color-border-light, --color-text-tertiary, --color-bg-card, --color-brand-500, --color-brand-400, --color-brand-600, --color-accent-400, --color-success-500, --color-accent-500. O styles.css define --border, --tx-3, --card, --cz-500, etc. Os gráficos não respondem à troca de tema.",
+      "severidade": "alta"
+    },
+    {
+      "localizacao": "src/views/Reports.tsx:105,118",
+      "descricao": "PieChart usa variáveis CSS inexistentes (--color-brand-400, --color-brand-600, --color-accent-400, --color-success-500, --color-brand-500, --color-accent-500) para cores das fatias. Não adaptam ao tema escuro.",
+      "severidade": "alta"
+    },
+    {
+      "localizacao": "src/views/Dashboard.tsx:84-88",
+      "descricao": "PieChart 'Vendas por canal' usa cores hardcoded ['#E8923F', '#D47A27', '#A6815F'] em vez de variáveis CSS. Não adaptam ao tema escuro.",
+      "severidade": "media"
+    },
+    {
+      "localizacao": "src/data.ts:11-12",
+      "descricao": "Função load() faz JSON.parse sem validação de estrutura. Se localStorage contiver dados corrompidos ou com schema antigo, retorna fallback silenciosamente (seed data), perdendo dados do usuário sem aviso.",
+      "severidade": "media"
+    },
+    {
+      "localizacao": "src/App.tsx:26-28",
+      "descricao": "useEffect de persistência salva no localStorage a cada mudança de estado. A função save() em data.ts:14-15 ignora erros (catch vazio). Se localStorage estourar quota (5MB) ou estiver indisponível (modo privado), falha silenciosamente sem feedback ao usuário.",
+      "severidade": "media"
+    },
+    {
+      "localizacao": "src/types.ts:8",
+      "descricao": "Campo 'status' em Sale é opcional (status?: ...), mas código em Dashboard.tsx:26,28,31,43 e Reports.tsx:141 assume existência. Vendas antigas sem status (undefined) são tratadas como 'Pago' nos filtros (s.status !== 'Debitado' é true para undefined), inflando métricas de faturamento pago.",
+      "severidade": "media"
+    },
+    {
+      "localizacao": "src/views/Dashboard.tsx:5,9",
+      "descricao": "StatusBadge usa fallback 'Pago' para status undefined/null. Máscara o problema de dados inconsistentes em vez de alertar.",
+      "severidade": "baixa"
+    },
+    {
+      "localizacao": "src/views/Sales.tsx:9",
+      "descricao": "useState inicializador para 'lines' captura products[0] no mount. Se products carregar assincronamente ou mudar depois, o estado não atualiza (depende de products.length inicial).",
+      "severidade": "baixa"
+    },
+    {
+      "localizacao": "src/views/Dashboard.tsx:40-44",
+      "descricao": "Comparação de datas usa toDateString() que é timezone-dependent. Pode agrupar vendas do dia errado perto da meia-noite ou em fusos diferentes.",
+      "severidade": "baixa"
+    },
+    {
+      "localizacao": "src/App.tsx:36-43",
+      "descricao": "handleSaleAdded atualiza sales e products em dois setState separados. Se erro ocorrer entre eles (ex: quota localStorage), estado fica inconsistente: venda registrada mas estoque não baixado (ou vice-versa).",
+      "severidade": "media"
+    }
+  ],
+  "build_passa": true
+}

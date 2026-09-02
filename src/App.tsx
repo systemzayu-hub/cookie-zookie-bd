@@ -4,6 +4,7 @@ import { Product, Sale, Customer, Tab, Pendencia } from './types'
 import { seedProducts, seedCustomers, seedSales, load, save } from './data'
 import { baixarBackup, aplicarBackup } from './db'
 import { authLoginGoogle, authLogout, authOnChange, firebaseReady } from './sync'
+import { PasswordProvider } from './components/PasswordGate'
 
 const Dashboard = lazy(() => import('./views/Dashboard').then(m => ({ default: m.Dashboard })))
 const SalesView = lazy(() => import('./views/Sales').then(m => ({ default: m.SalesView })))
@@ -133,6 +134,7 @@ export default function App() {
   }
 
   return (
+    <PasswordProvider>
     <div className="app">
       <aside className="sidebar">
         <div className="brand">
@@ -208,6 +210,7 @@ export default function App() {
           ))}
         </div>
       )}
-    </div>
+      </div>
+    </PasswordProvider>
   )
 }

@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react'
 import { Plus, Pencil, Trash2, X, Users, ShoppingBag, AlertCircle, CheckCircle2 } from 'lucide-react'
 import { Customer, Sale, fmtBRL } from '../types'
+import { usePasswordGuard } from '../components/PasswordGate'
 
 export function CustomersView({ customers, setCustomers, sales, pushToast }: {
   customers: Customer[]; setCustomers: React.Dispatch<React.SetStateAction<Customer[]>>; sales: Sale[]; pushToast: (m: string, t?: 'success' | 'error') => void
@@ -8,6 +9,7 @@ export function CustomersView({ customers, setCustomers, sales, pushToast }: {
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing] = useState<Customer | null>(null)
   const [form, setForm] = useState({ name: '', contact: '' })
+  const { guard } = usePasswordGuard()
 
   const openNew = () => { setEditing(null); setForm({ name: '', contact: '' }); setShowModal(true) }
   const openEdit = (c: Customer) => { setEditing(c); setForm({ name: c.name, contact: c.contact }); setShowModal(true) }
@@ -15,16 +17,19 @@ export function CustomersView({ customers, setCustomers, sales, pushToast }: {
   const submit = () => {
     if (!form.name.trim()) { pushToast('Informe o nome.', 'error'); return }
     if (editing) {
-      setCustomers(cs => cs.map(c => c.id === editing.id ? { ...c, name: form.name.trim(), contact: form.contact.trim() } : c))
-      pushToast('Cliente atualizado!')
+      guard('Alterar cliente', () => {
+        setCustomers(cs => cs.map(c => c.id === editing.id ? { ...c, name: form.name.trim(), contact: form.contact.trim() } : c))
+        setShowModal(false)
+        pushToast('Cliente atualizado!')
+      })
     } else {
       setCustomers(cs => [{ id: Math.random().toString(36).slice(2), name: form.name.trim(), contact: form.contact.trim(), createdAt: new Date().toISOString().slice(0, 10) }, ...cs])
       pushToast('Cliente adicionado!')
+      setShowModal(false)
     }
-    setShowModal(false)
   }
 
-  const remove = (id: string) => { setCustomers(cs => cs.filter(c => c.id !== id)); pushToast('Cliente removido.') }
+  const remove = (id: string) => guard('Excluir cliente', () => { setCustomers(cs => cs.filter(c => c.id !== id)); pushToast('Cliente removido.') })
 
   const spendOf = (id: string) => sales.filter(s => s.customerId === id).reduce((a, s) => a + s.total, 0)
   const countOf = (id: string) => sales.filter(s => s.customerId === id).length

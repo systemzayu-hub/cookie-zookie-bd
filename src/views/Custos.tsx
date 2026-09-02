@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react'
 import { Edit2, Package, TrendingUp, Calculator } from 'lucide-react'
 import { CUSTOS_PRODUCAO } from '../pendencias-avancado'
 import { load, save } from '../data'
+import { usePasswordGuard } from '../components/PasswordGate'
 
 export interface CustoProducao {
   id: string
@@ -18,6 +19,7 @@ export function CustosView() {
   )
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
+  const { guard } = usePasswordGuard()
 
   useEffect(() => {
     save('cc_custos', custos)
@@ -44,15 +46,17 @@ export function CustosView() {
   const saveEdit = (id: string) => {
     const novoCusto = Number(editValue)
     if (isNaN(novoCusto) || novoCusto < 0) return
-    setCustos(prev => prev.map(c => {
-      if (c.id !== id) return c
-      const precoVenda = c.precoVenda
-      const lucroUnitario = precoVenda - novoCusto
-      const margem = precoVenda > 0 ? lucroUnitario / precoVenda : 0
-      return { ...c, custoUnitario: novoCusto, lucroUnitario, margem }
-    }))
-    setEditingId(null)
-    setEditValue('')
+    guard('Alterar custo de produção', () => {
+      setCustos(prev => prev.map(c => {
+        if (c.id !== id) return c
+        const precoVenda = c.precoVenda
+        const lucroUnitario = precoVenda - novoCusto
+        const margem = precoVenda > 0 ? lucroUnitario / precoVenda : 0
+        return { ...c, custoUnitario: novoCusto, lucroUnitario, margem }
+      }))
+      setEditingId(null)
+      setEditValue('')
+    })
   }
 
   const cancelEdit = () => {

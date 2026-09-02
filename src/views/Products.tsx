@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Plus, Pencil, Trash2, X, Package } from 'lucide-react'
 import { Product, CATEGORIES, CAT_LABEL, LOW_STOCK_THRESHOLD, fmtBRL } from '../types'
+import { usePasswordGuard } from '../components/PasswordGate'
 
 export function ProductsView({ products, setProducts, pushToast }: {
   products: Product[]; setProducts: React.Dispatch<React.SetStateAction<Product[]>>; pushToast: (m: string, t?: 'success' | 'error') => void
@@ -8,6 +9,7 @@ export function ProductsView({ products, setProducts, pushToast }: {
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing] = useState<Product | null>(null)
   const [form, setForm] = useState({ name: '', price: '', category: 'tradicional', stock: '', emoji: '🍪' })
+  const { guard } = usePasswordGuard()
 
   const openNew = () => { setEditing(null); setForm({ name: '', price: '', category: 'tradicional', stock: '', emoji: '🍪' }); setShowModal(true) }
   const openEdit = (p: Product) => { setEditing(p); setForm({ name: p.name, price: String(p.price), category: p.category, stock: String(p.stock), emoji: p.emoji || '🍪' }); setShowModal(true) }
@@ -19,16 +21,19 @@ export function ProductsView({ products, setProducts, pushToast }: {
     if (!name || isNaN(price) || price <= 0 || isNaN(stock) || stock < 0) { pushToast('Preencha todos os campos corretamente.', 'error'); return }
     const data = { name, price, category: form.category, stock, emoji: form.emoji || '🍪' }
     if (editing) {
-      setProducts(ps => ps.map(p => p.id === editing.id ? { ...p, ...data } : p))
-      pushToast('Produto atualizado!')
+      guard('Alterar produto', () => {
+        setProducts(ps => ps.map(p => p.id === editing.id ? { ...p, ...data } : p))
+        setShowModal(false)
+        pushToast('Produto atualizado!')
+      })
     } else {
       setProducts(ps => [{ id: Math.random().toString(36).slice(2) + Date.now().toString(36), ...data }, ...ps])
       pushToast('Produto adicionado!')
     }
-    setShowModal(false)
+    if (!editing) setShowModal(false)
   }
 
-  const remove = (id: string) => { setProducts(ps => ps.filter(p => p.id !== id)); pushToast('Produto removido.') }
+  const remove = (id: string) => guard('Excluir produto', () => { setProducts(ps => ps.filter(p => p.id !== id)); pushToast('Produto removido.') })
 
   return (
     <>

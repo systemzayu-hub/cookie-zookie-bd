@@ -1,7 +1,8 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Plus, Trash2, AlertTriangle, Package } from 'lucide-react'
+import { Plus, Trash2, AlertTriangle, Package, Lock } from 'lucide-react'
 import { SEED_PERDAS } from '../pendencias-avancado'
 import { load, save } from '../data'
+import { usePasswordGuard } from '../components/PasswordGate'
 
 export interface Perda {
   id: string
@@ -17,6 +18,7 @@ export function PerdasView() {
   const [perdas, setPerdas] = useState<Perda[]>(() => load('cc_perdas', SEED_PERDAS as unknown as Perda[]) as Perda[])
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ date: '', produto: '', qtd: '', motivo: '', custoUnit: '' })
+  const { guard } = usePasswordGuard()
 
   useEffect(() => {
     save('cc_perdas', perdas)
@@ -47,9 +49,9 @@ export function PerdasView() {
     setShowForm(false)
   }
 
-  const removePerda = (id: string) => {
+  const removePerda = (id: string) => guard('Excluir perda', () => {
     setPerdas(prev => prev.filter(p => p.id !== id))
-  }
+  })
 
   const fmtBRL = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 

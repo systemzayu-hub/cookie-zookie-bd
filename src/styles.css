@@ -400,6 +400,39 @@ table.table { width: 100%; border-collapse: collapse; font-size: 0.88rem; }
   font-size: 1rem;
 }
 
+/* ============ PASSWORD GATE MODAL ============ */
+.pw-overlay {
+  position: fixed; inset: 0; z-index: 9999;
+  background: rgba(0,0,0,.65); backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center;
+  animation: fadeIn .15s ease;
+}
+.pw-modal {
+  background: var(--bg-1); border: 1px solid var(--border); border-radius: 16px;
+  padding: 28px 32px; max-width: 360px; width: 90%; text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+  animation: slideUp .2s ease;
+}
+.pw-action { color: var(--tx-2); font-size: .82rem; margin: 0 0 8px; }
+.pw-input {
+  width: 100%; padding: 10px 14px; border-radius: 8px;
+  background: var(--bg-0); border: 1px solid var(--border);
+  color: var(--tx-1); font-size: .95rem; text-align: center;
+  letter-spacing: 2px; outline: none;
+  transition: border-color .2s;
+}
+.pw-input:focus { border-color: var(--cz-500); }
+.pw-input.pw-error { border-color: #e74c3c; animation: shake .3s ease; }
+.pw-error-msg { color: #e74c3c; font-size: .8rem; margin-top: 2px; }
+.pw-buttons { display: flex; gap: 8px; margin-top: 12px; width: 100%; }
+.pw-buttons .btn { flex: 1; }
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-6px); }
+  40%, 80% { transform: translateX(6px); }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation: none !important; transition: none !important; }
 }

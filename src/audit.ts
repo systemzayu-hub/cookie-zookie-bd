@@ -1,18 +1,13 @@
 /* ================= AUDITORIA / LOG DE AÇÕES =================
  * Registra o que cada pessoa (conta Google logada) fez no sistema.
- * Salva em localStorage e sincroniza ao Firestore para a equipe.
+ * Fonte de verdade: Firestore (coleção 'audit'), com localStorage como cache local.
  * SHA-256 da senha de acesso à auditoria "CoZooAdm0406" — nunca em texto plano.
  */
+import { auditPushDB, auditPullDB, type AuditEntryDB } from './sync'
+
 export const AUDIT_PW_HASH = '231d78fc9347664084c7c3baca4ef2273df8791b9c33c028fe6527ae8f52b41a'
 
-export type AuditEntry = {
-  id: string
-  ts: number
-  actor: string        // nome (ou email) da conta Google
-  email?: string
-  action: string       // 'venda' | 'produto' | 'estoque' | 'perda' | 'custo' | 'cliente' | 'cobranca' | 'login' | ...
-  detail: string       // descrição legível
-}
+export type AuditEntry = AuditEntryDB
 
 let actor: string | null = null
 let actorEmail: string | null = null
@@ -32,8 +27,24 @@ function saveAudit(list: AuditEntry[]) {
   try { localStorage.setItem(KEY, JSON.stringify(list)) } catch { /* ignore */ }
 }
 
-/** Registra uma ação. Retorna a entrada criada. */
-export function logAction(action: string, detail: string): AuditEntry | null {
+/**
+ * Carrega a auditoria mesclando o cache local com o Firestore.
+ * O Firestore é a fonte de verdade; o local cobre quando está offline.
+ */
+export async function loadAuditRemote(): Promise<AuditEntry[]> {
+  const local = loadAudit()
+  const remote = await auditPullDB(2000)
+  // Mescla por id (sem duplicar) e ordena por ts decrescente
+  const byId = new Map<string, AuditEntry>()
+  for (const e of remote) byId.set(e.id, e)
+  for (const e of local) if (!byId.has(e.id)) byId.set(e.id, e)
+  const all = Array.from(byId.values()).sort((a, b) => (b.ts || 0) - (a.ts || 0))
+  saveAudit(all.slice(0, 2000))
+  return all
+}
+
+/** Registra uma ação — grava no Firestore (para toda a equipe) e em cache local. */
+export function logAction(action: string, detail: string): AuditEntry {
   const entry: AuditEntry = {
     id: Math.random().toString(36).slice(2) + Date.now().toString(36),
     ts: Date.now(),
@@ -42,7 +53,10 @@ export function logAction(action: string, detail: string): AuditEntry | null {
     action,
     detail,
   }
+  // cache local imediato
   saveAudit([entry, ...loadAudit()].slice(0, 2000))
+  // grava no Firestore (fire-and-forget, não bloqueia a UI)
+  auditPushDB(entry)
   return entry
 }
 

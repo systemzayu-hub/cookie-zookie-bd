@@ -1,6 +1,7 @@
-import { useState, useMemo } from 'react'
-import { ShieldCheck, Lock, X } from 'lucide-react'
-import { loadAudit, auditHash, AUDIT_PW_HASH, type AuditEntry } from '../audit'
+import { useState, useMemo, useEffect, useCallback } from 'react'
+import { ShieldCheck, Lock, X, RefreshCw } from 'lucide-react'
+import { loadAuditRemote, auditHash, AUDIT_PW_HASH, type AuditEntry } from '../audit'
+import { onAuditChanges } from '../sync'
 
 const ACTION_ICON: Record<string, string> = {
   venda: '🛒', produto: '📦', estoque: '📊', perda: '⚠️',
@@ -11,8 +12,30 @@ export function AuditView() {
   const [unlocked, setUnlocked] = useState(false)
   const [pw, setPw] = useState('')
   const [err, setErr] = useState(false)
-  const [entries, setEntries] = useState<AuditEntry[]>(() => loadAudit())
+  const [entries, setEntries] = useState<AuditEntry[]>([])
   const [filter, setFilter] = useState('todos')
+  const [loading, setLoading] = useState(false)
+
+  const refresh = useCallback(async () => {
+    setLoading(true)
+    try { setEntries(await loadAuditRemote()) } finally { setLoading(false) }
+  }, [])
+
+  // Carrega do Firestore (toda a equipe) ao destravar
+  useEffect(() => {
+    if (!unlocked) return
+    refresh()
+    // Atualiza em tempo real quando alguém de outra máquina registrar ação
+    const unsub = onAuditChanges((remote) => {
+      setEntries(prev => {
+        const byId = new Map<string, AuditEntry>()
+        for (const e of remote) byId.set(e.id, e)
+        for (const e of prev) if (!byId.has(e.id)) byId.set(e.id, e)
+        return Array.from(byId.values()).sort((a, b) => (b.ts || 0) - (a.ts || 0))
+      })
+    })
+    return () => unsub()
+  }, [unlocked, refresh])
 
   const doUnlock = async () => {
     if ((await auditHash(pw)) === AUDIT_PW_HASH) { setUnlocked(true); setErr(false) }
@@ -70,7 +93,11 @@ export function AuditView() {
           <h2>Auditoria da equipe</h2>
           <p>O que cada pessoa fez no sistema</p>
         </div>
-        <button className="btn btn-secondary" onClick={() => setUnlocked(false)}><Lock size={16} /> Travar</button>
+        <div style={{ display: 'flex', gap: 'var(--sp-3)', alignItems: 'center' }}>
+          {loading && <span style={{ color: 'var(--tx-3)', fontSize: '0.85rem' }}>sincronizando…</span>}
+          <button className="btn btn-secondary" onClick={refresh}><RefreshCw size={16} /> Atualizar</button>
+          <button className="btn btn-secondary" onClick={() => setUnlocked(false)}><Lock size={16} /> Travar</button>
+        </div>
       </div>
 
       <div className="grid grid-3" style={{ marginBottom: 'var(--sp-6)' }}>

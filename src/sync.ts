@@ -1,5 +1,5 @@
 import { initializeApp, getApps, type FirebaseApp } from 'firebase/app'
-import { getFirestore, doc, getDoc, setDoc, onSnapshot, type Firestore } from 'firebase/firestore'
+import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection, query, orderBy, limit, getDocs, addDoc, type Firestore } from 'firebase/firestore'
 import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut, type Auth, type User } from 'firebase/auth'
 import { FIREBASE_CONFIG } from './firebase-config'
 
@@ -119,5 +119,57 @@ export function onRemoteChanges(cb: (data: { products: unknown[]; sales: unknown
       pendencias: data.pendencias ?? [],
     })
   })
+  return unsub
+}
+
+/* ================= AUDITORIA (sincronizada no Firestore) =================
+ * A auditoria vive em uma coleção Firestore separada ('audit') com um
+ * documento por entrada. Assim qualquer dispositivo (máquina/celular)
+ * adiciona o que ELE fez sem sobrescrever o que os outros fizeram.
+ */
+
+export type AuditEntryDB = {
+  id: string
+  ts: number
+  actor: string
+  email?: string
+  action: string
+  detail: string
+}
+
+/** Grava UMA entrada de auditoria no Firestore (fire-and-forget). */
+export async function auditPushDB(entry: AuditEntryDB): Promise<void> {
+  const ready = await firebaseReady()
+  if (!ready || !db) return
+  try {
+    await addDoc(collection(db, 'audit'), entry)
+  } catch (e) {
+    console.error('[audit] falha ao gravar no Firestore', e)
+  }
+}
+
+/** Puxa as auditorias do Firestore (mais recentes primeiro). */
+export async function auditPullDB(max = 2000): Promise<AuditEntryDB[]> {
+  const ready = await firebaseReady()
+  if (!ready || !db) return []
+  try {
+    const snap = await getDocs(query(collection(db, 'audit'), orderBy('ts', 'desc'), limit(max)))
+    return snap.docs.map(d => d.data() as AuditEntryDB)
+  } catch (e) {
+    console.error('[audit] falha ao puxar do Firestore', e)
+    return []
+  }
+}
+
+/** Observa novas entradas de auditoria em tempo real. Retorna unsubscribe. */
+export function onAuditChanges(cb: (entries: AuditEntryDB[]) => void): () => void {
+  if (!db) return () => {}
+  const unsub = onSnapshot(
+    query(collection(db, 'audit'), orderBy('ts', 'desc'), limit(500)),
+    (snap) => {
+      cb(snap.docs.map(d => d.data() as AuditEntryDB))
+    },
+    (err) => console.error('[audit] falha no snapshot', err)
+  )
   return unsub
 }

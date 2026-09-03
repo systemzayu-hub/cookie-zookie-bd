@@ -1,9 +1,6 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
 import { Lock, Eye, EyeOff } from 'lucide-react'
-import { useAuth, grant } from '../auth'
-
-/** SHA-256 hash da senha de edição — nunca armazenar em texto plano */
-const PW_HASH = '70e58a3aeb9d8ade3ca32d518e28de7f9c889b50b82c667d344eb062234f6215'
+import { useAuth, grant, HASHES } from '../auth'
 
 interface Ctx { guard: (label: string, fn: () => void) => void }
 const C = createContext<Ctx>({ guard: (_, fn) => fn() })
@@ -29,7 +26,7 @@ export function PasswordProvider({ children }: { children: ReactNode }) {
   }, [unlocked])
 
   const verify = async () => {
-    if ((await hashPw(input)) === PW_HASH) {
+    if ((await hashPw(input)) === HASHES.admin) {
       grant('admin')
       pending?.fn()
       setPending(null)

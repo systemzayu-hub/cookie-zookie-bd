@@ -1,9 +1,13 @@
 import { useState, useMemo, useEffect } from 'react'
-import { MessageSquare, CheckCircle2, Phone, Copy, ChevronDown, ChevronUp, DollarSign, Users, AlertCircle, CreditCard } from 'lucide-react'
+import { MessageSquare, CheckCircle2, Phone, Copy, ChevronDown, ChevronUp, DollarSign, Users, AlertCircle, CreditCard, ShoppingBag, Calendar, Clock, Minus, X, Check, ChevronRight } from 'lucide-react'
 import { Sale, Customer, SaleItemFull } from '../types'
 import { fmtBRL } from '../types'
 import { authCurrentUser, syncPull, syncPush } from '../sync'
 import { load } from '../data'
+import { CookieArt } from '../components/CookieArt'
+import { usePasswordGuard } from '../components/PasswordGate'
+import { MaskedMoney } from '../components/MaskedMoney'
+import { MaskedPII } from '../components/MaskedPII'
 
 interface CobrancaViewProps {
   sales: Sale[]
@@ -12,108 +16,173 @@ interface CobrancaViewProps {
   pushToast: (msg: string, type?: 'success' | 'error') => void
 }
 
-type PendenciaRow = {
-  sale: Sale
+type CustomerGroup = {
+  customerId: string
   customer: Customer | undefined
-  productsStr: string
+  sales: Sale[]
+  totalPending: number
   totalQty: number
-  telefone: string
 }
 
 export function CobrancaView({ sales, setSales, customers, pushToast }: CobrancaViewProps) {
+  const { guard } = usePasswordGuard()
   const [sortBy, setSortBy] = useState<'total' | 'nome' | 'qtd' | 'data'>('data')
   const [sortDesc, setSortDesc] = useState(false)
-  const [filter, setFilter] = useState<'all' | 'pending'>('pending')
+  const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set())
+  const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set())
+  const [partialAmounts, setPartialAmounts] = useState<Record<string, string>>({})
 
-  // Derive pendentes from sales with status 'Pendente'
-  const pendentes = useMemo(() => {
-    return sales.filter(s => s.status === 'Pendente')
-  }, [sales])
+  // Derive pendentes
+  const pendentes = useMemo(() => sales.filter(s => s.status === 'Pendente'), [sales])
 
-  // Build display rows with customer info
-  const rows = useMemo(() => {
-    return pendentes.map(sale => {
-      const customer = customers.find(c => c.id === sale.customerId)
-      const productsStr = sale.items.map((i: SaleItemFull) => `${i.qty}x ${i.name}`).join(' + ')
-      const totalQty = sale.items.reduce((acc, i) => acc + i.qty, 0)
-      return {
-        sale,
-        customer,
-        productsStr,
-        totalQty,
-        telefone: customer?.contact || '',
+  // Group by customer
+  const groups = useMemo(() => {
+    const map = new Map<string, CustomerGroup>()
+    pendentes.forEach(sale => {
+      const cid = sale.customerId || '__sem_cliente__'
+      if (!map.has(cid)) {
+        map.set(cid, {
+          customerId: cid,
+          customer: customers.find(c => c.id === sale.customerId),
+          sales: [],
+          totalPending: 0,
+          totalQty: 0,
+        })
       }
+      const g = map.get(cid)!
+      g.sales.push(sale)
+      g.totalPending += sale.total
+      g.totalQty += sale.items.reduce((a, i) => a + i.qty, 0)
     })
+    return Array.from(map.values())
   }, [pendentes, customers])
 
-  // Sincronizar com Firebase quando vendas mudarem
+  // Sort
+  const sortedGroups = useMemo(() => {
+    return [...groups].sort((a, b) => {
+      let cmp = 0
+      if (sortBy === 'total') cmp = a.totalPending - b.totalPending
+      else if (sortBy === 'nome') cmp = (a.customer?.name || 'ZZZ').localeCompare(b.customer?.name || 'ZZZ')
+      else if (sortBy === 'qtd') cmp = a.totalQty - b.totalQty
+      else if (sortBy === 'data') {
+        const latestA = Math.max(...a.sales.map(s => new Date(s.date).getTime()))
+        const latestB = Math.max(...b.sales.map(s => new Date(s.date).getTime()))
+        cmp = latestA - latestB
+      }
+      return sortDesc ? -cmp : cmp
+    })
+  }, [groups, sortBy, sortDesc])
+
   useEffect(() => {
     if (!authCurrentUser()) return
     const products = load('cc_products', [])
     syncPush(products, sales, customers, [])
   }, [sales])
 
-  const buildMessage = (row: PendenciaRow) => {
-    const { sale, customer, productsStr, totalQty, telefone } = row
-    return `Oi, ${customer?.name || 'cliente'}! Passando aqui pra lembrar da pendência dos cookies 🍪\n${totalQty} unidade(s) pendente(s) (${productsStr})\nTotal: ${fmtBRL(sale.total)}\nQuando puder acertar, me avisa 😊`
-  }
-
+  // --- Actions ---
   const normalizeWhats = (raw: string): string => {
     let n = raw.normalize('NFKC').replace(/[^0-9]/g, '')
     if (n && !n.startsWith('55')) n = '55' + n
     return n
   }
 
-  const openWhatsApp = (row: PendenciaRow) => {
-    const telefone = normalizeWhats(row.telefone)
-    if (!telefone) {
-      pushToast('Telefone não informado', 'error')
-      return
-    }
-    const msg = encodeURIComponent(buildMessage(row))
-    window.open(`https://wa.me/${telefone}?text=${msg}`, '_blank')
+  const buildMessage = (g: CustomerGroup) => {
+    const name = g.customer?.name || 'cliente'
+    const items = g.sales.flatMap(s => s.items.filter(i => !i.paid).map(i => `${i.qty}x ${i.name}`))
+    const totalUnpaid = g.sales.reduce((a, s) => a + s.items.filter(i => !i.paid).reduce((x, i) => x + i.unitPrice * i.qty, 0), 0)
+    return `Oi, ${name}! Passando aqui pra lembrar das pendências de cookies 🍪\n${items.join(', ')}\nTotal pendente: ${fmtBRL(totalUnpaid)}\nQuando puder acertar, me avisa 😊`
   }
 
-  const copyMessage = (row: PendenciaRow) => {
-    navigator.clipboard.writeText(buildMessage(row))
+  const openWhatsApp = (g: CustomerGroup) => {
+    const telefone = normalizeWhats(g.customer?.contact || '')
+    if (!telefone) { pushToast('Telefone não informado', 'error'); return }
+    window.open(`https://wa.me/${telefone}?text=${encodeURIComponent(buildMessage(g))}`, '_blank')
+  }
+
+  const copyMessage = (g: CustomerGroup) => {
+    navigator.clipboard.writeText(buildMessage(g))
     pushToast('Mensagem copiada!')
   }
 
-  const togglePago = (saleId: string) => {
-    setSales(prev => prev.map(s => 
-      s.id === saleId ? { ...s, status: 'Pago' as const } : s
-    ))
-    pushToast('Venda marcada como paga!')
+  const toggleCard = (cid: string) => {
+    setExpandedCards(prev => { const n = new Set(prev); n.has(cid) ? n.delete(cid) : n.add(cid); return n })
   }
 
-  const sortedRows = useMemo(() => {
-    return [...rows].sort((a, b) => {
-      let comparison = 0
-      if (sortBy === 'total') comparison = a.sale.total - b.sale.total
-      else if (sortBy === 'nome') comparison = (a.customer?.name || '').localeCompare(b.customer?.name || '')
-      else if (sortBy === 'qtd') comparison = a.totalQty - b.totalQty
-      else if (sortBy === 'data') comparison = new Date(a.sale.date).getTime() - new Date(b.sale.date).getTime()
-      return sortDesc ? -comparison : comparison
+  const toggleProductSection = (saleId: string) => {
+    setExpandedProducts(prev => { const n = new Set(prev); n.has(saleId) ? n.delete(saleId) : n.add(saleId); return n })
+  }
+
+  // Toggle individual item paid status
+  const toggleItemPaid = (saleId: string, itemIdx: number) => {
+    guard('Marcar item como pago', () => {
+      setSales(prev => prev.map(s => {
+        if (s.id !== saleId) return s
+        const items = s.items.map((item, i) => i === itemIdx ? { ...item, paid: !item.paid } : item)
+        const newTotal = items.reduce((a, i) => a + (i.paid ? 0 : i.unitPrice * i.qty), 0)
+        // If all paid, mark sale as Pago
+        if (items.every(i => i.paid)) {
+          return { ...s, items, total: 0, status: 'Pago' as const }
+        }
+        return { ...s, items, total: newTotal }
+      }))
+      pushToast('Item atualizado!', 'success')
     })
-  }, [rows, sortBy, sortDesc])
+  }
 
-  const filteredRows = useMemo(() => {
-    if (filter === 'pending') return sortedRows
-    return sortedRows
-  }, [sortedRows, filter])
+  // Partial payment
+  const applyPartialPayment = (saleId: string) => {
+    const amount = parseFloat(partialAmounts[saleId] || '0')
+    if (!amount || amount <= 0) { pushToast('Valor inválido', 'error'); return }
+    guard('Aplicar pagamento parcial', () => {
+      setSales(prev => prev.map(s => {
+        if (s.id !== saleId) return s
+        let remaining = amount
+        const items = s.items.map(item => {
+          if (item.paid || remaining <= 0) return item
+          const itemTotal = item.unitPrice * item.qty
+          if (remaining >= itemTotal) {
+            remaining -= itemTotal
+            return { ...item, paid: true }
+          }
+          // Partial: reduce qty proportionally
+          const paidQty = Math.min(item.qty, Math.floor(remaining / item.unitPrice))
+          if (paidQty > 0) {
+            remaining -= paidQty * item.unitPrice
+            return { ...item, qty: item.qty - paidQty, paid: false }
+          }
+          return item
+        }).filter(i => i.qty > 0 || i.paid)
+        const newTotal = items.reduce((a, i) => a + (i.paid ? 0 : i.unitPrice * i.qty), 0)
+        const allPaid = items.every(i => i.paid)
+        setPartialAmounts(prev => ({ ...prev, [saleId]: '' }))
+        return { ...s, items, total: newTotal, status: allPaid ? 'Pago' as const : s.status }
+      }))
+      pushToast(`${fmtBRL(amount)} descontado!`, 'success')
+    })
+  }
 
-  const totalReceber = rows.reduce((acc, r) => acc + r.sale.total, 0)
-  const pessoasDevendo = new Set(rows.map(r => r.sale.customerId).filter(Boolean)).size
-  const totalPendentes = rows.reduce((acc, r) => acc + r.totalQty, 0)
+  // Mark all items of a sale as paid
+  const markAllPaid = (saleId: string) => {
+    guard('Marcar tudo como pago', () => {
+      setSales(prev => prev.map(s =>
+        s.id === saleId ? { ...s, items: s.items.map(i => ({ ...i, paid: true })), total: 0, status: 'Pago' as const } : s
+      ))
+      pushToast('Venda quitada!', 'success')
+    })
+  }
+
+  const totalReceber = groups.reduce((a, g) => a + g.totalPending, 0)
+  const pessoasDevendo = groups.length
+  const totalPendentes = groups.reduce((a, g) => a + g.totalQty, 0)
 
   const sortOptions = [
-    { value: 'data', label: 'Data (mais antiga)' },
+    { value: 'data', label: 'Data (mais recente)' },
     { value: 'total', label: 'Quem deve mais' },
     { value: 'nome', label: 'Nome A-Z' },
     { value: 'qtd', label: 'Quantidade' },
   ] as const
 
-  if (rows.length === 0) {
+  if (groups.length === 0) {
     return (
       <>
         <div className="page-row">
@@ -122,7 +191,6 @@ export function CobrancaView({ sales, setSales, customers, pushToast }: Cobranca
             <p>Gerencie pendências de clientes e envie lembretes via WhatsApp</p>
           </div>
         </div>
-
         <div className="card empty-state" style={{ textAlign: 'center', padding: 'var(--sp-12)' }}>
           <CheckCircle2 className="icon" size={48} color="var(--ok-500)" />
           <p style={{ marginTop: 'var(--sp-4)', fontSize: '1.1rem' }}>Nenhuma pendência! 🎉</p>
@@ -141,6 +209,7 @@ export function CobrancaView({ sales, setSales, customers, pushToast }: Cobranca
         </div>
       </div>
 
+      {/* Stats */}
       <div className="grid grid-stats" style={{ marginBottom: 'var(--sp-6)' }}>
         <div className="card">
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)' }}>
@@ -149,7 +218,7 @@ export function CobrancaView({ sales, setSales, customers, pushToast }: Cobranca
             </div>
             <div>
               <div className="stat-label">Total a receber</div>
-              <div className="stat-value" style={{ color: 'var(--cz-600)' }}>{fmtBRL(totalReceber)}</div>
+              <div className="stat-value" style={{ color: 'var(--cz-600)' }}><MaskedMoney value={totalReceber} /></div>
             </div>
           </div>
         </div>
@@ -177,26 +246,10 @@ export function CobrancaView({ sales, setSales, customers, pushToast }: Cobranca
         </div>
       </div>
 
+      {/* Filtros/ordenação */}
       <div className="card" style={{ marginBottom: 'var(--sp-4)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-4)', flexWrap: 'wrap' }}>
-          <span style={{ fontWeight: 600, color: 'var(--tx-2)' }}>Filtrar:</span>
-          <select
-            value={filter}
-            onChange={e => setFilter(e.target.value as typeof filter)}
-            style={{
-              padding: 'var(--sp-2) var(--sp-3)',
-              border: '1px solid var(--border)',
-              borderRadius: 'var(--r-md)',
-              background: 'var(--card)',
-              color: 'var(--tx-1)',
-              fontSize: '0.9rem',
-              cursor: 'pointer',
-            }}
-          >
-            <option value="pending">Pendentes</option>
-            <option value="all">Todas</option>
-          </select>
-          <span style={{ fontWeight: 600, color: 'var(--tx-2)', marginLeft: 'var(--sp-6)' }}>Ordenar por:</span>
+          <span style={{ fontWeight: 600, color: 'var(--tx-2)' }}>Ordenar:</span>
           <select
             value={sortBy}
             onChange={e => setSortBy(e.target.value as typeof sortBy)}
@@ -223,74 +276,201 @@ export function CobrancaView({ sales, setSales, customers, pushToast }: Cobranca
         </div>
       </div>
 
-      <div className="card" style={{ overflow: 'auto' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
-          <thead>
-            <tr style={{ background: 'var(--bg-2)', textAlign: 'left' }}>
-              <th style={{ padding: 'var(--sp-3)', borderBottom: '1px solid var(--border)' }}>Cliente</th>
-              <th style={{ padding: 'var(--sp-3)', borderBottom: '1px solid var(--border)' }}>Produtos</th>
-              <th style={{ padding: 'var(--sp-3)', borderBottom: '1px solid var(--border)', textAlign: 'center' }}>Qtd</th>
-              <th style={{ padding: 'var(--sp-3)', borderBottom: '1px solid var(--border)', textAlign: 'right' }}>Total</th>
-              <th style={{ padding: 'var(--sp-3)', borderBottom: '1px solid var(--border)', textAlign: 'center' }}>Data</th>
-              <th style={{ padding: 'var(--sp-3)', borderBottom: '1px solid var(--border)', textAlign: 'center' }}>Status</th>
-              <th style={{ padding: 'var(--sp-3)', borderBottom: '1px solid var(--border)', textAlign: 'center', width: '140px' }}>Ações</th>
-            </tr>
-          </thead>
-          <tbody>
-            {filteredRows.map(row => (
-              <tr key={row.sale.id} style={{ borderBottom: '1px solid var(--border)', transition: 'background 0.2s' }}>
-                <td style={{ padding: 'var(--sp-3)', fontWeight: 600, color: 'var(--tx-1)' }}>
-                  {row.customer?.name || 'Sem cliente'}
-                </td>
-                <td style={{ padding: 'var(--sp-3)', color: 'var(--tx-2)', maxWidth: 280, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                  {row.productsStr}
-                </td>
-                <td style={{ padding: 'var(--sp-3)', textAlign: 'center', fontWeight: 600, color: 'var(--cz-600)' }}>
-                  {row.totalQty} un.
-                </td>
-                <td style={{ padding: 'var(--sp-3)', textAlign: 'right', fontWeight: 700, fontFamily: 'var(--font-display)', color: 'var(--cz-600)' }}>
-                  {fmtBRL(row.sale.total)}
-                </td>
-                <td style={{ padding: 'var(--sp-3)', textAlign: 'center', color: 'var(--tx-3)', fontSize: '0.8rem' }}>
-                  {new Date(row.sale.date).toLocaleDateString('pt-BR')}
-                </td>
-                <td style={{ padding: 'var(--sp-3)', textAlign: 'center' }}>
-                  <span className="badge badge-warning" style={{ fontSize: '0.7rem' }}>Pendente</span>
-                </td>
-                <td style={{ padding: 'var(--sp-2)', textAlign: 'center' }}>
-                  <div style={{ display: 'flex', gap: 'var(--sp-2)', justifyContent: 'center' }}>
+      {/* Cards por pessoa */}
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
+        {sortedGroups.map(g => {
+          const cid = g.customerId
+          const isExpanded = expandedCards.has(cid)
+          const unpaidTotal = g.sales.reduce((a, s) => a + s.items.filter(i => !i.paid).reduce((x, i) => x + i.unitPrice * i.qty, 0), 0)
+          const initials = (g.customer?.name || 'SC').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
+
+          return (
+            <div key={cid} className="card" style={{ overflow: 'hidden', transition: 'box-shadow 0.2s' }}>
+              {/* Card header */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', cursor: 'pointer', padding: 'var(--sp-4)' }} onClick={() => toggleCard(cid)}>
+                {/* Avatar */}
+                <div style={{
+                  width: 48, height: 48, borderRadius: '50%',
+                  background: 'linear-gradient(135deg, var(--cz-500), var(--cz-700))',
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                  color: '#fff', fontWeight: 700, fontSize: '1rem', flexShrink: 0,
+                }}>
+                  {initials}
+                </div>
+
+                {/* Info */}
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--tx-1)' }}>{g.customer?.name || 'Sem cliente'}</div>
+                  <div style={{ display: 'flex', gap: 'var(--sp-3)', fontSize: '0.82rem', color: 'var(--tx-3)', marginTop: 2, flexWrap: 'wrap' }}>
+                    <span>{g.sales.length} {g.sales.length === 1 ? 'compra' : 'compras'} pendente{g.sales.length !== 1 ? 's' : ''}</span>
+                    <span>•</span>
+                    <span>{g.totalQty} {g.totalQty === 1 ? 'unidade' : 'unidades'}</span>
+                    {g.customer?.contact && (
+                                          <>
+                                            <span>•</span>
+                                            <span><MaskedPII value={g.customer.contact} type="phone" /></span>
+                                          </>
+                                        )}
+                  </div>
+                </div>
+
+                {/* Valor pendente */}
+                                <div style={{ textAlign: 'right', flexShrink: 0 }}>
+                                  <div style={{ fontWeight: 700, fontSize: '1.1rem', color: 'var(--cz-600)', fontFamily: 'var(--font-display)' }}>
+                                    <MaskedMoney value={unpaidTotal} />
+                                  </div>
+                                  <div className="badge badge-warning" style={{ fontSize: '0.7rem' }}>Pendente</div>
+                                </div>
+
+                {/* Chevron */}
+                <div style={{ color: 'var(--tx-3)', flexShrink: 0 }}>
+                  {isExpanded ? <ChevronDown size={20} /> : <ChevronRight size={20} />}
+                </div>
+              </div>
+
+              {/* Ações rápidas (sempre visíveis) */}
+              <div style={{ display: 'flex', gap: 'var(--sp-2)', padding: '0 var(--sp-4) var(--sp-3)', borderTop: '1px solid var(--border)', paddingTop: 'var(--sp-3)' }}>
+                <button className="btn btn-primary btn-sm" onClick={(e) => { e.stopPropagation(); openWhatsApp(g) }} disabled={!g.customer?.contact} title="WhatsApp">
+                  <MessageSquare size={14} /> WhatsApp
+                </button>
+                <button className="btn btn-secondary btn-sm" onClick={(e) => { e.stopPropagation(); copyMessage(g) }} title="Copiar mensagem">
+                  <Copy size={14} /> Copiar
+                </button>
+                <button className="btn btn-success btn-sm" onClick={(e) => { e.stopPropagation(); markAllPaid(g.sales[0]?.id) }} title="Marcar tudo como pago">
+                  <CheckCircle2 size={14} /> Quitar tudo
+                </button>
+              </div>
+
+              {/* Conteúdo expandido: lista de vendas + pagamento parcial */}
+              {isExpanded && (
+                <div style={{ borderTop: '1px solid var(--border)', padding: 'var(--sp-4)' }}>
+                  {/* Pagamento parcial */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', marginBottom: 'var(--sp-4)', flexWrap: 'wrap' }}>
+                    <DollarSign size={16} color="var(--cz-500)" />
+                    <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--tx-2)' }}>Pagamento parcial:</span>
+                    <input
+                      type="number"
+                      min="0"
+                      step="0.01"
+                      placeholder="Ex: 6,00"
+                      value={partialAmounts[g.sales[0]?.id] || ''}
+                      onChange={e => setPartialAmounts(prev => ({ ...prev, [g.sales[0]?.id]: e.target.value }))}
+                      style={{
+                        width: 120, padding: 'var(--sp-2) var(--sp-3)',
+                        border: '1px solid var(--border)', borderRadius: 'var(--r-md)',
+                        background: 'var(--card)', color: 'var(--tx-1)', fontSize: '0.9rem',
+                        textAlign: 'right',
+                      }}
+                      onClick={e => e.stopPropagation()}
+                    />
                     <button
                       className="btn btn-primary btn-sm"
-                      onClick={() => openWhatsApp(row)}
-                      disabled={!row.telefone}
-                      title={row.telefone ? 'Abrir WhatsApp' : 'Sem telefone'}
-                      style={{ minWidth: '36px', padding: 'var(--sp-1) var(--sp-2)' }}
+                      onClick={(e) => { e.stopPropagation(); applyPartialPayment(g.sales[0]?.id) }}
                     >
-                      <MessageSquare size={14} />
-                    </button>
-                    <button
-                      className="btn btn-secondary btn-sm"
-                      onClick={() => copyMessage(row)}
-                      title="Copiar mensagem de cobrança"
-                      style={{ minWidth: '36px', padding: 'var(--sp-1) var(--sp-2)' }}
-                    >
-                      <Copy size={14} />
-                    </button>
-                    <button
-                      className="btn btn-success btn-sm"
-                      onClick={() => togglePago(row.sale.id)}
-                      title="Marcar como pago"
-                      style={{ minWidth: '36px', padding: 'var(--sp-1) var(--sp-2)' }}
-                    >
-                      <CheckCircle2 size={14} />
+                      <Minus size={14} /> Descontar
                     </button>
                   </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+
+                  {/* Lista de vendas */}
+                  {g.sales.map(sale => {
+                    const saleUnpaid = sale.items.filter(i => !i.paid)
+                    const salePaid = sale.items.filter(i => i.paid)
+                    const isProdExpanded = expandedProducts.has(sale.id)
+
+                    return (
+                      <div key={sale.id} style={{ border: '1px solid var(--border)', borderRadius: 'var(--r-md)', marginBottom: 'var(--sp-3)', overflow: 'hidden' }}>
+                        {/* Sale header */}
+                        <div
+                          style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', padding: 'var(--sp-3)', cursor: 'pointer', background: 'var(--bg-2)' }}
+                          onClick={() => toggleProductSection(sale.id)}
+                        >
+                          <Calendar size={14} color="var(--tx-3)" />
+                                                    <span style={{ fontSize: '0.85rem', color: 'var(--tx-2)' }}>
+                                                      {new Date(sale.date).toLocaleDateString('pt-BR')}
+                                                    </span>
+                                                    <span className="badge badge-neutral" style={{ fontSize: '0.7rem' }}>{sale.payment}</span>
+                                                    <span style={{ flex: 1 }} />
+                                                    <span style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--cz-600)' }}><MaskedMoney value={sale.total} /></span>
+                          <span style={{ fontSize: '0.78rem', color: 'var(--tx-3)' }}>
+                            {saleUnpaid.length} pendente{saleUnpaid.length !== 1 ? 's' : ''}
+                            {salePaid.length > 0 && ` • ${salePaid.length} pago${salePaid.length !== 1 ? 's' : ''}`}
+                          </span>
+                          {isProdExpanded ? <ChevronUp size={16} color="var(--tx-3)" /> : <ChevronDown size={16} color="var(--tx-3)" />}
+                        </div>
+
+                        {/* Produtos expandidos */}
+                        {isProdExpanded && (
+                          <div style={{ padding: 'var(--sp-3)', borderTop: '1px solid var(--border)' }}>
+                            {sale.items.map((item, idx) => {
+                              const itemTotal = item.unitPrice * item.qty
+                              return (
+                                <div
+                                  key={idx}
+                                  style={{
+                                    display: 'flex', alignItems: 'center', gap: 'var(--sp-3)',
+                                    padding: 'var(--sp-2) var(--sp-3)', marginBottom: 'var(--sp-1)',
+                                    borderRadius: 'var(--r-sm)',
+                                    background: item.paid ? 'rgba(34,197,94,0.08)' : 'transparent',
+                                    opacity: item.paid ? 0.6 : 1,
+                                  }}
+                                >
+                                  {/* Checkbox */}
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); toggleItemPaid(sale.id, idx) }}
+                                    style={{
+                                      width: 24, height: 24, borderRadius: 6, border: '2px solid',
+                                      borderColor: item.paid ? 'var(--ok-500)' : 'var(--border)',
+                                      background: item.paid ? 'var(--ok-500)' : 'transparent',
+                                      display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                      cursor: 'pointer', flexShrink: 0, transition: 'all 0.2s',
+                                    }}
+                                  >
+                                    {item.paid && <Check size={14} color="#fff" />}
+                                  </button>
+
+                                  {/* Cookie icon */}
+                                  <CookieArt name={item.name} size={26} />
+
+                                  {/* Item info */}
+                                  <div style={{ flex: 1, minWidth: 0 }}>
+                                    <div style={{ fontWeight: 600, fontSize: '0.88rem', textDecoration: item.paid ? 'line-through' : 'none', color: 'var(--tx-1)' }}>
+                                      {item.qty}x {item.name}
+                                    </div>
+                                    <div style={{ fontSize: '0.78rem', color: 'var(--tx-3)', display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
+                                                                          <span><MaskedMoney value={item.unitPrice} /> un.</span>
+                                                                          <span>•</span>
+                                                                          <span><MaskedMoney value={itemTotal} /></span>
+                                      {item.paid && (
+                                        <>
+                                          <span>•</span>
+                                          <span style={{ color: 'var(--ok-500)', fontWeight: 600 }}>Pago</span>
+                                        </>
+                                      )}
+                                    </div>
+                                  </div>
+
+                                  {/* Unit price */}
+                                                                    <span style={{ fontWeight: 700, fontSize: '0.85rem', color: 'var(--tx-2)', flexShrink: 0 }}>
+                                                                      <MaskedMoney value={itemTotal} />
+                                                                    </span>
+                                </div>
+                              )
+                            })}
+                            <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 'var(--sp-2)', borderTop: '1px solid var(--border)', marginTop: 'var(--sp-2)' }}>
+                              <span style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--tx-2)' }}>Total desta compra:</span>
+                              <span style={{ fontWeight: 700, color: 'var(--cz-600)' }}>{fmtBRL(sale.total)}</span>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
-          </>
-        )
-      }
+    </>
+  )
+}

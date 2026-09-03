@@ -293,6 +293,11 @@ h4 { font-family: var(--font-display); font-weight: 600; line-height: 1.3; color
   color: #FFF; box-shadow: var(--sh-brand);
 }
 .btn-primary:hover:not(:disabled) { transform: translateY(-1px); box-shadow: var(--sh-brand-lg); }
+.btn-cz {
+  background: linear-gradient(135deg, var(--cz-400), var(--cz-600));
+  color: #FFF; box-shadow: var(--sh-brand);
+}
+.btn-cz:hover:not(:disabled) { transform: translateY(-1px); box-shadow: var(--sh-brand-lg); }
 .btn-secondary { background: var(--bg-soft); color: var(--tx-1); border: 1px solid var(--border); }
 .btn-secondary:hover:not(:disabled) { background: var(--n-100); border-color: var(--border-strong); transform: translateY(-1px); box-shadow: var(--sh-sm); }
 .btn-danger { background: linear-gradient(135deg, var(--danger-500), var(--danger-600)); color: #fff; box-shadow: 0 4px 14px rgba(225,29,72,0.3); }

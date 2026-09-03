@@ -1,6 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { Lock, Eye, EyeOff, ShieldCheck, X, RefreshCw, ChevronDown, ChevronRight, Users, Tag, Calendar, Filter, Download } from 'lucide-react'
-import { loadAuditRemote, auditHash, AUDIT_PW_HASH, type AuditEntry } from '../audit'
+import { useAuth, grant, revoke, HASHES } from '../auth'
+import { loadAuditRemote, auditHash, type AuditEntry } from '../audit'
 import { onAuditChanges } from '../sync'
 
 const ACTION_ICON: Record<string, string> = {
@@ -28,7 +29,8 @@ type PeriodOption = 'hoje' | '7d' | 'tudo'
 type FilterState = { member: string; action: string; period: PeriodOption; date: string }
 
 export function AuditView() {
-  const [unlocked, setUnlocked] = useState(false)
+  // Em memória via auth compartilhado — mesmina senha de auditoria desbloqueia Financial views também
+  const unlocked = useAuth('audit')
   const [pw, setPw] = useState('')
   const [showPw, setShowPw] = useState(false)
   const [err, setErr] = useState(false)
@@ -66,7 +68,7 @@ export function AuditView() {
   }, [unlocked, refresh])
 
   const doUnlock = async () => {
-    if ((await auditHash(pw)) === AUDIT_PW_HASH) { setUnlocked(true); setErr(false) }
+    if ((await auditHash(pw)) === HASHES.audit) { grant('audit'); setErr(false) }
     else setErr(true)
   }
 
@@ -217,7 +219,7 @@ export function AuditView() {
           {loading && <span style={{ color: 'var(--tx-3)', fontSize: '0.85rem' }}>sincronizando…</span>}
           <button className="btn btn-secondary" onClick={exportCSV}><Download size={16} /> Exportar CSV</button>
           <button className="btn btn-secondary" onClick={refresh}><RefreshCw size={16} /> Atualizar</button>
-          <button className="btn btn-secondary" onClick={() => setUnlocked(false)}><Lock size={16} /> Travar</button>
+          <button className="btn btn-secondary" onClick={() => revoke('audit')}><Lock size={16} /> Travar</button>
         </div>
       </div>
 

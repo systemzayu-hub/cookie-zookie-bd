@@ -1,8 +1,45 @@
 import { useState, useMemo } from 'react'
-import { Plus, Pencil, Trash2, X, Users, ShoppingBag, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { Plus, Pencil, Trash2, X, Users, ShoppingBag, AlertCircle, CheckCircle2, Check } from 'lucide-react'
 import { Customer, Sale, fmtBRL } from '../types'
 import { usePasswordGuard } from '../components/PasswordGate'
 import { logAction } from '../audit'
+import { MaskedMoney } from '../components/MaskedMoney'
+import { MaskedPII } from '../components/MaskedPII'
+
+// Modal de confirmação dupla para exclusão (reutilizável local)
+function ConfirmDeleteModal({ isOpen, onClose, onConfirm, title, message, itemName }: {
+  isOpen: boolean; onClose: () => void; onConfirm: () => void; title: string; message: string; itemName: string
+}) {
+  const [checked, setChecked] = useState(false)
+  const [typed, setTyped] = useState('')
+  const canConfirm = checked && typed.toUpperCase() === 'EXCLUIR'
+  if (!isOpen) return null
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal modal-sm" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h3>{title}</h3>
+        </div>
+        <div className="form" style={{ padding: 'var(--sp-4)' }}>
+          <p style={{ color: 'var(--tx-1)', marginBottom: 'var(--sp-4)' }}>{message}</p>
+          <p style={{ fontWeight: 600, color: 'var(--cz-600)', marginBottom: 'var(--sp-4)' }}>{itemName}</p>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', cursor: 'pointer', marginBottom: 'var(--sp-3)' }}>
+            <input type="checkbox" checked={checked} onChange={e => setChecked(e.target.checked)} style={{ width: 18, height: 18, cursor: 'pointer' }} />
+            <span>Entendo que é irreversível</span>
+          </label>
+          <div className="field">
+            <label>Digite EXCLUIR para confirmar</label>
+            <input type="text" value={typed} onChange={e => setTyped(e.target.value)} placeholder="EXCLUIR" style={{ textTransform: 'uppercase' }} />
+          </div>
+          <div className="modal-actions" style={{ marginTop: 'var(--sp-4)' }}>
+            <button className="btn btn-secondary" onClick={onClose}>Cancelar</button>
+            <button className="btn btn-danger" onClick={onConfirm} disabled={!canConfirm}>Excluir</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export function CustomersView({ customers, setCustomers, sales, pushToast }: {
   customers: Customer[]; setCustomers: React.Dispatch<React.SetStateAction<Customer[]>>; sales: Sale[]; pushToast: (m: string, t?: 'success' | 'error') => void
@@ -10,6 +47,7 @@ export function CustomersView({ customers, setCustomers, sales, pushToast }: {
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing] = useState<Customer | null>(null)
   const [form, setForm] = useState({ name: '', contact: '' })
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null)
   const { guard } = usePasswordGuard()
 
   const openNew = () => { setEditing(null); setForm({ name: '', contact: '' }); setShowModal(true) }
@@ -32,11 +70,20 @@ export function CustomersView({ customers, setCustomers, sales, pushToast }: {
     }
   }
 
-  const remove = (id: string) => guard('Excluir cliente', () => {
-    const c = customers.find(x => x.id === id)
-    setCustomers(cs => cs.filter(c => c.id !== id)); pushToast('Cliente removido.')
-    logAction('cliente', `Excluiu cliente "${c?.name || id}"`)
-  })
+  const remove = (id: string) => {
+      const c = customers.find(x => x.id === id)
+      if (c) setDeleteConfirm({ id: c.id, name: c.name })
+    }
+
+    const confirmDelete = () => {
+      if (!deleteConfirm) return
+      guard('Excluir cliente', () => {
+        setCustomers(cs => cs.filter(c => c.id !== deleteConfirm.id))
+        pushToast('Cliente removido.')
+        logAction('cliente', `Excluiu cliente "${deleteConfirm.name}"`)
+        setDeleteConfirm(null)
+      })
+    }
 
   const spendOf = (id: string) => sales.filter(s => s.customerId === id).reduce((a, s) => a + s.total, 0)
   const countOf = (id: string) => sales.filter(s => s.customerId === id).length
@@ -78,13 +125,13 @@ export function CustomersView({ customers, setCustomers, sales, pushToast }: {
           {top.length === 0 ? <div className="empty-state"><Users className="icon" size={40} /><p>Sem clientes ainda.</p></div> : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
               {top.map((c, i) => (
-                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap', minWidth: 0 }}>
-                  <span style={{ fontWeight: 700, color: 'var(--cz-600)', width: 20, flexShrink: 0 }}>{i + 1}º</span>
-                  <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{c.name}</span>
-                  <span className="badge badge-neutral" style={{ whiteSpace: 'nowrap' }}>{c.purchases} compras</span>
-                  <strong style={{ whiteSpace: 'nowrap' }}>{fmtBRL(c.spent)}</strong>
-                </div>
-              ))}
+                              <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap', minWidth: 0 }}>
+                                <span style={{ fontWeight: 700, color: 'var(--cz-600)', width: 20, flexShrink: 0 }}>{i + 1}º</span>
+                                <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{c.name}</span>
+                                <span className="badge badge-neutral" style={{ whiteSpace: 'nowrap' }}>{c.purchases} compras</span>
+                                <strong style={{ whiteSpace: 'nowrap' }}><MaskedMoney value={c.spent} /></strong>
+                              </div>
+                            ))}
             </div>
           )}
         </div>
@@ -135,10 +182,10 @@ export function CustomersView({ customers, setCustomers, sales, pushToast }: {
                 {customers.map(c => (
                   <tr key={c.id}>
                     <td style={{ fontWeight: 600 }}>{c.name}</td>
-                    <td>{c.contact || '—'}</td>
-                    <td>{c.createdAt}</td>
-                    <td><span className="badge badge-brand">{countOf(c.id)}</span></td>
-                    <td className="text-right" style={{ fontWeight: 700 }}>{fmtBRL(spendOf(c.id))}</td>
+                                        <td><MaskedPII value={c.contact || ''} type="phone" /></td>
+                                        <td>{c.createdAt}</td>
+                                        <td><span className="badge badge-brand">{countOf(c.id)}</span></td>
+                                        <td className="text-right" style={{ fontWeight: 700 }}><MaskedMoney value={spendOf(c.id)} /></td>
                     <td className="text-right">
                       <button className="btn btn-secondary btn-sm" onClick={() => openEdit(c)}><Pencil size={14} /></button>
                       <button className="btn btn-danger btn-sm" onClick={() => remove(c.id)}><Trash2 size={14} /></button>
@@ -152,23 +199,34 @@ export function CustomersView({ customers, setCustomers, sales, pushToast }: {
       </div>
 
       {showModal && (
-        <div className="modal-backdrop" onClick={() => setShowModal(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
-            <div className="modal-header">
-              <h3>{editing ? 'Editar Cliente' : 'Novo Cliente'}</h3>
-              <button className="modal-close" onClick={() => setShowModal(false)}><X size={20} /></button>
-            </div>
-            <div className="form">
-              <div className="field"><label>Nome</label><input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Nome do cliente" /></div>
-              <div className="field"><label>Contato (email/telefone)</label><input value={form.contact} onChange={e => setForm(f => ({ ...f, contact: e.target.value }))} placeholder="ex: (11) 99999-0000" /></div>
-              <div className="modal-actions">
-                <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancelar</button>
-                <button className="btn btn-primary" onClick={submit}>{editing ? 'Salvar' : 'Adicionar'}</button>
+              <div className="modal-backdrop" onClick={() => setShowModal(false)}>
+                <div className="modal" onClick={e => e.stopPropagation()}>
+                  <div className="modal-header">
+                    <h3>{editing ? 'Editar Cliente' : 'Novo Cliente'}</h3>
+                    <button className="modal-close" onClick={() => setShowModal(false)}><X size={20} /></button>
+                  </div>
+                  <div className="form">
+                    <div className="field"><label>Nome</label><input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Nome do cliente" /></div>
+                    <div className="field"><label>Contato (email/telefone)</label><input value={form.contact} onChange={e => setForm(f => ({ ...f, contact: e.target.value }))} placeholder="ex: (11) 99999-0000" /></div>
+                    <div className="modal-actions">
+                      <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancelar</button>
+                      <button className="btn btn-primary" onClick={submit}>{editing ? 'Salvar' : 'Adicionar'}</button>
+                    </div>
+                  </div>
+                </div>
               </div>
-            </div>
-          </div>
-        </div>
-      )}
-    </>
-  )
-}
+            )}
+
+            {deleteConfirm && (
+              <ConfirmDeleteModal
+                isOpen={true}
+                onClose={() => setDeleteConfirm(null)}
+                onConfirm={confirmDelete}
+                title="Excluir cliente"
+                message="Esta ação não pode ser desfeita. O cliente será removido permanentemente."
+                itemName={deleteConfirm.name}
+              />
+            )}
+          </>
+        )
+      }

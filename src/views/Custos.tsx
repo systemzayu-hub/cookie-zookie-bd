@@ -4,6 +4,7 @@ import { CUSTOS_PRODUCAO } from '../pendencias-avancado'
 import { load, save } from '../data'
 import { usePasswordGuard } from '../components/PasswordGate'
 import { logAction } from '../audit'
+import { MaskedMoney } from '../components/MaskedMoney'
 
 export interface CustoProducao {
   id: string
@@ -81,12 +82,12 @@ export function CustosView() {
         <div className="stat-card" style={{ background: 'linear-gradient(135deg, var(--ok-bg), var(--ok-bg))' }}>
           <div className="stat-icon" style={{ background: 'var(--ok-500)' }}><TrendingUp size={22} /></div>
           <div className="stat-label">Lucro Unitário Médio</div>
-          <div className="stat-value" style={{ color: 'var(--ok-600)' }}>{fmtBRL(avgLucro)}</div>
+          <div className="stat-value" style={{ color: 'var(--ok-600)' }}><MaskedMoney value={avgLucro} /></div>
         </div>
         <div className="stat-card" style={{ background: 'linear-gradient(135deg, var(--info-bg), var(--info-bg))' }}>
           <div className="stat-icon" style={{ background: 'var(--info-500)' }}><Calculator size={22} /></div>
           <div className="stat-label">Custo Médio por Cookie</div>
-          <div className="stat-value" style={{ color: 'var(--info-500)' }}>{fmtBRL(avgCusto)}</div>
+          <div className="stat-value" style={{ color: 'var(--info-500)' }}><MaskedMoney value={avgCusto} /></div>
         </div>
         <div className="stat-card" style={{ background: 'linear-gradient(135deg, var(--cz-50), var(--cz-100))' }}>
           <div className="stat-icon" style={{ background: 'var(--cz-500)' }}><Package size={22} /></div>
@@ -111,7 +112,7 @@ export function CustosView() {
               {custos.map(c => (
                 <tr key={c.id}>
                   <td style={{ fontWeight: 600 }}>{c.name}</td>
-                  <td className="text-right" style={{ fontWeight: 600 }}>{fmtBRL(c.precoVenda)}</td>
+                  <td className="text-right" style={{ fontWeight: 600 }}><MaskedMoney value={c.precoVenda} /></td>
                   <td>
                     {editingId === c.id ? (
                       <input
@@ -133,7 +134,7 @@ export function CustosView() {
                       </span>
                     )}
                   </td>
-                  <td className="text-right" style={{ fontWeight: 700, color: 'var(--ok-600)' }}>{fmtBRL(c.lucroUnitario)}</td>
+                  <td className="text-right" style={{ fontWeight: 700, color: 'var(--ok-600)' }}><MaskedMoney value={c.lucroUnitario} /></td>
                   <td className="text-right" style={{ fontWeight: 700, color: 'var(--cz-600)' }}>{fmtPct(c.margem)}</td>
                 </tr>
               ))}

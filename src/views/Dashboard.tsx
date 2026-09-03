@@ -1,8 +1,9 @@
-import { DollarSign, TrendingUp, ShoppingBag, Users, AlertTriangle, CheckCircle2, Plus, Wallet, Clock3 } from 'lucide-react'
-import { ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from 'recharts'
+import { DollarSign, TrendingUp, ShoppingBag, Users, AlertTriangle, CheckCircle2, Plus, Wallet, Clock3, BarChart3, Package, Truck, Store, Award } from 'lucide-react'
+import { ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, CartesianGrid, Legend, BarChart, Bar } from 'recharts'
 import { Product, Sale, Customer, LOW_STOCK_THRESHOLD, fmtBRL, CHANNELS } from '../types'
 import { CookieArt } from '../components/CookieArt'
 import { SensitiveData } from '../components/SensitiveData'
+import { MaskedMoney } from '../components/MaskedMoney'
 
 export function StatusBadge({ status }: { status?: string }) {
   const map: Record<string, string> = {
@@ -11,7 +12,7 @@ export function StatusBadge({ status }: { status?: string }) {
   return <span className={`badge ${map[status || 'Pago'] || 'badge-neutral'}`}>{status || 'Pago'}</span>
 }
 
-function StatCard({ icon, color, label, value, sub }: { icon: React.ReactNode; color: string; label: string; value: string; sub?: string }) {
+function StatCard({ icon, color, label, value, sub }: { icon: React.ReactNode; color: string; label: string; value: React.ReactNode; sub?: string }) {
   return (
     <div className="card stat-card">
       <div className="stat-icon" style={{ background: color }}>{icon}</div>
@@ -26,8 +27,7 @@ export function Dashboard({ sales, products, customers, onNewSale }: {
   sales: Sale[]; products: Product[]; customers: Customer[]; onNewSale: () => void
 }) {
   const paid = sales.filter(s => s.status !== 'Debitado')
-  const revenue = sales.reduce((a, s) => a + s.total, 0)
-  const pending = sales.filter(s => s.status === 'Pendente').reduce((a, s) => a + s.total, 0)
+  const pending = sales.filter(s => s.status === 'Pendente')
   const lowStock = products.filter(p => p.stock > 0 && p.stock <= LOW_STOCK_THRESHOLD)
   const totalSold = sales.reduce((a, s) => a + s.items.reduce((x, i) => x + i.qty, 0), 0)
   const paidCount = sales.filter(s => s.status === 'Pago').length
@@ -36,86 +36,101 @@ export function Dashboard({ sales, products, customers, onNewSale }: {
   sales.forEach(s => s.items.forEach(i => byProd.set(i.name, (byProd.get(i.name) || 0) + i.qty)))
   const topProducts = [...byProd.entries()].sort((a, b) => b[1] - a[1]).slice(0, 4)
 
-  const byChannel = CHANNELS.map(c => ({ name: c, value: sales.filter(s => s.channel === c).reduce((a, s) => a + s.total, 0) })).filter(x => x.value > 0)
+  // Vendas por canal (contagem, sem R$)
+  const byChannel = CHANNELS.map(c => ({ name: c, vendas: sales.filter(s => s.channel === c).length })).filter(x => x.vendas > 0)
 
-  const last7: { dia: string; total: number }[] = []
+  // Vendas por dia (contagem) — últimos 7 dias
+  const last7: { dia: string; vendas: number; unidades: number }[] = []
   for (let i = 6; i >= 0; i--) {
     const d = new Date(Date.now() - i * 86400000)
     const key = d.toDateString()
-    const total = sales.filter(s => new Date(s.date).toDateString() === key && s.status !== 'Debitado').reduce((a, s) => a + s.total, 0)
-    last7.push({ dia: d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }), total })
+    const daySales = sales.filter(s => new Date(s.date).toDateString() === key && s.status !== 'Debitado')
+    last7.push({
+      dia: d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
+      vendas: daySales.length,
+      unidades: daySales.reduce((a, s) => a + s.items.reduce((x, i) => x + i.qty, 0), 0)
+    })
   }
 
   const recent = [...sales].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 6)
+
+  // Clientes que mais compraram
+  const byCustomer = new Map<string, number>()
+  sales.forEach(s => { if (s.customerId) byCustomer.set(s.customerId, (byCustomer.get(s.customerId) || 0) + 1) })
+  const topCustomers = [...byCustomer.entries()].sort((a, b) => b[1] - a[1]).slice(0, 5).map(([id, n]) => ({
+    name: customers.find(c => c.id === id)?.name || 'Desconhecido',
+    vendas: n
+  }))
 
   return (
     <>
       <div className="page-row">
         <div className="page-title">
           <h2>Dashboard</h2>
-          <p>Resumo das vendas da Cookie Zookie 🍪</p>
+          <p>Resumo da Cookie Zookie 🍪</p>
         </div>
         <button className="btn btn-primary" onClick={onNewSale}><Plus size={16} /> Registrar Venda</button>
       </div>
 
-      {/* Galeria de sabores */}
+      {/* Galeria de sabores (sem preço) */}
       {products.length > 0 && (
         <div className="product-grid" style={{ marginBottom: 'var(--sp-6)' }}>
           {products.slice(0, 4).map(p => (
             <div key={p.id} className="product-card" style={{ textAlign: 'center', padding: 'var(--sp-4)' }}>
               <CookieArt name={p.name} size={64} />
               <div className="p-name">{p.name}</div>
-              <div className="p-price">{fmtBRL(p.price)}</div>
               <span className={`badge ${p.stock <= LOW_STOCK_THRESHOLD ? 'badge-warning' : 'badge-brand'}`}>Estoque: {p.stock}</span>
             </div>
           ))}
         </div>
       )}
 
-      <SensitiveData label="Desbloquear faturamento">
+      {/* Stats — sem senha, sem R$ */}
       <div className="grid grid-stats" style={{ marginBottom: 'var(--sp-6)' }}>
-        <StatCard icon={<DollarSign size={20} />} color="linear-gradient(135deg,#22C55E,#16A34A)" label="Faturamento total" value={fmtBRL(revenue)} sub={`${sales.length} vendas registradas`} />
-        <StatCard icon={<Wallet size={20} />} color="linear-gradient(135deg,#3B82F6,#2563EB)" label="Pago" value={fmtBRL(sales.filter(s => s.status === 'Pago').reduce((a, s) => a + s.total, 0))} sub={`${paidCount} vendas pagas`} />
-        <StatCard icon={<Clock3 size={20} />} color="linear-gradient(135deg,#F59E0B,#D97706)" label="Pendente" value={fmtBRL(pending)} sub={`${sales.filter(s => s.status === 'Pendente').length} a receber`} />
-        <StatCard icon={<ShoppingBag size={20} />} color="linear-gradient(135deg,#E8923F,#D47A27)" label="Cookies vendidos" value={String(totalSold)} sub={`${customers.length} clientes`} />
+        <StatCard icon={<ShoppingBag size={20} />} color="linear-gradient(135deg,#E8923F,#D47A27)" label="Vendas realizadas" value={String(sales.length)} sub={`${paidCount} pagas`} />
+        <StatCard icon={<Package size={20} />} color="linear-gradient(135deg,#22C55E,#16A34A)" label="Cookies vendidos" value={String(totalSold)} />
+        <StatCard icon={<Clock3 size={20} />} color="linear-gradient(135deg,#F59E0B,#D97706)" label="Pedidos pendentes" value={String(pending.length)} sub={`${pending.reduce((a, s) => a + s.items.reduce((x, i) => x + i.qty, 0), 0)} unidades`} />
+        <StatCard icon={<Users size={20} />} color="linear-gradient(135deg,#3B82F6,#2563EB)" label="Clientes" value={String(customers.length)} />
       </div>
-      </SensitiveData>
 
-      <SensitiveData label="Desbloquear gráficos financeiros">
+      {/* Gráficos — sem senha, contagens */}
       <div className="grid grid-2">
         <div className="card">
-          <h3 className="card-title">Faturamento (últimos 7 dias)</h3>
+          <h3 className="card-title"><BarChart3 size={16} /> Vendas por dia (últimos 7)</h3>
           <ResponsiveContainer width="100%" height={260}>
-            <LineChart data={last7}>
+            <BarChart data={last7}>
               <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
               <XAxis dataKey="dia" stroke="var(--chart-axis)" fontSize={12} />
-              <YAxis stroke="var(--chart-axis)" fontSize={12} />
-              <Tooltip formatter={(v: number) => [fmtBRL(v), 'Total']} contentStyle={{ background: 'var(--chart-tooltip-bg)', border: '1px solid var(--chart-tooltip-border)', borderRadius: 12 }} />
-              <Line type="monotone" dataKey="total" stroke="var(--chart-1)" strokeWidth={2.5} dot={{ r: 3, fill: 'var(--chart-1)' }} />
-            </LineChart>
+              <YAxis stroke="var(--chart-axis)" fontSize={12} allowDecimals={false} />
+              <Tooltip formatter={(v: number, name: string) => [v, name === 'vendas' ? 'Vendas' : 'Unidades']} contentStyle={{ background: 'var(--chart-tooltip-bg)', border: '1px solid var(--chart-tooltip-border)', borderRadius: 12 }} />
+              <Legend wrapperStyle={{ color: 'var(--tx-1)' }} />
+              <Bar dataKey="vendas" name="Vendas" fill="var(--chart-1)" radius={[4, 4, 0, 0]} />
+              <Bar dataKey="unidades" name="Unidades" fill="var(--chart-2)" radius={[4, 4, 0, 0]} />
+            </BarChart>
           </ResponsiveContainer>
         </div>
 
         <div className="card">
-          <h3 className="card-title">Vendas por canal</h3>
-          <ResponsiveContainer width="100%" height={260}>
-            <PieChart>
-              <Pie data={byChannel} dataKey="value" nameKey="name" innerRadius={50} outerRadius={90} paddingAngle={3}>
-                {byChannel.map((_, i) => (
-                  <Cell key={i} fill={`var(--chart-${i + 1})`} />
-                ))}
-              </Pie>
-              <Tooltip formatter={(v: number) => fmtBRL(v)} contentStyle={{ background: 'var(--chart-tooltip-bg)', border: '1px solid var(--chart-tooltip-border)', borderRadius: 12 }} />
-              <Legend wrapperStyle={{ color: 'var(--tx-1)' }} />
-            </PieChart>
-          </ResponsiveContainer>
+          <h3 className="card-title"><Store size={16} /> Vendas por canal</h3>
+          {byChannel.length === 0 ? <p style={{ color: 'var(--tx-3)' }}>Sem dados.</p> : (
+            <ResponsiveContainer width="100%" height={260}>
+              <PieChart>
+                <Pie data={byChannel} dataKey="vendas" nameKey="name" innerRadius={50} outerRadius={90} paddingAngle={3}>
+                  {byChannel.map((_, i) => (
+                    <Cell key={i} fill={`var(--chart-${i + 1})`} />
+                  ))}
+                </Pie>
+                <Tooltip contentStyle={{ background: 'var(--chart-tooltip-bg)', border: '1px solid var(--chart-tooltip-border)', borderRadius: 12 }} />
+                <Legend wrapperStyle={{ color: 'var(--tx-1)' }} />
+              </PieChart>
+            </ResponsiveContainer>
+          )}
         </div>
       </div>
-      </SensitiveData>
 
-      <div className="grid grid-2">
+      <div className="grid grid-2" style={{ marginTop: 'var(--sp-6)' }}>
         <div className="card">
-          <h3 className="card-title">Sabores mais vendidos</h3>
+          <h3 className="card-title"><Award size={16} /> Sabores mais vendidos</h3>
           {topProducts.length === 0 ? <p style={{ color: 'var(--tx-3)' }}>Sem vendas ainda.</p> : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
               {topProducts.map(([name, qty], i) => (
@@ -131,7 +146,7 @@ export function Dashboard({ sales, products, customers, onNewSale }: {
         </div>
 
         <div className="card">
-          <h3 className="card-title">Estoque baixo</h3>
+          <h3 className="card-title"><AlertTriangle size={16} /> Estoque baixo</h3>
           {lowStock.length === 0
             ? <p style={{ color: 'var(--ok-600)' }}><CheckCircle2 size={16} style={{ verticalAlign: 'middle' }} /> Estoque em dia</p>
             : (
@@ -145,18 +160,60 @@ export function Dashboard({ sales, products, customers, onNewSale }: {
                   </div>
                 ))}
               </div>
-            )}
+            )
+          }
         </div>
       </div>
 
+      {/* Faturamento financeiro — protegido por senha de auditoria */}
+      <SensitiveData label="Dados financeiros" level="audit">
+              <div className="grid grid-stats" style={{ marginTop: 'var(--sp-6)', marginBottom: 'var(--sp-4)' }}>
+                <StatCard icon={<DollarSign size={20} />} color="linear-gradient(135deg,#22C55E,#16A34A)" label="Faturamento total" value={<MaskedMoney value={sales.reduce((a, s) => a + s.total, 0)} />} sub={`${sales.length} vendas`} />
+                <StatCard icon={<Wallet size={20} />} color="linear-gradient(135deg,#3B82F6,#2563EB)" label="Pago" value={<MaskedMoney value={sales.filter(s => s.status === 'Pago').reduce((a, s) => a + s.total, 0)} />} sub={`${paidCount} pagas`} />
+                <StatCard icon={<Clock3 size={20} />} color="linear-gradient(135deg,#F59E0B,#D97706)" label="Pendente" value={<MaskedMoney value={pending.reduce((a, s) => a + s.total, 0)} />} sub={`${pending.length} a receber`} />
+              </div>
+        <div className="card" style={{ marginBottom: 'var(--sp-6)' }}>
+          <h3 className="card-title"><TrendingUp size={16} /> Faturamento (últimos 7 dias)</h3>
+          <ResponsiveContainer width="100%" height={240}>
+            <LineChart data={last7}>
+              <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
+              <XAxis dataKey="dia" stroke="var(--chart-axis)" fontSize={12} />
+              <YAxis stroke="var(--chart-axis)" fontSize={12} />
+              <Tooltip formatter={(v: number) => [fmtBRL(v), 'Total']} contentStyle={{ background: 'var(--chart-tooltip-bg)', border: '1px solid var(--chart-tooltip-border)', borderRadius: 12 }} />
+              <Line type="monotone" dataKey="total" stroke="var(--chart-1)" strokeWidth={2.5} dot={{ r: 3, fill: 'var(--chart-1)' }} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </SensitiveData>
+
+      {/* Clientes que mais compram */}
+      {topCustomers.length > 0 && (
+        <div className="card" style={{ marginTop: 'var(--sp-6)', marginBottom: 'var(--sp-6)' }}>
+          <h3 className="card-title"><Users size={16} /> Clientes mais frequentes</h3>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
+            {topCustomers.map((c, i) => (
+              <div key={c.name} style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)' }}>
+                <span style={{ fontWeight: 700, color: 'var(--cz-600)', width: 22 }}>{['🥇','🥈','🥉','4º','5º'][i]}</span>
+                <div className="audit-avatar" style={{ background: 'var(--cz-500)', width: 32, height: 32, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#fff', fontSize: '0.75rem', fontWeight: 700 }}>
+                  {c.name.split(' ').map((n: string) => n[0]).join('').toUpperCase().slice(0, 2)}
+                </div>
+                <span style={{ flex: 1, fontWeight: 600 }}>{c.name}</span>
+                <span className="badge badge-brand">{c.vendas} {c.vendas === 1 ? 'compra' : 'compras'}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Últimas vendas */}
       <div className="card" style={{ marginTop: 'var(--sp-6)' }}>
-        <h3 className="card-title">Últimas vendas</h3>
+        <h3 className="card-title"><ShoppingBag size={16} /> Últimas vendas</h3>
         {recent.length === 0 ? (
           <div className="empty-state"><p>Nenhuma venda registrada ainda.</p></div>
         ) : (
           <div className="table-wrap">
             <table className="table">
-              <thead><tr><th>Data</th><th>Cliente</th><th>Itens</th><th>Pagamento</th><th>Status</th><th className="text-right">Total</th></tr></thead>
+              <thead><tr><th>Data</th><th>Cliente</th><th>Itens</th><th>Pagamento</th><th>Status</th></tr></thead>
               <tbody>
                 {recent.map(s => (
                   <tr key={s.id}>
@@ -165,7 +222,6 @@ export function Dashboard({ sales, products, customers, onNewSale }: {
                     <td>{s.items.map(i => `${i.name} x${i.qty}`).join(', ')}</td>
                     <td><span className="badge badge-neutral">{s.payment}</span></td>
                     <td><StatusBadge status={s.status} /></td>
-                    <td className="text-right" style={{ fontWeight: 700 }}>{fmtBRL(s.total)}</td>
                   </tr>
                 ))}
               </tbody>

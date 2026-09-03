@@ -4,8 +4,9 @@ import { ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, 
 import { Sale, CHANNELS, PAYMENTS, fmtBRL, fmtDate } from '../types'
 import { StatusBadge } from './Dashboard'
 import { SensitiveData } from '../components/SensitiveData'
+import { MaskedMoney } from '../components/MaskedMoney'
 
-function StatCard({ icon, color, label, value }: { icon: React.ReactNode; color: string; label: string; value: string }) {
+function StatCard({ icon, color, label, value }: { icon: React.ReactNode; color: string; label: string; value: React.ReactNode }) {
   return (
     <div className="card stat-card">
       <div className="stat-icon" style={{ background: color }}>{icon}</div>
@@ -66,11 +67,11 @@ export function ReportsView({ sales }: { sales: Sale[] }) {
       </div>
 
       <SensitiveData label="Desbloquear dados financeiros">
-      <div className="grid grid-stats" style={{ marginBottom: 'var(--space-6)' }}>
-        <StatCard icon={<DollarSign size={20} />} color="var(--ok-500)" label="Faturamento" value={fmtBRL(revenue)} />
-        <StatCard icon={<ShoppingBag size={20} />} color="var(--cz-500)" label="Vendas" value={String(count)} />
-        <StatCard icon={<TrendingUp size={20} />} color="var(--info-500)" label="Ticket médio" value={fmtBRL(avg)} />
-      </div>
+            <div className="grid grid-stats" style={{ marginBottom: 'var(--space-6)' }}>
+              <StatCard icon={<DollarSign size={20} />} color="var(--ok-500)" label="Faturamento" value={<MaskedMoney value={revenue} />} />
+              <StatCard icon={<ShoppingBag size={20} />} color="var(--cz-500)" label="Vendas" value={String(count)} />
+              <StatCard icon={<TrendingUp size={20} />} color="var(--info-500)" label="Ticket médio" value={<MaskedMoney value={avg} />} />
+            </div>
 
       <div className="grid grid-2">
         <div className="card">
@@ -135,17 +136,17 @@ export function ReportsView({ sales }: { sales: Sale[] }) {
             <table className="table">
               <thead><tr><th>Data</th><th>Itens</th><th>Pagamento</th><th>Status</th><th>Canal</th><th className="text-right">Total</th></tr></thead>
               <tbody>
-                {filtered.map(s => (
-                  <tr key={s.id}>
-                    <td>{fmtDate(s.date)}</td>
-                    <td>{s.items.map(i => `${i.name} x${i.qty}`).join(', ')}</td>
-                    <td><span className="badge badge-neutral">{s.payment}</span></td>
-                    <td><StatusBadge status={s.status} /></td>
-                    <td><span className="badge badge-brand">{s.channel}</span></td>
-                    <td className="text-right" style={{ fontWeight: 700 }}>{fmtBRL(s.total)}</td>
-                  </tr>
-                ))}
-              </tbody>
+                              {filtered.map(s => (
+                                <tr key={s.id}>
+                                  <td>{fmtDate(s.date)}</td>
+                                  <td>{s.items.map(i => `${i.name} x${i.qty}`).join(', ')}</td>
+                                  <td><span className="badge badge-neutral">{s.payment}</span></td>
+                                  <td><StatusBadge status={s.status} /></td>
+                                  <td><span className="badge badge-brand">{s.channel}</span></td>
+                                  <td className="text-right" style={{ fontWeight: 700 }}><MaskedMoney value={s.total} /></td>
+                                </tr>
+                              ))}
+                            </tbody>
             </table>
           </div>
         )}

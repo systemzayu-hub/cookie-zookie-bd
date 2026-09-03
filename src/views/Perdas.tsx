@@ -1,9 +1,46 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Plus, Trash2, AlertTriangle, Package, Lock } from 'lucide-react'
+import { Plus, Trash2, AlertTriangle, Package, Lock, Check } from 'lucide-react'
 import { SEED_PERDAS, CUSTOS_PRODUCAO } from '../pendencias-avancado'
 import { load, save } from '../data'
 import { usePasswordGuard } from '../components/PasswordGate'
 import { logAction } from '../audit'
+import { MaskedMoney } from '../components/MaskedMoney'
+import { MaskedPII } from '../components/MaskedPII'
+
+// Modal de confirmação dupla para exclusão (reutilizável local)
+function ConfirmDeleteModal({ isOpen, onClose, onConfirm, title, message, itemName }: {
+  isOpen: boolean; onClose: () => void; onConfirm: () => void; title: string; message: string; itemName: string
+}) {
+  const [checked, setChecked] = useState(false)
+  const [typed, setTyped] = useState('')
+  const canConfirm = checked && typed.toUpperCase() === 'EXCLUIR'
+  if (!isOpen) return null
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div className="modal modal-sm" onClick={e => e.stopPropagation()}>
+        <div className="modal-header">
+          <h3>{title}</h3>
+        </div>
+        <div className="form" style={{ padding: 'var(--sp-4)' }}>
+          <p style={{ color: 'var(--tx-1)', marginBottom: 'var(--sp-4)' }}>{message}</p>
+          <p style={{ fontWeight: 600, color: 'var(--cz-600)', marginBottom: 'var(--sp-4)' }}>{itemName}</p>
+          <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', cursor: 'pointer', marginBottom: 'var(--sp-3)' }}>
+            <input type="checkbox" checked={checked} onChange={e => setChecked(e.target.checked)} style={{ width: 18, height: 18, cursor: 'pointer' }} />
+            <span>Entendo que é irreversível</span>
+          </label>
+          <div className="field">
+            <label>Digite EXCLUIR para confirmar</label>
+            <input type="text" value={typed} onChange={e => setTyped(e.target.value)} placeholder="EXCLUIR" style={{ textTransform: 'uppercase' }} />
+          </div>
+          <div className="modal-actions" style={{ marginTop: 'var(--sp-4)' }}>
+            <button className="btn btn-secondary" onClick={onClose}>Cancelar</button>
+            <button className="btn btn-danger" onClick={onConfirm} disabled={!canConfirm}>Excluir</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
 
 export interface Perda {
   id: string
@@ -19,6 +56,7 @@ export function PerdasView() {
   const [perdas, setPerdas] = useState<Perda[]>(() => load('cc_perdas', SEED_PERDAS as unknown as Perda[]) as Perda[])
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ date: '', produto: '', qtd: '', motivo: '', custoUnit: '' })
+  const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null)
   const { guard } = usePasswordGuard()
 
   useEffect(() => {
@@ -61,11 +99,19 @@ export function PerdasView() {
     }))
   }
 
-  const removePerda = (id: string) => guard('Excluir perda', () => {
+  const removePerda = (id: string) => {
     const p = perdas.find(x => x.id === id)
-    setPerdas(prev => prev.filter(p => p.id !== id))
-    logAction('perda', `Excluiu perda${p ? ` de ${p.qtd} un de "${p.produto}"` : ''}`)
-  })
+    if (p) setDeleteConfirm({ id: p.id, name: `${p.produto} (${p.qtd} un)` })
+  }
+
+  const confirmDelete = () => {
+    if (!deleteConfirm) return
+    guard('Excluir perda', () => {
+      setPerdas(prev => prev.filter(p => p.id !== deleteConfirm.id))
+      logAction('perda', `Excluiu perda${perdas.find(x => x.id === deleteConfirm.id) ? ` de ${perdas.find(x => x.id === deleteConfirm.id)?.qtd} un de "${perdas.find(x => x.id === deleteConfirm.id)?.produto}"` : ''}`)
+      setDeleteConfirm(null)
+    })
+  }
 
   const fmtBRL = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
   const fmtBRL_audit = fmtBRL
@@ -124,8 +170,8 @@ export function PerdasView() {
                     <td>{p.produto}</td>
                     <td style={{ fontWeight: 700 }}>{p.qtd} un</td>
                     <td>{p.motivo}</td>
-                    <td className="text-right">{fmtBRL(p.custoUnit)}</td>
-                    <td className="text-right" style={{ fontWeight: 700, color: 'var(--danger-600)' }}>{fmtBRL(p.custoTotal)}</td>
+                    <td className="text-right"><MaskedMoney value={p.custoUnit} /></td>
+                    <td className="text-right" style={{ fontWeight: 700, color: 'var(--danger-600)' }}><MaskedMoney value={p.custoTotal} /></td>
                     <td className="text-right">
                       <button className="btn btn-danger btn-sm" onClick={() => removePerda(p.id)} title="Excluir">
                         <Trash2 size={14} />
@@ -186,6 +232,17 @@ export function PerdasView() {
             </div>
           </div>
         </div>
+      )}
+
+      {deleteConfirm && (
+        <ConfirmDeleteModal
+          isOpen={true}
+          onClose={() => setDeleteConfirm(null)}
+          onConfirm={confirmDelete}
+          title="Excluir perda"
+          message="Esta ação não pode ser desfeita. O registro de perda será removido permanentemente."
+          itemName={deleteConfirm.name}
+        />
       )}
     </>
   )

@@ -1,8 +1,6 @@
 import { useState, useCallback, type ReactNode } from 'react'
 import { Lock, Eye, EyeOff } from 'lucide-react'
-import { useAuth, grant } from '../auth'
-
-const PW_HASH = '70e58a3aeb9d8ade3ca32d518e28de7f9c889b50b82c667d344eb062234f6215'
+import { useAuth, grant, HASHES, type Level } from '../auth'
 
 async function hashPw(pw: string): Promise<string> {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pw))
@@ -10,75 +8,79 @@ async function hashPw(pw: string): Promise<string> {
 }
 
 /**
- * Esconde conteúdo financeiro sensível. Mostra um overlay com blur + candado.
- * Ao digitar a senha admin, revela o conteúdo até a página ser recarregada.
- * Wraps children — se desbloqueado, renderiza normalmente.
+ * Esconde conteúdo financeiro sensível. Botão de desbloquear aparece NO TOPO da seção (sticky).
+ * Ao digitar a senha do nível correto, revela o conteúdo até a página ser recarregada.
+ *
+ * @param level 'audit' = ver dados financeiros (senha CoZooAdm0406); 'admin' = ver+editar (senha CookiZo0406)
  */
-export function SensitiveData({ children, label }: { children: ReactNode; label?: string }) {
-  // Em memória apenas — recarregar a página volta a pedir a senha
-  const unlocked = useAuth('admin')
+export function SensitiveData({ children, label, level = 'audit' }: { children: ReactNode; label?: string; level?: Level }) {
+  const hash = HASHES[level]
+  const unlocked = useAuth(level)
   const [showInput, setShowInput] = useState(false)
   const [input, setInput] = useState('')
   const [show, setShow] = useState(false)
   const [error, setError] = useState(false)
 
   const unlock = useCallback(async () => {
-    if ((await hashPw(input)) === PW_HASH) {
-      grant('admin')
+    if ((await hashPw(input)) === hash) {
+      grant(level)
       setShowInput(false)
       setError(false)
     } else {
       setError(true)
     }
-  }, [input])
+  }, [input, hash, level])
 
   if (unlocked) return <>{children}</>
 
   return (
     <div style={{ position: 'relative' }}>
-      {/* Conteúdo borrado por baixo */}
+      {/* Botão sticky — PRIMEIRO no DOM, gruda no topo ao rolar */}
+      <div style={{
+        position: 'sticky', top: 0, zIndex: 20,
+        marginBottom: 'var(--sp-3)', pointerEvents: 'auto',
+      }}>
+        <button
+          className="btn btn-cz"
+          onClick={() => { setShowInput(true); setInput(''); setError(false) }}
+          style={{
+            display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px',
+            width: '100%', minHeight: '52px', fontSize: '1rem', fontWeight: 700,
+            boxShadow: '0 8px 24px rgba(0,0,0,0.25)',
+          }}
+        >
+          <Lock size={20} /> {label || 'Desbloquear preços'}
+        </button>
+      </div>
+
+      {/* Conteúdo borrado — DEPOIS do botão, aparece abaixo */}
       <div style={{ filter: 'blur(6px)', pointerEvents: 'none', userSelect: 'none', opacity: 0.4 }}>
         {children}
       </div>
 
-      {/* Overlay de bloqueio */}
-      <div style={{
-        position: 'absolute', inset: 0,
-        display: 'flex', flexDirection: 'column',
-        alignItems: 'center', justifyContent: 'center',
-        gap: 'var(--sp-3)',
-      }}>
-        {!showInput ? (
-          <button
-            className="btn btn-ghost"
-            onClick={() => { setShowInput(true); setInput(''); setError(false) }}
-            style={{
-              display: 'inline-flex', alignItems: 'center', gap: '8px',
-              background: 'var(--surface)', border: '1px solid var(--border)',
-              borderRadius: 'var(--radius)', padding: 'var(--sp-3) var(--sp-5)',
-              fontWeight: 600, fontSize: '0.9rem',
-              boxShadow: '0 4px 16px rgba(0,0,0,0.15)',
-            }}
-          >
-            <Lock size={18} /> {label || 'Desbloquear dados financeiros'}
-          </button>
-        ) : (
+      {/* Modal de senha */}
+      {showInput && (
+        <div style={{
+          position: 'fixed', inset: 0, zIndex: 9999,
+          background: 'rgba(0,0,0,0.65)', backdropFilter: 'blur(6px)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          padding: 'var(--sp-4)',
+        }}>
           <div style={{
             display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)',
             background: 'var(--surface)', border: '1px solid var(--border)',
-            borderRadius: 'var(--radius)', padding: 'var(--sp-4)',
-            boxShadow: '0 8px 32px rgba(0,0,0,0.2)', maxWidth: '360px', width: '92%',
+            borderRadius: 'var(--radius)', padding: 'var(--sp-6) var(--sp-5)',
+            boxShadow: '0 8px 32px rgba(0,0,0,0.2)', maxWidth: '360px', width: '100%',
           }}>
             <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontWeight: 600, fontSize: '0.95rem', color: 'var(--tx-1)' }}>
               <Lock size={18} style={{ color: 'var(--cz-500)', flexShrink: 0 }} />
               {label || 'Desbloquear dados financeiros'}
             </label>
-            {/* Campo com olhinho para revelar/esconder a senha */}
             <div style={{ position: 'relative', width: '100%' }}>
               <input
                 type={show ? 'text' : 'password'}
                 className={`pw-input ${error ? 'pw-error' : ''}`}
-                placeholder="Senha admin"
+                placeholder="Senha"
                 value={input}
                 onChange={e => { setInput(e.target.value); setError(false) }}
                 onKeyDown={e => e.key === 'Enter' && unlock()}
@@ -113,8 +115,8 @@ export function SensitiveData({ children, label }: { children: ReactNode; label?
               >Cancelar</button>
             </div>
           </div>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   )
 }

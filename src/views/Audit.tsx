@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
-import { ShieldCheck, Lock, X, RefreshCw, ChevronDown, ChevronRight, Users, Tag, Calendar, Filter, Download } from 'lucide-react'
+import { Lock, Eye, EyeOff, ShieldCheck, X, RefreshCw, ChevronDown, ChevronRight, Users, Tag, Calendar, Filter, Download } from 'lucide-react'
 import { loadAuditRemote, auditHash, AUDIT_PW_HASH, type AuditEntry } from '../audit'
 import { onAuditChanges } from '../sync'
 
@@ -30,6 +30,7 @@ type FilterState = { member: string; action: string; period: PeriodOption; date:
 export function AuditView() {
   const [unlocked, setUnlocked] = useState(false)
   const [pw, setPw] = useState('')
+  const [showPw, setShowPw] = useState(false)
   const [err, setErr] = useState(false)
   const [entries, setEntries] = useState<AuditEntry[]>([])
   const [loading, setLoading] = useState(false)
@@ -171,16 +172,30 @@ export function AuditView() {
           <p style={{ color: 'var(--tx-2)', marginBottom: 'var(--sp-6)' }}>
             Área restrita ao administrador. Informe a senha para ver o histórico de ações de cada pessoa.
           </p>
-          <input
-            type="password"
-            className={`pw-input ${err ? 'pw-error' : ''}`}
-            placeholder="Senha de administrador"
-            style={{ maxWidth: 320, margin: '0 auto var(--sp-4)' }}
-            value={pw}
-            onChange={e => { setPw(e.target.value); setErr(false) }}
-            onKeyDown={e => e.key === 'Enter' && doUnlock()}
-            autoFocus
-          />
+          <div style={{ position: 'relative', maxWidth: 320, margin: '0 auto var(--sp-4)', width: '100%' }}>
+            <input
+              type={showPw ? 'text' : 'password'}
+              className={`pw-input ${err ? 'pw-error' : ''}`}
+              placeholder="Senha de administrador"
+              style={{ width: '100%', paddingRight: '44px', textAlign: 'left' }}
+              value={pw}
+              onChange={e => { setPw(e.target.value); setErr(false) }}
+              onKeyDown={e => e.key === 'Enter' && doUnlock()}
+              autoFocus
+            />
+            <button
+              type="button"
+              onClick={() => setShowPw(s => !s)}
+              aria-label={showPw ? 'Ocultar senha' : 'Mostrar senha'}
+              style={{
+                position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)',
+                background: 'none', border: 'none', cursor: 'pointer',
+                color: 'var(--tx-3)', padding: '8px', display: 'flex',
+              }}
+            >
+              {showPw ? <EyeOff size={20} /> : <Eye size={20} />}
+            </button>
+          </div>
           {err && <div className="pw-error-msg">Senha incorreta</div>}
           <div>
             <button className="btn btn-cz" onClick={doUnlock}><Lock size={16} /> Acessar auditoria</button>

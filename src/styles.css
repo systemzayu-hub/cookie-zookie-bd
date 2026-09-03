@@ -684,6 +684,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
   .modal-header h3 { font-size: var(--fs-xl); }
 
   .pw-modal { padding: 20px 24px; margin: var(--sp-3); }
+  .pw-input { font-size: var(--fs-base); padding: var(--sp-3) var(--sp-4); }
   .pw-buttons { flex-direction: column; }
   .pw-buttons .btn { width: 100%; }
 

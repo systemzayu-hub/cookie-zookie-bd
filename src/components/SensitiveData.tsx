@@ -1,8 +1,8 @@
 import { useState, useCallback, type ReactNode } from 'react'
 import { Lock, Eye, EyeOff } from 'lucide-react'
+import { useAuth, grant } from '../auth'
 
 const PW_HASH = '70e58a3aeb9d8ade3ca32d518e28de7f9c889b50b82c667d344eb062234f6215'
-const STORAGE_KEY = 'cz_fin_unlocked'
 
 async function hashPw(pw: string): Promise<string> {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pw))
@@ -11,11 +11,12 @@ async function hashPw(pw: string): Promise<string> {
 
 /**
  * Esconde conteúdo financeiro sensível. Mostra um overlay com blur + candado.
- * Ao digitar a senha admin, revela o conteúdo para toda a sessão.
+ * Ao digitar a senha admin, revela o conteúdo até a página ser recarregada.
  * Wraps children — se desbloqueado, renderiza normalmente.
  */
 export function SensitiveData({ children, label }: { children: ReactNode; label?: string }) {
-  const [unlocked, setUnlocked] = useState(() => sessionStorage.getItem(STORAGE_KEY) === PW_HASH)
+  // Em memória apenas — recarregar a página volta a pedir a senha
+  const unlocked = useAuth('admin')
   const [showInput, setShowInput] = useState(false)
   const [input, setInput] = useState('')
   const [show, setShow] = useState(false)
@@ -23,10 +24,9 @@ export function SensitiveData({ children, label }: { children: ReactNode; label?
 
   const unlock = useCallback(async () => {
     if ((await hashPw(input)) === PW_HASH) {
-      sessionStorage.setItem(STORAGE_KEY, PW_HASH)
-      sessionStorage.setItem('cz_pw', PW_HASH)          // compartilhar com PasswordGate
-      setUnlocked(true)
+      grant('admin')
       setShowInput(false)
+      setError(false)
     } else {
       setError(true)
     }

@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
 import { Lock, Eye, EyeOff } from 'lucide-react'
+import { useAuth, grant } from '../auth'
 
 /** SHA-256 hash da senha de edição — nunca armazenar em texto plano */
 const PW_HASH = '70e58a3aeb9d8ade3ca32d518e28de7f9c889b50b82c667d344eb062234f6215'
@@ -19,16 +20,17 @@ export function PasswordProvider({ children }: { children: ReactNode }) {
   const [input, setInput] = useState('')
   const [show, setShow] = useState(false)
   const [error, setError] = useState(false)
+  // Em memória apenas — recarregar a página volta a pedir a senha
+  const unlocked = useAuth('admin')
 
   const guard = useCallback((label: string, fn: () => void) => {
-    if (sessionStorage.getItem('cz_pw') === PW_HASH) { fn(); return }
+    if (unlocked) { fn(); return }
     setPending({ label, fn }); setInput(''); setShow(false); setError(false)
-  }, [])
+  }, [unlocked])
 
   const verify = async () => {
     if ((await hashPw(input)) === PW_HASH) {
-      sessionStorage.setItem('cz_pw', PW_HASH)
-      sessionStorage.setItem('cz_fin_unlocked', PW_HASH) // compartilhar com SensitiveData
+      grant('admin')
       pending?.fn()
       setPending(null)
     } else { setError(true) }

@@ -5,9 +5,9 @@
  * menos textura) para não virar borrão.
  * Indicadores de sabor assados na superfície (não logos flutuando):
  *   Tradicional = chip cookie clássico (limpo)
- *   Meio Amargo = fio de ganache de chocolate meio-amargo + achocolatados
+ *   Meio Amargo = chips escuros meio-amargo (sem barra)
  *   Nutella     = topo de creme de avelã (Nutella) derretido + avelã
- *   Kinder      = chips de chocolate branco + fita Kinder de chocolate vermelho
+ *   Kinder      = chunk de Kinder Bueno (chocolate branco + wafer + cobertura)
  */
 
 import React from 'react'
@@ -236,43 +236,26 @@ export function CookieArt({ name, size = 72, className }: Props) {
 
       {/* ==== Indicadores de sabor (assados na superfície) ==== */}
 
-      {/* Meio Amargo: pedaço de barra de chocolate meio-amargo assado no centro */}
+      {/* Meio Amargo: chips escuros extras mais intensos (sem barra) */}
       {v === 'meio-amargo' && (
         <g clipPath={`url(#${id('cc')})`}>
           {(() => {
-            const bw = r * (isSmall ? 0.5 : 0.6)
-            const bh = r * (isSmall ? 0.4 : 0.5)
-            const bx = cx - bw / 2, by = cy - bh / 2
-            const nCols = isSmall ? 2 : 3
-            const nRows = isSmall ? 2 : 3
-            const cw = bw / nCols
-            const chh = bh / nRows
-            const squares: { x: number; y: number }[] = []
-            for (let i = 0; i < nRows; i++)
-              for (let j = 0; j < nCols; j++)
-                squares.push({ x: bx + j * cw, y: by + i * chh })
+            const extraCount = isSmall ? 3 : 6
+            const extraChips = generateChips(cx, cy, r, extraCount, seed + 500, 0, isSmall ? 0.65 : 0.78)
+              .filter((c) => Math.sqrt((c.x - cx) ** 2 + (c.y - cy) ** 2) < r * 0.8)
             return (
               <>
-                {/* sombra projetada na massa */}
-                <rect x={bx + s * 0.012} y={by + s * 0.016} width={bw} height={bh} rx={s * 0.02} fill="#2E1A0E" opacity="0.32" />
-                {/* corpo sólido da barra meio-amargo */}
-                <rect x={bx} y={by} width={bw} height={bh} rx={s * 0.018} fill="#2A1A0E" />
-                {/* quadradinhos separados (textura de barra de chocolate) */}
-                {squares.map((sq, i) => (
-                  <rect key={`sq${i}`} x={sq.x + cw * 0.06} y={sq.y + chh * 0.06}
-                    width={cw - cw * 0.12} height={chh - chh * 0.12} rx={s * 0.012} fill="#331F10" />
-                ))}
-                {/* brilho mate suave */}
-                <path
-                  d={`M ${bx + s * 0.05} ${by + s * 0.06} L ${bx + bw - s * 0.05} ${by + s * 0.06}`}
-                  stroke="#6b4520" strokeWidth={s * 0.02} strokeLinecap="round" opacity="0.7"
-                />
-                {!isSmall && (
-                  <path
-                    d={`M ${bx + s * 0.1} ${by + bh * 0.2} C ${bx + bw * 0.3} ${by + bh * 0.1} ${bx + bw * 0.6} ${by + bh * 0.3} ${bx + bw - s * 0.06} ${by + bh * 0.16}`}
-                    stroke="#B8853C" strokeWidth={s * 0.016} strokeLinecap="round" opacity="0.45" fill="none"
-                  />
-                )}
+                {extraChips.map((c, i) => {
+                  const ccx = c.x, ccy = c.y
+                  const w = chipW(c) * 1.15, h = Math.max(1.5, c.h) * 1.1
+                  return (
+                    <g key={`mc${i}`} transform={`rotate(${c.rot} ${ccx} ${ccy})`}>
+                      <ellipse cx={ccx + w * 0.03} cy={ccy + h * 0.09} rx={w * 0.55} ry={h * 0.52} fill="#1A0E06" opacity="0.4" />
+                      <ellipse cx={ccx} cy={ccy} rx={w * 0.5} ry={h * 0.48} fill="#201108" />
+                      <ellipse cx={ccx - w * 0.1} cy={ccy - h * 0.15} rx={w * 0.14} ry={h * 0.11} fill="#3D2515" opacity="0.5" />
+                    </g>
+                  )
+                })}
               </>
             )
           })()}
@@ -310,52 +293,71 @@ export function CookieArt({ name, size = 72, className }: Props) {
         </g>
       )}
 
-      {/* Kinder: fita de chocolate vermelho ASSADA, embutida na massa + chips brancos */}
+      {/* Kinder Bueno: chunk de barra Kinder embutido (orgânico, com borda irregular) */}
       {v === 'kinder' && (
         <g clipPath={`url(#${id('cc')})`}>
           {(() => {
-            const kw = r * (isSmall ? 0.6 : 0.7)
-            const kh = r * (isSmall ? 0.34 : 0.4)
-            const kx = cx - kw / 2, ky = cy - kh / 2
-            // cor vermelho-chocolate assada (mate, não neon)
-            const redFill = isSmall ? "#B93A33" : "#A9322C"
+            const kw = r * (isSmall ? 0.58 : 0.7)
+            const kh = r * (isSmall ? 0.4 : 0.48)
+            const kx = cx - kw / 2, ky = cy - kh * 0.5
+            const dark = isSmall ? '#6b4426' : '#7C4F2B'
+            const fillShadow = '#2E1A0E'
             return (
               <>
-                {/* sombra suave projetada na massa */}
+                {/* sombra orgânica projetada na massa */}
+                <ellipse cx={cx} cy={ky + kh * 0.88} rx={kw * 0.62} ry={kh * 0.32} fill={fillShadow} opacity="0.3" />
+
+                {/* corpo de chocolate ao leite (borda irregular = feito na mão) */}
                 <path
-                  d={`M ${kx + kh * 0.2} ${ky + kh * 0.8} C ${kx - kh * 0.3} ${ky + kh * 0.5} ${kx - kh * 0.2} ${ky + kh * 0.1} ${kx + kh * 0.15} ${ky + kh * 0.05} C ${kx + kw * 0.74} ${ky - kh * 0.1} ${kx + kw * 0.9} ${ky + kh * 0.5} ${kx + kw * 0.7} ${ky + kh * 0.7} C ${kx + kw * 0.5} ${ky + kh * 0.9} ${kx + kh * 0.42} ${ky + kh * 0.85} ${kx + kh * 0.2} ${ky + kh * 0.8} Z`}
-                  fill="#2E1A0E" opacity="0.3" transform={`translate(${s*0.012},${s*0.014})`}
+                  d={`M ${kx + kw * 0.12} ${ky + kh * 0.86}
+                      C ${kx - kw * 0.08} ${ky + kh * 0.6} ${kx - kw * 0.02} ${ky + kh * 0.28} ${kx + kw * 0.18} ${ky + kh * 0.14}
+                      C ${kx + kw * 0.32} ${ky + kh * 0.02} ${kx + kw * 0.6} ${ky - kh * 0.06} ${kx + kw * 0.8} ${ky + kh * 0.1}
+                      C ${kx + kw * 1.05} ${ky + kh * 0.3} ${kx + kw * 1.0} ${ky + kh * 0.62} ${kx + kw * 0.82} ${ky + kh * 0.82}
+                      C ${kx + kw * 0.66} ${ky + kh * 0.98} ${kx + kw * 0.3} ${ky + kh * 0.98} ${kx + kw * 0.12} ${ky + kh * 0.86} Z`}
+                  fill={dark}
                 />
-                {/* corpo de chocolate vermelho (borda irregular = feito na mão, tom mate) */}
+                {/* wafer crocante (camada interna clara, menor, orgânica) */}
                 <path
-                  d={`M ${kx + kh * 0.2} ${ky + kh * 0.8} C ${kx - kh * 0.3} ${ky + kh * 0.5} ${kx - kh * 0.2} ${ky + kh * 0.1} ${kx + kh * 0.15} ${ky + kh * 0.05} C ${kx + kw * 0.42} ${ky - kh * 0.16} ${kx + kw * 0.5} ${ky + kh * 0.02} ${kx + kw * 0.74} ${ky - kh * 0.1} C ${kx + kw * 0.9} ${ky + kh * 0.4} ${kx + kw * 0.78} ${ky + kh * 0.5} ${kx + kw * 0.7} ${ky + kh * 0.7} C ${kx + kw * 0.5} ${ky + kh * 0.9} ${kx + kh * 0.42} ${ky + kh * 0.85} ${kx + kh * 0.2} ${ky + kh * 0.8} Z`}
-                  fill={redFill}
+                  d={`M ${kx + kw * 0.22} ${ky + kh * 0.7}
+                      C ${kx + kw * 0.08} ${ky + kh * 0.5} ${kx + kw * 0.14} ${ky + kh * 0.26} ${kx + kw * 0.34} ${ky + kh * 0.16}
+                      C ${kx + kw * 0.5} ${ky + kh * 0.06} ${kx + kw * 0.72} ${ky + kh * 0.08} ${kx + kw * 0.82} ${ky + kh * 0.26}
+                      C ${kx + kw * 0.92} ${ky + kh * 0.44} ${kx + kw * 0.82} ${ky + kh * 0.66} ${kx + kw * 0.66} ${ky + kh * 0.76}
+                      C ${kx + kw * 0.5} ${ky + kh * 0.86} ${kx + kw * 0.34} ${ky + kh * 0.86} ${kx + kw * 0.22} ${ky + kh * 0.7} Z`}
+                  fill="#DCD0B0"
                 />
-                {/* brilho mate + leve granulação do chocolate vermelho */}
+                {/* creme branco de avelã (núcleo, o charme do Kinder Bueno) */}
                 <path
-                  d={`M ${kx + kh * 0.3} ${ky + kh * 0.16} C ${kx + kh * 0.1} ${ky + kh * 0.06} ${kx + kw * 0.3} ${ky - kh * 0.02} ${kx + kw * 0.52} ${ky + kh * 0.02}`}
-                  fill="none" stroke="#D4756B" strokeWidth={Math.max(0.7, s * 0.026)} strokeLinecap="round" opacity="0.55"
+                  d={`M ${kx + kw * 0.3} ${ky + kh * 0.62}
+                      C ${kx + kw * 0.2} ${ky + kh * 0.46} ${kx + kw * 0.26} ${ky + kh * 0.28} ${kx + kw * 0.42} ${ky + kh * 0.2}
+                      C ${kx + kw * 0.56} ${ky + kh * 0.12} ${kx + kw * 0.7} ${ky + kh * 0.16} ${kx + kw * 0.76} ${ky + kh * 0.3}
+                      C ${kx + kw * 0.82} ${ky + kh * 0.44} ${kx + kw * 0.72} ${ky + kh * 0.6} ${kx + kw * 0.58} ${ky + kh * 0.66}
+                      C ${kx + kw * 0.44} ${ky + kh * 0.72} ${kx + kw * 0.38} ${ky + kh * 0.72} ${kx + kw * 0.3} ${ky + kh * 0.62} Z`}
+                  fill="#F7E7C9"
                 />
-                {/* fita de leite central, mais grossa e levemente irregular (embutida) */}
-                <path
-                  d={`M ${kx + kh * 0.24} ${ky + kh * 0.5} C ${kx + kh * 0.06} ${ky + kh * 0.32} ${kx + kh * 0.34} ${ky + kh * 0.2} ${kx + kw * 0.55} ${ky + kh * 0.24} C ${kx + kw * 0.72} ${ky + kh * 0.26} ${kx + kw * 0.8} ${ky + kh * 0.34} ${kx + kw * 0.82} ${ky + kh * 0.43}`}
-                  fill="none" stroke="#EFE3CB" strokeWidth={Math.max(1.6, s * 0.06)} strokeLinecap="round" opacity="0.96"
-                />
-                {/* sombra sob a fita dentro do cookie (embutida) */}
-                <path
-                  d={`M ${kx + kh * 0.3} ${ky + kh * 0.58} C ${kx + kh * 0.12} ${ky + kh * 0.4} ${kx + kh * 0.34} ${ky + kh * 0.3} ${kx + kw * 0.6} ${ky + kh * 0.32}`}
-                  fill="none" stroke="#4a1210" strokeWidth={Math.max(0.6, s * 0.02)} strokeLinecap="round" opacity="0.35"
-                />
+                {/* brilho suave no creme */}
+                {!isSmall && (
+                  <path
+                    d={`M ${kx + kw * 0.36} ${ky + kh * 0.4} C ${kx + kw * 0.46} ${ky + kh * 0.32} ${kx + kw * 0.6} ${ky + kh * 0.3} ${kx + kw * 0.68} ${ky + kh * 0.38}`}
+                    fill="none" stroke="#FFF8E8" strokeWidth={Math.max(0.6, s * 0.02)} strokeLinecap="round" opacity="0.7"
+                  />
+                )}
+                {/* partículas de wafer crocante dentro do creme (pontinhos) */}
                 {!isSmall && (
                   <>
-                    {/* rebordo de massa dobrada sobre as bordas (assado/embutido) */}
+                    <ellipse cx={cx - kw * 0.12} cy={ky + kh * 0.38} rx={s * 0.018} ry={s * 0.012} fill="#B8A984" opacity="0.8" transform={`rotate(-20 ${cx - kw * 0.12} ${ky + kh * 0.38})`} />
+                    <ellipse cx={cx + kw * 0.08} cy={ky + kh * 0.5} rx={s * 0.016} ry={s * 0.01} fill="#B8A984" opacity="0.7" transform={`rotate(30 ${cx + kw * 0.08} ${ky + kh * 0.5})`} />
+                  </>
+                )}
+                {/* rebordo de massa dobrada sobre as bordas (assado/embutido) */}
+                {!isSmall && (
+                  <>
                     <path
-                      d={`M ${kx + kh * 0.08} ${ky + kh * 0.62} C ${kx + kh * 0.28} ${ky + kh * 0.74} ${kx + kh * 0.44} ${ky + kh * 0.86} ${kx + kh * 0.62} ${ky + kh * 0.8}`}
-                      fill="none" stroke="#DDBE7E" strokeWidth={Math.max(1, s * 0.03)} strokeLinecap="round" opacity="0.6"
+                      d={`M ${kx + kw * 0.05} ${ky + kh * 0.5} C ${kx + kw * 0.2} ${ky + kh * 0.68} ${kx + kw * 0.4} ${ky + kh * 0.8} ${kx + kw * 0.6} ${ky + kh * 0.75}`}
+                      fill="none" stroke="#DDBE7E" strokeWidth={Math.max(1.2, s * 0.032)} strokeLinecap="round" opacity="0.6"
                     />
                     <path
-                      d={`M ${kx + kh * 0.3} ${ky + kh * 0.02} C ${kx + kh * 0.16} ${ky - kh * 0.08} ${kx + kw * 0.3} ${ky - kh * 0.14} ${kx + kw * 0.46} ${ky - kh * 0.08}`}
-                      fill="none" stroke="#C9A25F" strokeWidth={Math.max(1, s * 0.028)} strokeLinecap="round" opacity="0.55"
+                      d={`M ${kx + kw * 0.4} ${ky + kh * 0.05} C ${kx + kw * 0.3} ${ky - kh * 0.1} ${kx + kw * 0.6} ${ky - kh * 0.14} ${kx + kw * 0.72} ${ky - kh * 0.04}`}
+                      fill="none" stroke="#C9A25F" strokeWidth={Math.max(1.2, s * 0.03)} strokeLinecap="round" opacity="0.55"
                     />
                   </>
                 )}

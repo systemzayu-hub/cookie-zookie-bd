@@ -24,6 +24,7 @@ export function SensitiveData({ children, label }: { children: ReactNode; label?
   const unlock = useCallback(async () => {
     if ((await hashPw(input)) === PW_HASH) {
       sessionStorage.setItem(STORAGE_KEY, PW_HASH)
+      sessionStorage.setItem('cz_pw', PW_HASH)          // compartilhar com PasswordGate
       setUnlocked(true)
       setShowInput(false)
     } else {

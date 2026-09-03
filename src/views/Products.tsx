@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Plus, Pencil, Trash2, X, Package } from 'lucide-react'
 import { Product, CATEGORIES, CAT_LABEL, LOW_STOCK_THRESHOLD, fmtBRL } from '../types'
+import { CUSTOS_PRODUCAO } from '../pendencias-avancado'
 import { usePasswordGuard } from '../components/PasswordGate'
 import { logAction } from '../audit'
 import { CookieArt } from '../components/CookieArt'
@@ -12,6 +13,16 @@ export function ProductsView({ products, setProducts, pushToast }: {
   const [editing, setEditing] = useState<Product | null>(null)
   const [form, setForm] = useState({ name: '', price: '', category: 'tradicional', stock: '', emoji: '🍪' })
   const { guard } = usePasswordGuard()
+
+  // Ao digitar um cookie conhecido, sugere o preço de venda do cadastro de custos
+  const changeName = (name: string) => {
+    const c = CUSTOS_PRODUCAO.find(x => x.name.toLowerCase() === name.trim().toLowerCase())
+    setForm(f => ({
+      ...f,
+      name,
+      price: c ? String(c.precoVenda) : f.price,
+    }))
+  }
 
   const openNew = () => { setEditing(null); setForm({ name: '', price: '', category: 'tradicional', stock: '', emoji: '🍪' }); setShowModal(true) }
   const openEdit = (p: Product) => { setEditing(p); setForm({ name: p.name, price: String(p.price), category: p.category, stock: String(p.stock), emoji: p.emoji || '🍪' }); setShowModal(true) }
@@ -78,7 +89,7 @@ export function ProductsView({ products, setProducts, pushToast }: {
               <button className="modal-close" onClick={() => setShowModal(false)}><X size={20} /></button>
             </div>
             <div className="form">
-              <div className="field"><label>Nome do cookie</label><input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="ex: Chocolate, Aveia, Red Velvet" /></div>
+              <div className="field"><label>Nome do cookie</label><input value={form.name} onChange={e => changeName(e.target.value)} placeholder="ex: Chocolate, Aveia, Red Velvet" /></div>
               <div className="form-grid">
                 <div className="field"><label>Preço (R$)</label><input type="number" min={0} step="0.01" className="num-input" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} /></div>
                 <div className="field"><label>Estoque inicial</label><input type="number" min={0} className="num-input" value={form.stock} onChange={e => setForm(f => ({ ...f, stock: e.target.value }))} /></div>

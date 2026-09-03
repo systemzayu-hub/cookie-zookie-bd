@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react'
 import { Plus, Trash2, AlertTriangle, Package, Lock } from 'lucide-react'
-import { SEED_PERDAS } from '../pendencias-avancado'
+import { SEED_PERDAS, CUSTOS_PRODUCAO } from '../pendencias-avancado'
 import { load, save } from '../data'
 import { usePasswordGuard } from '../components/PasswordGate'
 import { logAction } from '../audit'
@@ -49,6 +49,16 @@ export function PerdasView() {
     setForm({ date: '', produto: '', qtd: '', motivo: '', custoUnit: '' })
     setShowForm(false)
     logAction('perda', `Registrou perda de ${qtd} un de "${produto}" (${fmtBRL_audit(Number(qtd) * Number(custoUnit))}) — ${motivo}`)
+  }
+
+  // Ao escolher um produto conhecido, preenche o custo unitário automaticamente
+  const pickProduto = (name: string) => {
+    const c = CUSTOS_PRODUCAO.find(x => x.name === name)
+    setForm(f => ({
+      ...f,
+      produto: name,
+      custoUnit: c ? String(c.custoUnitario) : f.custoUnit,
+    }))
   }
 
   const removePerda = (id: string) => guard('Excluir perda', () => {
@@ -144,7 +154,17 @@ export function PerdasView() {
               <div className="form-grid">
                 <div className="field">
                   <label>Produto</label>
-                  <input value={form.produto} onChange={e => setForm(f => ({ ...f, produto: e.target.value }))} placeholder="ex: Nutella, Tradicional" />
+                  <select
+                    className="num-input"
+                    value={form.produto}
+                    onChange={e => pickProduto(e.target.value)}
+                    style={{ width: '100%' }}
+                  >
+                    <option value="">Selecione o produto…</option>
+                    {CUSTOS_PRODUCAO.map(c => (
+                      <option key={c.id} value={c.name}>{c.name} — {c.custoUnitario.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} un</option>
+                    ))}
+                  </select>
                 </div>
                 <div className="field">
                   <label>Quantidade</label>

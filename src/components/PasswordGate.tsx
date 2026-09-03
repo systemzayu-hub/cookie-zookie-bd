@@ -28,6 +28,7 @@ export function PasswordProvider({ children }: { children: ReactNode }) {
   const verify = async () => {
     if ((await hashPw(input)) === PW_HASH) {
       sessionStorage.setItem('cz_pw', PW_HASH)
+      sessionStorage.setItem('cz_fin_unlocked', PW_HASH) // compartilhar com SensitiveData
       pending?.fn()
       setPending(null)
     } else { setError(true) }

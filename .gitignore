@@ -3,3 +3,10 @@ dist/
 *.log
 .DS_Store
 .vite/
+
+# Render tests
+.render-out/
+cookie-*.html
+cookie-preview.html
+test-dup.mts
+render-*.mts

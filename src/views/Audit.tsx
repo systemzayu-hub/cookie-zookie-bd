@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
-import { ShieldCheck, Lock, X, RefreshCw, ChevronDown, ChevronRight, Users, Tag, Calendar, Filter } from 'lucide-react'
+import { ShieldCheck, Lock, X, RefreshCw, ChevronDown, ChevronRight, Users, Tag, Calendar, Filter, Download } from 'lucide-react'
 import { loadAuditRemote, auditHash, AUDIT_PW_HASH, type AuditEntry } from '../audit'
 import { onAuditChanges } from '../sync'
 
@@ -25,7 +25,7 @@ const ACTION_COLOR: Record<string, string> = {
 }
 
 type PeriodOption = 'hoje' | '7d' | 'tudo'
-type FilterState = { member: string; action: string; period: PeriodOption }
+type FilterState = { member: string; action: string; period: PeriodOption; date: string }
 
 export function AuditView() {
   const [unlocked, setUnlocked] = useState(false)
@@ -39,6 +39,7 @@ export function AuditView() {
     member: 'todos',
     action: 'todos',
     period: 'tudo',
+    date: '',
   })
   // Expansão por pessoa / por tipo
   const [expandedMembers, setExpandedMembers] = useState<Set<string>>(new Set())
@@ -93,6 +94,29 @@ export function AuditView() {
     hour: '2-digit', minute: '2-digit'
   })
 
+  const exportCSV = () => {
+    // Escapa campos para CSV (vírgulas, aspas, quebras de linha)
+    const csvEsc = (s: string) => `"${(s ?? '').replace(/"/g, '""')}"`
+    const head = ['Data/Hora', 'Pessoa', 'Email', 'Tipo', 'Detalhe']
+    const rows = filtered.map(e => [
+      formatFull(e.ts),
+      e.actor === 'desconhecido' ? 'Desconhecido' : e.actor,
+      e.email || '',
+      e.action,
+      e.detail || '',
+    ].map(csvEsc).join(';'))
+    const csv = '\uFEFF' + [head.join(';'), ...rows].join('\r\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `auditoria-cookie-zookie-${new Date().toISOString().slice(0, 10)}.csv`
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
+  }
+
   const filterEntries = useCallback((list: AuditEntry[]) => {
     let out = list
     if (filters.member !== 'todos') out = out.filter(e => e.actor === filters.member)
@@ -101,6 +125,11 @@ export function AuditView() {
       const now = Date.now()
       const cutoff = filters.period === 'hoje' ? now - 24*60*60*1000 : now - 7*24*60*60*1000
       out = out.filter(e => e.ts >= cutoff)
+    }
+    if (filters.date) {
+      const dayStart = new Date(`${filters.date}T00:00:00`).getTime()
+      const dayEnd = dayStart + 24*60*60*1000 - 1
+      out = out.filter(e => e.ts >= dayStart && e.ts <= dayEnd)
     }
     return out
   }, [filters])
@@ -171,6 +200,7 @@ export function AuditView() {
         </div>
         <div style={{ display: 'flex', gap: 'var(--sp-3)', alignItems: 'center', flexWrap: 'wrap' }}>
           {loading && <span style={{ color: 'var(--tx-3)', fontSize: '0.85rem' }}>sincronizando…</span>}
+          <button className="btn btn-secondary" onClick={exportCSV}><Download size={16} /> Exportar CSV</button>
           <button className="btn btn-secondary" onClick={refresh}><RefreshCw size={16} /> Atualizar</button>
           <button className="btn btn-secondary" onClick={() => setUnlocked(false)}><Lock size={16} /> Travar</button>
         </div>
@@ -241,8 +271,20 @@ export function AuditView() {
               <option value="tudo">Todo o histórico</option>
             </select>
           </div>
-          {(filters.member !== 'todos' || filters.action !== 'todos' || filters.period !== 'tudo') && (
-            <button className="btn btn-ghost btn-sm audit-clear-filters" onClick={() => setFilters({ member: 'todos', action: 'todos', period: 'tudo' })}>
+          <div className="audit-filter-group">
+            <label htmlFor="filter-date" style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', fontSize: '0.78rem', color: 'var(--tx-2)', marginBottom: 'var(--sp-1)' }}>
+              <Calendar size={14} /> Data
+            </label>
+            <input
+              id="filter-date"
+              type="date"
+              className="audit-filter-select"
+              value={filters.date}
+              onChange={e => setFilters(f => ({ ...f, date: e.target.value }))}
+            />
+          </div>
+          {(filters.member !== 'todos' || filters.action !== 'todos' || filters.period !== 'tudo' || filters.date) && (
+            <button className="btn btn-ghost btn-sm audit-clear-filters" onClick={() => setFilters({ member: 'todos', action: 'todos', period: 'tudo', date: '' })}>
               <X size={14} /> Limpar filtros
             </button>
           )}

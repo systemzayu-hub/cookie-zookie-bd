@@ -78,11 +78,11 @@ export function CustomersView({ customers, setCustomers, sales, pushToast }: {
           {top.length === 0 ? <div className="empty-state"><Users className="icon" size={40} /><p>Sem clientes ainda.</p></div> : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
               {top.map((c, i) => (
-                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-                  <span style={{ fontWeight: 700, color: 'var(--cz-600)', width: 20 }}>{i + 1}º</span>
-                  <span style={{ flex: 1 }}>{c.name}</span>
-                  <span className="badge badge-neutral">{c.purchases} compras</span>
-                  <strong>{fmtBRL(c.spent)}</strong>
+                <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap', minWidth: 0 }}>
+                  <span style={{ fontWeight: 700, color: 'var(--cz-600)', width: 20, flexShrink: 0 }}>{i + 1}º</span>
+                  <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{c.name}</span>
+                  <span className="badge badge-neutral" style={{ whiteSpace: 'nowrap' }}>{c.purchases} compras</span>
+                  <strong style={{ whiteSpace: 'nowrap' }}>{fmtBRL(c.spent)}</strong>
                 </div>
               ))}
             </div>

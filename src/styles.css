@@ -252,6 +252,7 @@ h4 { font-family: var(--font-display); font-weight: 600; line-height: 1.3; color
 .grid { display: grid; gap: var(--sp-6); }
 .grid-stats { grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); }
 .grid-2 { grid-template-columns: repeat(auto-fit, minmax(360px, 1fr)); }
+.grid-3 { grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); }
 
 .card {
   background: var(--card);
@@ -627,6 +628,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
   .grid { gap: var(--sp-4); }
   .grid-stats { grid-template-columns: 1fr; }
   .grid-2 { grid-template-columns: 1fr; }
+  .grid-3 { grid-template-columns: 1fr; }
   .product-grid { grid-template-columns: 1fr; }
 
   .form-grid { grid-template-columns: 1fr; }
@@ -716,6 +718,23 @@ table.table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
     grid-template-columns: 1fr !important;
     gap: var(--sp-4);
   }
+  /* Linha do rank (1º / nome / compras / valor): quebra em múltiplas linhas,
+     sem sobrepor badge sobre o valor */
+  .main .card > div[style*="flex-direction: column"],
+  .main .card > div[style*="align-items: center"] {
+    min-width: 0;
+  }
+  .main .card > div[style*="align-items: center"] > span[style*="flex: 1"] {
+    min-width: 0;
+  }
+  .main .card > div[style*="align-items: center"] .badge {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
+  .main .card > div[style*="align-items: center"] > strong {
+    white-space: nowrap;
+    flex-shrink: 0;
+  }
   /* Card e filhos flex: permitem encolher */
   .main .card,
   .main .card > div,
@@ -755,8 +774,10 @@ table.table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
   .sidebar { padding-top: max(var(--sp-6), env(safe-area-inset-top)); padding-bottom: max(var(--sp-6), env(safe-area-inset-bottom)); }
   .main { padding-bottom: max(var(--sp-6), env(safe-area-inset-bottom)); }
   .toast-container { bottom: max(var(--sp-4), env(safe-area-inset-bottom)); }
-  /* Tabelas: coluna de itens/resumo não estoura */
-  .table td { overflow-wrap: anywhere; word-break: break-word; }
+  /* Tabelas: coluna de itens/resumo não estoura.
+     Nomes/datas NÃO quebram no meio — conteúdo rola horizontalmente dentro do .table-wrap. */
+  .table td, .table th { overflow-wrap: normal; word-break: normal; white-space: nowrap; }
+  .table td[style*="maxWidth"], .table td[style*="max-width"] { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 160px; }
   .stat-value { overflow-wrap: anywhere; }
 }
 

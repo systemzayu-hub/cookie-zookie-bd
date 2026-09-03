@@ -1,102 +1,136 @@
-import { useState, useEffect, useMemo } from 'react'
-import { MessageSquare, CheckCircle2, Phone, Instagram, Copy, ChevronDown, ChevronUp, DollarSign, Users, AlertCircle } from 'lucide-react'
-import { Pendencia } from '../types'
-import PENDENCIAS_SEED from '../pendencias-seed'
-import { load, save } from '../data'
+import { useState, useMemo, useEffect } from 'react'
+import { MessageSquare, CheckCircle2, Phone, Copy, ChevronDown, ChevronUp, DollarSign, Users, AlertCircle, CreditCard } from 'lucide-react'
+import { Sale, Customer, SaleItemFull } from '../types'
 import { fmtBRL } from '../types'
 import { authCurrentUser, syncPull, syncPush } from '../sync'
+import { load } from '../data'
 
-export function CobrancaView() {
-  const [pendencias, setPendencias] = useState<Pendencia[]>(() => load<Pendencia[]>('cc_pendencias', PENDENCIAS_SEED))
-  const [sortBy, setSortBy] = useState<'total' | 'nome' | 'qtd'>('total')
-  const [sortDesc, setSortDesc] = useState(true)
+interface CobrancaViewProps {
+  sales: Sale[]
+  setSales: React.Dispatch<React.SetStateAction<Sale[]>>
+  customers: Customer[]
+  pushToast: (msg: string, type?: 'success' | 'error') => void
+}
 
-  useEffect(() => {
-    save('cc_pendencias', pendencias)
-  }, [pendencias])
+type PendenciaRow = {
+  sale: Sale
+  customer: Customer | undefined
+  productsStr: string
+  totalQty: number
+  telefone: string
+}
 
-  // Sincronizar pendentes com Firebase (subir/descer quando logado)
-  useEffect(() => {
-    let cancelled = false
-    ;(async () => {
-      // 1) Puxa pendentes do Firestore no primeiro carregamento
-      if (authCurrentUser()) {
-        const remoto = await syncPull()
-        if (cancelled) return
-        if (remoto && remoto.pendencias && remoto.pendencias.length) {
-          // Há dados remotos: usa-os (sincroniza entre funcionários)
-          setPendencias(remoto.pendencias as Pendencia[])
-        } else if (remoto) {
-          // Doc existe mas sem pendentes ainda: sobe o seed inicial (1ª vez)
-          const ps = load<Pendencia[]>('cc_pendencias', PENDENCIAS_SEED)
-          if (ps.length) syncPush(load('cc_products', []), load('cc_sales', []), load('cc_customers', []), ps)
-        }
+export function CobrancaView({ sales, setSales, customers, pushToast }: CobrancaViewProps) {
+  const [sortBy, setSortBy] = useState<'total' | 'nome' | 'qtd' | 'data'>('data')
+  const [sortDesc, setSortDesc] = useState(false)
+  const [filter, setFilter] = useState<'all' | 'pending'>('pending')
+
+  // Derive pendentes from sales with status 'Pendente'
+  const pendentes = useMemo(() => {
+    return sales.filter(s => s.status === 'Pendente')
+  }, [sales])
+
+  // Build display rows with customer info
+  const rows = useMemo(() => {
+    return pendentes.map(sale => {
+      const customer = customers.find(c => c.id === sale.customerId)
+      const productsStr = sale.items.map((i: SaleItemFull) => `${i.qty}x ${i.name}`).join(' + ')
+      const totalQty = sale.items.reduce((acc, i) => acc + i.qty, 0)
+      return {
+        sale,
+        customer,
+        productsStr,
+        totalQty,
+        telefone: customer?.contact || '',
       }
-    })()
-    return () => { cancelled = true }
-  }, [])
+    })
+  }, [pendentes, customers])
 
-  // 2) A cada edição local, empurra para o Firestore (se logado)
+  // Sincronizar com Firebase quando vendas mudarem
   useEffect(() => {
     if (!authCurrentUser()) return
-    const ready = load('cc_products', [])
-    const rv = load('cc_sales', [])
-    const rc = load('cc_customers', [])
-    syncPush(ready, rv, rc, pendencias)
-  }, [pendencias])
+    const products = load('cc_products', [])
+    syncPush(products, sales, customers, [])
+  }, [sales])
 
-  const buildMessage = (p: Pendencia) =>
-    `Oi, ${p.nome}! Passando aqui pra lembrar da pendência dos cookies 🍪\n${p.qtd} unidade(s) pendente(s) (${p.produtos})\nTotal: ${fmtBRL(p.total)}\nQuando puder acertar, me avisa 😊`
+  const buildMessage = (row: PendenciaRow) => {
+    const { sale, customer, productsStr, totalQty, telefone } = row
+    return `Oi, ${customer?.name || 'cliente'}! Passando aqui pra lembrar da pendência dos cookies 🍪\n${totalQty} unidade(s) pendente(s) (${productsStr})\nTotal: ${fmtBRL(sale.total)}\nQuando puder acertar, me avisa 😊`
+  }
 
-  // Normaliza número de telefone para wa.me: só dígitos + DDI 55 (Brasil)
   const normalizeWhats = (raw: string): string => {
     let n = raw.normalize('NFKC').replace(/[^0-9]/g, '')
     if (n && !n.startsWith('55')) n = '55' + n
     return n
   }
 
-  const openWhatsApp = (p: Pendencia) => {
-    const telefone = normalizeWhats(p.telefone)
-    if (!telefone) return
-    const msg = encodeURIComponent(buildMessage(p))
+  const openWhatsApp = (row: PendenciaRow) => {
+    const telefone = normalizeWhats(row.telefone)
+    if (!telefone) {
+      pushToast('Telefone não informado', 'error')
+      return
+    }
+    const msg = encodeURIComponent(buildMessage(row))
     window.open(`https://wa.me/${telefone}?text=${msg}`, '_blank')
   }
 
-  const copyMessage = (p: Pendencia) => {
-    navigator.clipboard.writeText(buildMessage(p))
+  const copyMessage = (row: PendenciaRow) => {
+    navigator.clipboard.writeText(buildMessage(row))
+    pushToast('Mensagem copiada!')
   }
 
-  const togglePago = (p: Pendencia) => {
-    setPendencias(prev => prev.map(item =>
-      item === p ? { ...item, pago: !item.pago, pagoEm: !item.pago ? new Date().toISOString() : undefined } : item
+  const togglePago = (saleId: string) => {
+    setSales(prev => prev.map(s => 
+      s.id === saleId ? { ...s, status: 'Pago' as const } : s
     ))
+    pushToast('Venda marcada como paga!')
   }
 
-  const updateField = (p: Pendencia, field: 'telefone' | 'instagram', value: string) => {
-    let clean = value
-    if (field === 'telefone') clean = normalizeWhats(value)
-    setPendencias(prev => prev.map(item => item === p ? { ...item, [field]: clean } : item))
-  }
-
-  const sortedPendencias = useMemo(() => {
-    return [...pendencias].sort((a, b) => {
+  const sortedRows = useMemo(() => {
+    return [...rows].sort((a, b) => {
       let comparison = 0
-      if (sortBy === 'total') comparison = a.total - b.total
-      else if (sortBy === 'nome') comparison = a.nome.localeCompare(b.nome)
-      else if (sortBy === 'qtd') comparison = a.qtd - b.qtd
+      if (sortBy === 'total') comparison = a.sale.total - b.sale.total
+      else if (sortBy === 'nome') comparison = (a.customer?.name || '').localeCompare(b.customer?.name || '')
+      else if (sortBy === 'qtd') comparison = a.totalQty - b.totalQty
+      else if (sortBy === 'data') comparison = new Date(a.sale.date).getTime() - new Date(b.sale.date).getTime()
       return sortDesc ? -comparison : comparison
     })
-  }, [pendencias, sortBy, sortDesc])
+  }, [rows, sortBy, sortDesc])
 
-  const totalReceber = pendencias.filter(p => !p.pago).reduce((acc, p) => acc + p.total, 0)
-  const pessoasDevendo = pendencias.filter(p => !p.pago).length
-  const totalPendentes = pendencias.filter(p => !p.pago).reduce((acc, p) => acc + p.qtd, 0)
+  const filteredRows = useMemo(() => {
+    if (filter === 'pending') return sortedRows
+    return sortedRows
+  }, [sortedRows, filter])
+
+  const totalReceber = rows.reduce((acc, r) => acc + r.sale.total, 0)
+  const pessoasDevendo = new Set(rows.map(r => r.sale.customerId).filter(Boolean)).size
+  const totalPendentes = rows.reduce((acc, r) => acc + r.totalQty, 0)
 
   const sortOptions = [
+    { value: 'data', label: 'Data (mais antiga)' },
     { value: 'total', label: 'Quem deve mais' },
     { value: 'nome', label: 'Nome A-Z' },
     { value: 'qtd', label: 'Quantidade' },
   ] as const
+
+  if (rows.length === 0) {
+    return (
+      <>
+        <div className="page-row">
+          <div className="page-title">
+            <h2>Cobrança</h2>
+            <p>Gerencie pendências de clientes e envie lembretes via WhatsApp</p>
+          </div>
+        </div>
+
+        <div className="card empty-state" style={{ textAlign: 'center', padding: 'var(--sp-12)' }}>
+          <CheckCircle2 className="icon" size={48} color="var(--ok-500)" />
+          <p style={{ marginTop: 'var(--sp-4)', fontSize: '1.1rem' }}>Nenhuma pendência! 🎉</p>
+          <p style={{ color: 'var(--tx-3)', marginTop: 'var(--sp-2)' }}>Todas as vendas estão quitadas.</p>
+        </div>
+      </>
+    )
+  }
 
   return (
     <>
@@ -143,9 +177,26 @@ export function CobrancaView() {
         </div>
       </div>
 
-      <div className="card" style={{ marginBottom: 'var(--sp-6)' }}>
+      <div className="card" style={{ marginBottom: 'var(--sp-4)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-4)', flexWrap: 'wrap' }}>
-          <span style={{ fontWeight: 600, color: 'var(--tx-2)' }}>Ordenar por:</span>
+          <span style={{ fontWeight: 600, color: 'var(--tx-2)' }}>Filtrar:</span>
+          <select
+            value={filter}
+            onChange={e => setFilter(e.target.value as typeof filter)}
+            style={{
+              padding: 'var(--sp-2) var(--sp-3)',
+              border: '1px solid var(--border)',
+              borderRadius: 'var(--r-md)',
+              background: 'var(--card)',
+              color: 'var(--tx-1)',
+              fontSize: '0.9rem',
+              cursor: 'pointer',
+            }}
+          >
+            <option value="pending">Pendentes</option>
+            <option value="all">Todas</option>
+          </select>
+          <span style={{ fontWeight: 600, color: 'var(--tx-2)', marginLeft: 'var(--sp-6)' }}>Ordenar por:</span>
           <select
             value={sortBy}
             onChange={e => setSortBy(e.target.value as typeof sortBy)}
@@ -172,109 +223,74 @@ export function CobrancaView() {
         </div>
       </div>
 
-      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 340px), 1fr))', gap: 'var(--sp-5)' }}>
-        {sortedPendencias.map(p => (
-          <div key={p.nome} className="card" style={{ background: p.pago ? 'var(--ok-bg)' : 'var(--card)', borderColor: p.pago ? 'var(--ok-500)' : 'var(--border)', opacity: p.pago ? 0.7 : 1 }}>
-            <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 'var(--sp-3)', marginBottom: 'var(--sp-4)' }}>
-              <div style={{ flex: 1 }}>
-                <h3 style={{ fontSize: '1.15rem', fontWeight: 700, fontFamily: 'var(--font-display)', color: p.pago ? 'var(--ok-600)' : 'var(--tx-1)', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
-                  {p.nome}
-                  {p.pago && <span className="badge badge-success" style={{ marginLeft: 'var(--sp-2)', fontSize: '0.7rem' }}>Pago</span>}
-                </h3>
-                <p style={{ fontSize: '0.85rem', color: 'var(--tx-3)', marginTop: '2px' }}>{p.produtos}</p>
-              </div>
-              <button
-                className={`btn btn-sm ${p.pago ? 'btn-ghost' : 'btn-primary'}`}
-                onClick={() => togglePago(p)}
-                style={{
-                  width: 36, height: 36, borderRadius: '50%', padding: 0,
-                  display: 'flex', alignItems: 'center', justifyContent: 'center',
-                  background: p.pago ? 'transparent' : 'linear-gradient(135deg, var(--ok-500), var(--ok-600))',
-                  color: p.pago ? 'var(--ok-600)' : '#fff',
-                  border: p.pago ? '2px solid var(--ok-500)' : 'none',
-                }}
-                aria-label={p.pago ? 'Marcar como pendente' : 'Marcar como pago'}
-              >
-                <CheckCircle2 size={18} />
-              </button>
-            </div>
-
-            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--sp-3)', marginBottom: 'var(--sp-4)' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
-                <span style={{ fontSize: '0.8rem', color: 'var(--tx-3)', fontWeight: 600, textTransform: 'uppercase' }}>Qtd:</span>
-                <span style={{ fontSize: '1.2rem', fontWeight: 700, fontFamily: 'var(--font-display)', color: 'var(--cz-600)' }}>{p.qtd} un.</span>
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
-                <span style={{ fontSize: '0.8rem', color: 'var(--tx-3)', fontWeight: 600, textTransform: 'uppercase' }}>Total:</span>
-                <span style={{ fontSize: '1.2rem', fontWeight: 700, fontFamily: 'var(--font-display)', color: 'var(--cz-600)' }}>{fmtBRL(p.total)}</span>
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)', marginBottom: 'var(--sp-4)' }}>
-              <div className="field" style={{ margin: 0 }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
-                  <Phone size={14} color="var(--tx-3)" />
-                  <span>Telefone (WhatsApp)</span>
-                </label>
-                <input
-                  type="tel"
-                  value={p.telefone}
-                  onChange={e => updateField(p, 'telefone', e.target.value)}
-                  placeholder="(DDD) 9xxxx-xxxx"
-                  style={{ width: '100%' }}
-                  disabled={p.pago}
-                />
-              </div>
-              <div className="field" style={{ margin: 0 }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
-                  <Instagram size={14} color="var(--tx-3)" />
-                  <span>Instagram</span>
-                </label>
-                <input
-                  type="text"
-                  value={p.instagram}
-                  onChange={e => updateField(p, 'instagram', e.target.value)}
-                  placeholder="@usuario"
-                  style={{ width: '100%' }}
-                  disabled={p.pago}
-                />
-              </div>
-            </div>
-
-            <div style={{ display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
-              <button
-                className="btn btn-primary"
-                onClick={() => openWhatsApp(p)}
-                disabled={!p.telefone.trim() || p.pago}
-                style={{ flex: 1, minWidth: 120 }}
-              >
-                <MessageSquare size={16} /> WhatsApp
-              </button>
-              <button
-                className="btn btn-secondary"
-                onClick={() => copyMessage(p)}
-                disabled={p.pago}
-                style={{ flex: 1, minWidth: 120 }}
-              >
-                <Copy size={16} /> Copiar cobrança
-              </button>
-            </div>
-
-            {p.pago && p.pagoEm && (
-              <p style={{ marginTop: 'var(--sp-3)', fontSize: '0.75rem', color: 'var(--ok-600)', textAlign: 'center' }}>
-                Marcado como pago em {new Date(p.pagoEm).toLocaleString('pt-BR')}
-              </p>
-            )}
-          </div>
-        ))}
-
-        {sortedPendencias.length === 0 && (
-          <div className="card empty-state" style={{ gridColumn: '1 / -1' }}>
-            <CheckCircle2 className="icon" size={48} color="var(--ok-500)" />
-            <p>Todas as pendências foram quitadas! 🎉</p>
-          </div>
-        )}
+      <div className="card" style={{ overflow: 'auto' }}>
+        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.85rem' }}>
+          <thead>
+            <tr style={{ background: 'var(--bg-2)', textAlign: 'left' }}>
+              <th style={{ padding: 'var(--sp-3)', borderBottom: '1px solid var(--border)' }}>Cliente</th>
+              <th style={{ padding: 'var(--sp-3)', borderBottom: '1px solid var(--border)' }}>Produtos</th>
+              <th style={{ padding: 'var(--sp-3)', borderBottom: '1px solid var(--border)', textAlign: 'center' }}>Qtd</th>
+              <th style={{ padding: 'var(--sp-3)', borderBottom: '1px solid var(--border)', textAlign: 'right' }}>Total</th>
+              <th style={{ padding: 'var(--sp-3)', borderBottom: '1px solid var(--border)', textAlign: 'center' }}>Data</th>
+              <th style={{ padding: 'var(--sp-3)', borderBottom: '1px solid var(--border)', textAlign: 'center' }}>Status</th>
+              <th style={{ padding: 'var(--sp-3)', borderBottom: '1px solid var(--border)', textAlign: 'center', width: '140px' }}>Ações</th>
+            </tr>
+          </thead>
+          <tbody>
+            {filteredRows.map(row => (
+              <tr key={row.sale.id} style={{ borderBottom: '1px solid var(--border)', transition: 'background 0.2s' }}>
+                <td style={{ padding: 'var(--sp-3)', fontWeight: 600, color: 'var(--tx-1)' }}>
+                  {row.customer?.name || 'Sem cliente'}
+                </td>
+                <td style={{ padding: 'var(--sp-3)', color: 'var(--tx-2)', maxWidth: 280, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                  {row.productsStr}
+                </td>
+                <td style={{ padding: 'var(--sp-3)', textAlign: 'center', fontWeight: 600, color: 'var(--cz-600)' }}>
+                  {row.totalQty} un.
+                </td>
+                <td style={{ padding: 'var(--sp-3)', textAlign: 'right', fontWeight: 700, fontFamily: 'var(--font-display)', color: 'var(--cz-600)' }}>
+                  {fmtBRL(row.sale.total)}
+                </td>
+                <td style={{ padding: 'var(--sp-3)', textAlign: 'center', color: 'var(--tx-3)', fontSize: '0.8rem' }}>
+                  {new Date(row.sale.date).toLocaleDateString('pt-BR')}
+                </td>
+                <td style={{ padding: 'var(--sp-3)', textAlign: 'center' }}>
+                  <span className="badge badge-warning" style={{ fontSize: '0.7rem' }}>Pendente</span>
+                </td>
+                <td style={{ padding: 'var(--sp-2)', textAlign: 'center' }}>
+                  <div style={{ display: 'flex', gap: 'var(--sp-2)', justifyContent: 'center' }}>
+                    <button
+                      className="btn btn-primary btn-sm"
+                      onClick={() => openWhatsApp(row)}
+                      disabled={!row.telefone}
+                      title={row.telefone ? 'Abrir WhatsApp' : 'Sem telefone'}
+                      style={{ minWidth: '36px', padding: 'var(--sp-1) var(--sp-2)' }}
+                    >
+                      <MessageSquare size={14} />
+                    </button>
+                    <button
+                      className="btn btn-secondary btn-sm"
+                      onClick={() => copyMessage(row)}
+                      title="Copiar mensagem de cobrança"
+                      style={{ minWidth: '36px', padding: 'var(--sp-1) var(--sp-2)' }}
+                    >
+                      <Copy size={14} />
+                    </button>
+                    <button
+                      className="btn btn-success btn-sm"
+                      onClick={() => togglePago(row.sale.id)}
+                      title="Marcar como pago"
+                      style={{ minWidth: '36px', padding: 'var(--sp-1) var(--sp-2)' }}
+                    >
+                      <CheckCircle2 size={14} />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
       </div>
-    </>
-  )
-}
+          </>
+        )
+      }

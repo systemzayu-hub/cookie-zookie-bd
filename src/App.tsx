@@ -223,7 +223,7 @@ export default function App() {
           {tab === 'vendas' && <SalesView products={products} customers={customers} sales={sales} onSaleAdded={handleSaleAdded} pushToast={pushToast} />}
           {tab === 'produtos' && <ProductsStockView products={products} setProducts={setProducts} pushToast={pushToast} />}
           {tab === 'relatorios' && <ReportsView sales={sales} />}
-          {tab === 'clientes' && <CustomersBillingView customers={customers} setCustomers={setCustomers} sales={sales} pushToast={pushToast} />}
+          {tab === 'clientes' && <CustomersBillingView customers={customers} setCustomers={setCustomers} sales={sales} setSales={setSales} pushToast={pushToast} />}
           {tab === 'financeiro' && <FinanceiroView />}
           {tab === 'audit' && <AuditView />}
         </Suspense>

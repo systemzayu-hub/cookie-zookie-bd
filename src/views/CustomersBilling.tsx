@@ -4,8 +4,8 @@ import { Customer, Sale } from '../types'
 import { CustomersView } from './Customers'
 import { CobrancaView } from './Cobranca'
 
-export function CustomersBillingView({ customers, setCustomers, sales, pushToast }: {
-  customers: Customer[]; setCustomers: React.Dispatch<React.SetStateAction<Customer[]>>; sales: Sale[]; pushToast: (m: string, t?: 'success' | 'error') => void
+export function CustomersBillingView({ customers, setCustomers, sales, setSales, pushToast }: {
+  customers: Customer[]; setCustomers: React.Dispatch<React.SetStateAction<Customer[]>>; sales: Sale[]; setSales: React.Dispatch<React.SetStateAction<Sale[]>>; pushToast: (m: string, t?: 'success' | 'error') => void
 }) {
   const [section, setSection] = useState<'clientes' | 'cobranca'>('clientes')
 
@@ -22,7 +22,7 @@ export function CustomersBillingView({ customers, setCustomers, sales, pushToast
       {section === 'clientes' ? (
         <CustomersView customers={customers} setCustomers={setCustomers} sales={sales} pushToast={pushToast} />
       ) : (
-        <CobrancaView />
+        <CobrancaView sales={sales} setSales={setSales} customers={customers} pushToast={pushToast} />
       )}
     </>
   )

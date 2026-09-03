@@ -111,7 +111,7 @@ function variant(name: string): 'tradicional' | 'meio-amargo' | 'nutella' | 'kin
   return 'tradicional'
 }
 
-export function CookieArt({ name, size = 72, className }: Props) {
+function CookieArtInner({ name, size = 72, className }: Props) {
   const v = variant(name)
   const s = size
   const cx = s / 2
@@ -262,31 +262,63 @@ export function CookieArt({ name, size = 72, className }: Props) {
         </g>
       )}
 
-      {/* Nutella: creme de avelã derretido ao centro + avelãs */}
+      {/* Nutella: POTE de Nutella assado/saliente ao centro (combina com o print do menu) */}
       {v === 'nutella' && (
         <g clipPath={`url(#${id('cc')})`}>
           {(() => {
-            const bw = r * (isSmall ? 0.44 : 0.52)
-            const bh = r * (isSmall ? 0.38 : 0.44)
-            const bx = cx - bw / 2, by = cy - bh / 2
+            // Pote ocupando o centro, proporcional ao tamanho
+            const pw = s * (isSmall ? 0.32 : 0.38)
+            const ph = s * (isSmall ? 0.46 : 0.52)
+            const px = cx - pw / 2
+            const py = cy - ph * 0.42
+            const red = '#C62828'
+            const darkRed = '#9E1E1E'
+            const cream = '#F7E7C9'
+            const bodyDark = '#4a2c1a'
             return (
               <>
-                <ellipse cx={cx} cy={cy + s * 0.015} rx={bw * 0.56} ry={bh * 0.5} fill="#2E1A0E" opacity="0.3" />
+                {/* sombra projetada na massa */}
+                <ellipse cx={cx} cy={py + ph * 0.98} rx={pw * 0.58} ry={ph * 0.2} fill="#2E1A0E" opacity="0.32" />
+
+                {/* corpo do pote (vidro/chocolate escuro) */}
+                <rect x={px} y={py + ph * 0.18} width={pw} height={ph * 0.72} rx={pw * 0.12} fill={bodyDark} />
+                {/* brilho lateral do vidro */}
+                <rect x={px + pw * 0.08} y={py + ph * 0.2} width={pw * 0.08} height={ph * 0.62} rx={pw * 0.04} fill="#FFFFFF" opacity="0.12" />
+
+                {/* tampa redonda vermelha */}
+                <ellipse cx={cx} cy={py + ph * 0.14} rx={pw * 0.42} ry={ph * 0.08} fill={darkRed} />
+                <rect x={cx - pw * 0.42} y={py} width={pw * 0.84} height={ph * 0.12} rx={pw * 0.08} fill={red} />
+                <path d={`M ${px - pw * 0.05} ${py + ph * 0.12} Q ${cx} ${py - ph * 0.06} ${px + pw * 1.05} ${py + ph * 0.12}`} fill={red} stroke={darkRed} strokeWidth={Math.max(0.5, s * 0.012)} />
+
+                {/* rótulo vermelho com 'nutella' */}
+                <rect x={px + pw * 0.1} y={py + ph * 0.38} width={pw * 0.8} height={ph * 0.3} rx={pw * 0.03} fill={cream} />
+                <rect x={px + pw * 0.1} y={py + ph * 0.38} width={pw * 0.8} height={ph * 0.05} rx={pw * 0.02} fill={red} />
+                {/* texto 'nutella' (estilizado, n vermelho / utella escuro) */}
+                {!isSmall && (
+                  <text
+                    x={cx} y={py + ph * 0.58}
+                    textAnchor="middle" fontFamily="Arial, sans-serif"
+                    fontWeight="900" fontSize={Math.max(5, pw * 0.17)}
+                    fill="#3a1d0e"
+                  >
+                    <tspan fill="#C62828">n</tspan>utella
+                  </text>
+                )}
+
+                {/* gota de creme ao lado (chamando atenção) */}
                 <path
-                  d={`M ${bx + bh * 0.3} ${by + bh * 0.75} C ${bx - bh * 0.28} ${by + bh * 0.55} ${bx - bh * 0.18} ${by + bh * 0.08} ${bx + bh * 0.14} ${by + bh * 0.05} C ${bx + bh * 0.4} ${by + bh * 0.02} ${bx + bw * 0.74} ${by + bh * 0.12} ${bx + bw * 0.78} ${by + bh * 0.42} C ${bx + bw * 0.82} ${by + bh * 0.74} ${bx + bh * 0.6} ${by + bh * 0.82} ${bx + bh * 0.42} ${by + bh * 0.8} C ${bx + bh * 0.2} ${by + bh * 0.78} ${bx + bh * 0.42} ${by + bh * 0.85} ${bx + bh * 0.3} ${by + bh * 0.75} Z`}
-                  fill="#6A3A1B"
+                  d={`M ${px + pw * 1.12} ${py + ph * 0.9}
+                      C ${px + pw * 1.28} ${py + ph * 0.78} ${px + pw * 1.32} ${py + ph * 0.62} ${px + pw * 1.18} ${py + ph * 0.55}
+                      C ${px + pw * 1.05} ${py + ph * 0.48} ${px + pw * 0.98} ${py + ph * 0.62} ${px + pw * 1.02} ${py + ph * 0.76}
+                      C ${px + pw * 1.05} ${py + ph * 0.85} ${px + pw * 1.08} ${py + ph * 0.9} ${px + pw * 1.12} ${py + ph * 0.9} Z`}
+                  fill="#5D4037"
                 />
                 {!isSmall && (
                   <path
-                    d={`M ${bx + bh * 0.28} ${by + bh * 0.52} C ${bx + bh * 0.05} ${by + bh * 0.36} ${bx + bh * 0.28} ${by + bh * 0.28} ${bx + bw * 0.55} ${by + bh * 0.34}`}
-                    fill="none" stroke="#A96A2F" strokeWidth={Math.max(0.8, s * 0.04)} strokeLinecap="round" opacity="0.55"
+                    d={`M ${px + pw * 1.1} ${py + ph * 0.68} Q ${px + pw * 1.16} ${py + ph * 0.62} ${px + pw * 1.22} ${py + ph * 0.66}`}
+                    fill="none" stroke="#8D6E63" strokeWidth={Math.max(0.5, s * 0.014)} strokeLinecap="round" opacity="0.7"
                   />
                 )}
-                {/* avelãs */}
-                <circle cx={cx - r * 0.16} cy={cy - r * 0.06} r={Math.max(1.5, s * 0.07)} fill="#8a5a2e" />
-                <circle cx={cx - r * 0.16} cy={cy - r * 0.06} r={Math.max(1, s * 0.035)} fill="#C99A5B" />
-                <circle cx={cx + r * 0.18} cy={cy + r * 0.1} r={Math.max(1.5, s * 0.075)} fill="#8a5a2e" />
-                <circle cx={cx + r * 0.18} cy={cy + r * 0.1} r={Math.max(1, s * 0.038)} fill="#C99A5B" />
               </>
             )
           })()}
@@ -369,3 +401,6 @@ export function CookieArt({ name, size = 72, className }: Props) {
     </svg>
   )
 }
+
+// memo evita re-render desnecessário dos cookies em grids/listas (perf)
+export const CookieArt = React.memo(CookieArtInner)

@@ -48,10 +48,18 @@ export function CobrancaView() {
   const buildMessage = (p: Pendencia) =>
     `Oi, ${p.nome}! Passando aqui pra lembrar da pendência dos cookies 🍪\n${p.qtd} unidade(s) pendente(s) (${p.produtos})\nTotal: ${fmtBRL(p.total)}\nQuando puder acertar, me avisa 😊`
 
+  // Normaliza número de telefone para wa.me: só dígitos + DDI 55 (Brasil)
+  const normalizeWhats = (raw: string): string => {
+    let n = raw.normalize('NFKC').replace(/[^0-9]/g, '')
+    if (n && !n.startsWith('55')) n = '55' + n
+    return n
+  }
+
   const openWhatsApp = (p: Pendencia) => {
-    if (!p.telefone.trim()) return
+    const telefone = normalizeWhats(p.telefone)
+    if (!telefone) return
     const msg = encodeURIComponent(buildMessage(p))
-    window.open(`https://wa.me/${p.telefone}?text=${msg}`, '_blank')
+    window.open(`https://wa.me/${telefone}?text=${msg}`, '_blank')
   }
 
   const copyMessage = (p: Pendencia) => {
@@ -65,7 +73,9 @@ export function CobrancaView() {
   }
 
   const updateField = (p: Pendencia, field: 'telefone' | 'instagram', value: string) => {
-    setPendencias(prev => prev.map(item => item === p ? { ...item, [field]: value } : item))
+    let clean = value
+    if (field === 'telefone') clean = normalizeWhats(value)
+    setPendencias(prev => prev.map(item => item === p ? { ...item, [field]: clean } : item))
   }
 
   const sortedPendencias = useMemo(() => {
@@ -162,12 +172,12 @@ export function CobrancaView() {
         </div>
       </div>
 
-      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: 'var(--sp-5)' }}>
+      <div className="grid" style={{ gridTemplateColumns: 'repeat(auto-fill, minmax(min(100%, 340px), 1fr))', gap: 'var(--sp-5)' }}>
         {sortedPendencias.map(p => (
           <div key={p.nome} className="card" style={{ background: p.pago ? 'var(--ok-bg)' : 'var(--card)', borderColor: p.pago ? 'var(--ok-500)' : 'var(--border)', opacity: p.pago ? 0.7 : 1 }}>
             <div style={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', gap: 'var(--sp-3)', marginBottom: 'var(--sp-4)' }}>
               <div style={{ flex: 1 }}>
-                <h3 style={{ fontSize: '1.15rem', fontWeight: 700, fontFamily: 'var(--font-display)', color: p.pago ? 'var(--ok-600)' : 'var(--tx-1)' }}>
+                <h3 style={{ fontSize: '1.15rem', fontWeight: 700, fontFamily: 'var(--font-display)', color: p.pago ? 'var(--ok-600)' : 'var(--tx-1)', wordBreak: 'break-word', overflowWrap: 'anywhere' }}>
                   {p.nome}
                   {p.pago && <span className="badge badge-success" style={{ marginLeft: 'var(--sp-2)', fontSize: '0.7rem' }}>Pago</span>}
                 </h3>

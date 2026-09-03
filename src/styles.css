@@ -709,6 +709,45 @@ table.table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
   body { font-size: var(--fs-sm); }
 }
 
+/* === Cobrança — responsivo mobile (cards não estouram, botões empilham) === */
+@media (max-width: 480px) {
+  /* Grid dos cards: coluna única (sem mínimo grande) */
+  .main .grid[style*="grid-template-columns"] {
+    grid-template-columns: 1fr !important;
+    gap: var(--sp-4);
+  }
+  /* Card e filhos flex: permitem encolher */
+  .main .card,
+  .main .card > div,
+  .main .card .field {
+    min-width: 0;
+  }
+  /* Nome quebra garantido */
+  .main .card h3 {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+    min-width: 0;
+  }
+  /* Linha Qtd/Total empilha se preciso */
+  .main .card > div[style*="justify-content: space-between"] {
+    flex-wrap: wrap;
+    gap: var(--sp-2) var(--sp-3);
+  }
+  /* Botões WhatsApp + Copiar: largura total, empilhados */
+  .main .card div[style*="flex-wrap"] {
+    flex-direction: column !important;
+  }
+  .main .card div[style*="flex-wrap"] .btn {
+    width: 100% !important;
+    min-width: 0 !important;
+    justify-content: center;
+  }
+  .main .card .field input {
+    min-width: 0;
+    width: 100%;
+  }
+}
+
 /* === Ajustes finos de mobile === */
 @media (max-width: 768px) {
   /* Safe-area iOS (home indicator / notch) */

@@ -3,6 +3,7 @@ import { DollarSign, ShoppingBag, TrendingUp, Download } from 'lucide-react'
 import { ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from 'recharts'
 import { Sale, CHANNELS, PAYMENTS, fmtBRL, fmtDate } from '../types'
 import { StatusBadge } from './Dashboard'
+import { SensitiveData } from '../components/SensitiveData'
 
 function StatCard({ icon, color, label, value }: { icon: React.ReactNode; color: string; label: string; value: string }) {
   return (
@@ -64,6 +65,7 @@ export function ReportsView({ sales }: { sales: Sale[] }) {
         </div>
       </div>
 
+      <SensitiveData label="Desbloquear dados financeiros">
       <div className="grid grid-stats" style={{ marginBottom: 'var(--space-6)' }}>
         <StatCard icon={<DollarSign size={20} />} color="var(--ok-500)" label="Faturamento" value={fmtBRL(revenue)} />
         <StatCard icon={<ShoppingBag size={20} />} color="var(--cz-500)" label="Vendas" value={String(count)} />
@@ -148,6 +150,7 @@ export function ReportsView({ sales }: { sales: Sale[] }) {
           </div>
         )}
       </div>
+      </SensitiveData>
     </>
   )
 }

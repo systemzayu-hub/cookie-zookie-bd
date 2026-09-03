@@ -2,6 +2,7 @@ import { DollarSign, TrendingUp, ShoppingBag, Users, AlertTriangle, CheckCircle2
 import { ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from 'recharts'
 import { Product, Sale, Customer, LOW_STOCK_THRESHOLD, fmtBRL, CHANNELS } from '../types'
 import { CookieArt } from '../components/CookieArt'
+import { SensitiveData } from '../components/SensitiveData'
 
 export function StatusBadge({ status }: { status?: string }) {
   const map: Record<string, string> = {
@@ -71,13 +72,16 @@ export function Dashboard({ sales, products, customers, onNewSale }: {
         </div>
       )}
 
+      <SensitiveData label="Desbloquear faturamento">
       <div className="grid grid-stats" style={{ marginBottom: 'var(--sp-6)' }}>
         <StatCard icon={<DollarSign size={20} />} color="linear-gradient(135deg,#22C55E,#16A34A)" label="Faturamento total" value={fmtBRL(revenue)} sub={`${sales.length} vendas registradas`} />
         <StatCard icon={<Wallet size={20} />} color="linear-gradient(135deg,#3B82F6,#2563EB)" label="Pago" value={fmtBRL(sales.filter(s => s.status === 'Pago').reduce((a, s) => a + s.total, 0))} sub={`${paidCount} vendas pagas`} />
         <StatCard icon={<Clock3 size={20} />} color="linear-gradient(135deg,#F59E0B,#D97706)" label="Pendente" value={fmtBRL(pending)} sub={`${sales.filter(s => s.status === 'Pendente').length} a receber`} />
         <StatCard icon={<ShoppingBag size={20} />} color="linear-gradient(135deg,#E8923F,#D47A27)" label="Cookies vendidos" value={String(totalSold)} sub={`${customers.length} clientes`} />
       </div>
+      </SensitiveData>
 
+      <SensitiveData label="Desbloquear gráficos financeiros">
       <div className="grid grid-2">
         <div className="card">
           <h3 className="card-title">Faturamento (últimos 7 dias)</h3>
@@ -106,7 +110,10 @@ export function Dashboard({ sales, products, customers, onNewSale }: {
             </PieChart>
           </ResponsiveContainer>
         </div>
+      </div>
+      </SensitiveData>
 
+      <div className="grid grid-2">
         <div className="card">
           <h3 className="card-title">Sabores mais vendidos</h3>
           {topProducts.length === 0 ? <p style={{ color: 'var(--tx-3)' }}>Sem vendas ainda.</p> : (

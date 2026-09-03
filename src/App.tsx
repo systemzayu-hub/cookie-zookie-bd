@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, Suspense, lazy } from 'react'
-import { LayoutDashboard, ShoppingCart, Package, BarChart3, Boxes, Users, Sun, Moon, Cookie, Download, Upload, HandCoins, LogIn, LogOut, Lock, AlertTriangle, Percent, ShieldCheck, Menu, X } from 'lucide-react'
+import { LayoutDashboard, ShoppingCart, Package, BarChart3, Users, Sun, Moon, Download, Upload, LogIn, LogOut, Lock, Percent, ShieldCheck, Menu, X } from 'lucide-react'
 import { Product, Sale, Customer, Tab, Pendencia, fmtBRL } from './types'
 import { seedProducts, seedCustomers, seedSales, load, save } from './data'
 import { baixarBackup, aplicarBackup } from './db'
@@ -10,13 +10,10 @@ import logoUrl from './assets/logo.png'
 
 const Dashboard = lazy(() => import('./views/Dashboard').then(m => ({ default: m.Dashboard })))
 const SalesView = lazy(() => import('./views/Sales').then(m => ({ default: m.SalesView })))
-const ProductsView = lazy(() => import('./views/Products').then(m => ({ default: m.ProductsView })))
+const ProductsStockView = lazy(() => import('./views/ProductsStock').then(m => ({ default: m.ProductsStockView })))
 const ReportsView = lazy(() => import('./views/Reports').then(m => ({ default: m.ReportsView })))
-const StockView = lazy(() => import('./views/Stock').then(m => ({ default: m.StockView })))
-const CustomersView = lazy(() => import('./views/Customers').then(m => ({ default: m.CustomersView })))
-const CobrancaView = lazy(() => import('./views/Cobranca').then(m => ({ default: m.CobrancaView })))
-const PerdasView = lazy(() => import('./views/Perdas').then(m => ({ default: m.PerdasView })))
-const CustosView = lazy(() => import('./views/Custos').then(m => ({ default: m.CustosView })))
+const CustomersBillingView = lazy(() => import('./views/CustomersBilling').then(m => ({ default: m.CustomersBillingView })))
+const FinanceiroView = lazy(() => import('./views/Financeiro').then(m => ({ default: m.FinanceiroView })))
 const AuditView = lazy(() => import('./views/Audit').then(m => ({ default: m.AuditView })))
 
 export default function App() {
@@ -114,17 +111,14 @@ export default function App() {
   }
 
   const nav: { id: Tab; label: string; icon: React.ReactNode }[] = [
-    { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="icon" /> },
-    { id: 'vendas', label: 'Vendas', icon: <ShoppingCart className="icon" /> },
-    { id: 'produtos', label: 'Produtos', icon: <Package className="icon" /> },
-    { id: 'relatorios', label: 'Relatórios', icon: <BarChart3 className="icon" /> },
-    { id: 'estoque', label: 'Estoque', icon: <Boxes className="icon" /> },
-    { id: 'clientes', label: 'Clientes', icon: <Users className="icon" /> },
-    { id: 'cobranca', label: 'Cobrança', icon: <HandCoins className="icon" /> },
-    { id: 'perdas', label: 'Perdas', icon: <AlertTriangle className="icon" /> },
-    { id: 'custos', label: 'Custos', icon: <Percent className="icon" /> },
-    { id: 'audit', label: 'Auditoria', icon: <ShieldCheck className="icon" /> },
-  ]
+      { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="icon" /> },
+      { id: 'vendas', label: 'Vendas', icon: <ShoppingCart className="icon" /> },
+      { id: 'produtos', label: 'Produtos & Estoque', icon: <Package className="icon" /> },
+      { id: 'relatorios', label: 'Relatórios', icon: <BarChart3 className="icon" /> },
+      { id: 'clientes', label: 'Clientes & Cobrança', icon: <Users className="icon" /> },
+      { id: 'financeiro', label: 'Financeiro', icon: <Percent className="icon" /> },
+      { id: 'audit', label: 'Auditoria', icon: <ShieldCheck className="icon" /> },
+    ]
 
   // Tela de carregamento/verificação de login obrigatório
   if (authLoading) {
@@ -227,13 +221,10 @@ export default function App() {
         <Suspense fallback={<div className="loading">Carregando...</div>}>
           {tab === 'dashboard' && <Dashboard sales={sales} products={products} customers={customers} onNewSale={() => setTab('vendas')} />}
           {tab === 'vendas' && <SalesView products={products} customers={customers} sales={sales} onSaleAdded={handleSaleAdded} pushToast={pushToast} />}
-          {tab === 'produtos' && <ProductsView products={products} setProducts={setProducts} pushToast={pushToast} />}
+          {tab === 'produtos' && <ProductsStockView products={products} setProducts={setProducts} pushToast={pushToast} />}
           {tab === 'relatorios' && <ReportsView sales={sales} />}
-          {tab === 'estoque' && <StockView products={products} setProducts={setProducts} pushToast={pushToast} />}
-          {tab === 'clientes' && <CustomersView customers={customers} setCustomers={setCustomers} sales={sales} pushToast={pushToast} />}
-          {tab === 'cobranca' && <CobrancaView />}
-          {tab === 'perdas' && <PerdasView />}
-          {tab === 'custos' && <CustosView />}
+          {tab === 'clientes' && <CustomersBillingView customers={customers} setCustomers={setCustomers} sales={sales} pushToast={pushToast} />}
+          {tab === 'financeiro' && <FinanceiroView />}
           {tab === 'audit' && <AuditView />}
         </Suspense>
       </main>

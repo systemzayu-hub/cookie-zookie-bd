@@ -43,9 +43,14 @@ export function AuditView() {
   }
 
   const actors = useMemo(() => {
-    const m = new Map<string, number>()
-    entries.forEach(e => m.set(e.actor, (m.get(e.actor) || 0) + 1))
-    return Array.from(m.entries()).sort((a, b) => b[1] - a[1])
+    const m = new Map<string, { n: number; email?: string }>()
+    entries.forEach(e => {
+      const cur = m.get(e.actor) || { n: 0, email: e.email }
+      cur.n += 1
+      if (e.email) cur.email = e.email
+      m.set(e.actor, cur)
+    })
+    return Array.from(m.entries()).map(([name, v]) => [name, v] as const).sort((a, b) => b[1].n - a[1].n)
   }, [entries])
 
   const filtered = useMemo(() =>
@@ -105,11 +110,13 @@ export function AuditView() {
           <h3 className="card-title">Pessoas (por atividade)</h3>
           {actors.length === 0 ? <div className="empty-state"><p>Sem registros ainda.</p></div> : (
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
-              {actors.map(([name, n]) => (
+              {actors.map(([name, v]) => (
                 <button key={name} onClick={() => setFilter(name === filter ? 'todos' : name)}
                   style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', background: 'transparent', border: 'none', cursor: 'pointer', textAlign: 'left', opacity: filter === name ? 1 : 0.7 }}>
-                  <strong style={{ flex: 1, color: 'var(--cz-600)' }}>{name === 'desconhecido' ? 'Desconhecido' : name}</strong>
-                  <span className="badge badge-brand">{n} ações</span>
+                  <strong style={{ flex: 1, color: 'var(--cz-600)' }}>{name === 'desconhecido' ? 'Desconhecido' : name}
+                    {v.email && <span style={{ display: 'block', fontSize: '0.78rem', fontWeight: 400, color: 'var(--tx-3)' }}>{v.email}</span>}
+                  </strong>
+                  <span className="badge badge-brand">{v.n} ações</span>
                 </button>
               ))}
             </div>
@@ -152,7 +159,9 @@ export function AuditView() {
                 {filtered.slice(0, 300).map(e => (
                   <tr key={e.id}>
                     <td style={{ whiteSpace: 'nowrap' }}>{new Date(e.ts).toLocaleDateString('pt-BR')} {new Date(e.ts).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</td>
-                    <td style={{ fontWeight: 600 }}>{e.actor === 'desconhecido' ? 'Desconhecido' : e.actor}</td>
+                    <td style={{ fontWeight: 600 }}>{e.actor === 'desconhecido' ? 'Desconhecido' : e.actor}
+                      {e.email && <span style={{ display: 'block', fontSize: '0.76rem', fontWeight: 400, color: 'var(--tx-3)' }}>{e.email}</span>}
+                    </td>
                     <td><span className="badge badge-neutral" style={{ textTransform: 'capitalize' }}>{ACTION_ICON[e.action] || ''} {e.action}</span></td>
                     <td>{e.detail}</td>
                   </tr>

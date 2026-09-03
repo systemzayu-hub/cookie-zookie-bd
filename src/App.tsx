@@ -39,6 +39,13 @@ export default function App() {
       setUser(u ? { email: u.email, name: u.displayName } : null)
       setAuditActor(u?.displayName || u?.email || null, u?.email || null)
       setAuthLoading(false)
+      // Registra a entrada/saída na auditoria em toda mudança de sessão
+      // (cobre login via botão E restauração de sessão já autenticada).
+      if (u) {
+        try {
+          logAction('login', `${u.displayName || u.email || 'alguém'} entrou no sistema`)
+        } catch { /* auditoria é best-effort */ }
+      }
     })
     return () => unsub()
   }, [])
@@ -48,7 +55,7 @@ export default function App() {
       const u = await authLoginGoogle()
       if (u) {
         pushToast(`Olá, ${u.displayName ?? u.email ?? 'funcionário(a)'}! 🍪`)
-        logAction('login', `${u.displayName || u.email || 'alguém'} entrou no sistema`)
+        // login é registrado na auditoria pelo authOnChange (evita duplicar)
       }
     } catch (e) {
       const emsg = (e as { code?: string; message?: string }).message || String(e)

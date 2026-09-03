@@ -9,8 +9,13 @@ const PRODUCT_ALIASES: Record<string, string> = {
   'kinder': 'Kinder',
   'trad': 'Tradicional',
   'tradicional': 'Tradicional',
+  'm. a': 'Meio Amargo',
+  'm.a': 'Meio Amargo',
+  'm.a.': 'Meio Amargo',
   'm. a.': 'Meio Amargo',
+  'ma': 'Meio Amargo',
   'meio amargo': 'Meio Amargo',
+  'meio-amargo': 'Meio Amargo',
   'meioamargo': 'Meio Amargo',
   'm a': 'Meio Amargo',
   'amargo': 'Meio Amargo',
@@ -18,21 +23,21 @@ const PRODUCT_ALIASES: Record<string, string> = {
 
 function matchProduct(input: string, products: Product[]): Product | null {
   const normRaw = input.trim().toLowerCase()
-  // strip trailing punctuation and dots for alias matching
-  const norm = normRaw.replace(/\.+$/, '').trim()
-  // exact alias
-  if (PRODUCT_ALIASES[norm]) {
-    const name = PRODUCT_ALIASES[norm]
+  // alias matching: remove pontos e espaços internos (tolerante a 'm.a', 'm. a.', 'ma')
+  const normAlias = normRaw.replace(/[.\s]+/g, '')
+  if (PRODUCT_ALIASES[normRaw] || PRODUCT_ALIASES[normAlias]) {
+    const name = PRODUCT_ALIASES[normRaw] || PRODUCT_ALIASES[normAlias]
     return products.find(p => p.name.toLowerCase() === name.toLowerCase()) || null
   }
   // exact match
-  const exact = products.find(p => p.name.toLowerCase() === norm)
+  const normExact = normRaw.replace(/\.+$/g, '').trim()
+  const exact = products.find(p => p.name.toLowerCase() === normExact)
   if (exact) return exact
   // partial match (product name contains input or vice-versa)
-  const partial = products.find(p => p.name.toLowerCase().includes(norm) || norm.includes(p.name.toLowerCase()))
+  const partial = products.find(p => p.name.toLowerCase().includes(normExact) || normExact.includes(p.name.toLowerCase()))
   if (partial) return partial
   // starts-with
-  const starts = products.find(p => p.name.toLowerCase().startsWith(norm))
+  const starts = products.find(p => p.name.toLowerCase().startsWith(normExact))
   return starts || null
 }
 

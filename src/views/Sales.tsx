@@ -1,11 +1,13 @@
 import { useState } from 'react'
-import { Plus, X, CheckCircle2, Trash2 } from 'lucide-react'
+import { Plus, X, CheckCircle2, Trash2, ClipboardPaste, ShoppingCart } from 'lucide-react'
 import { Product, Customer, Sale, SaleItem, LOW_STOCK_THRESHOLD, CHANNELS, PAYMENTS, fmtBRL } from '../types'
 import { StatusBadge } from './Dashboard'
+import { QuickSaleView } from './QuickSale'
 
-export function SalesView({ products, customers, sales, onSaleAdded }: {
-  products: Product[]; customers: Customer[]; sales: Sale[]; onSaleAdded: (s: Sale) => void
+export function SalesView({ products, customers, sales, onSaleAdded, pushToast }: {
+  products: Product[]; customers: Customer[]; sales: Sale[]; onSaleAdded: (s: Sale) => void; pushToast: (m: string, t?: 'success' | 'error') => void
 }) {
+  const [mode, setMode] = useState<'manual' | 'paste'>('manual')
   const [lines, setLines] = useState<SaleItem[]>(() => products.length ? [{ productId: products[0].id, qty: 1 }] : [])
   const [payment, setPayment] = useState<Sale['payment']>('pix')
   const [channel, setChannel] = useState<Sale['channel']>('loja')
@@ -39,81 +41,105 @@ export function SalesView({ products, customers, sales, onSaleAdded }: {
   return (
     <>
       <div className="page-row">
-        <div className="page-title"><h2>Registrar Venda</h2><p>Armazene uma venda da loja</p></div>
+        <div className="page-title"><h2>Vendas</h2><p>Registre vendas manualmente ou cole o texto da planilha</p></div>
         <button className="btn btn-secondary" onClick={() => setHistoryOpen(h => !h)}>{historyOpen ? 'Fechar' : 'Histórico'} de vendas</button>
       </div>
 
-      <div className="card">
-        {products.length === 0 && (
-          <div className="empty-state"><p>Cadastre produtos primeiro para registrar vendas.</p></div>
-        )}
-
-        {lines.map((line, idx) => {
-          const p = products.find(x => x.id === line.productId)
-          return (
-            <div key={idx} className="sale-item-row">
-              <div className="field">
-                <label>Produto</label>
-                <select value={line.productId} onChange={e => updateLine(idx, { productId: e.target.value })}>
-                  {products.map(p => <option key={p.id} value={p.id}>{p.emoji} {p.name} — {fmtBRL(p.price)}</option>)}
-                </select>
-                {p && p.stock <= LOW_STOCK_THRESHOLD && <span className="hint" style={{ color: 'var(--warn-600)' }}>Estoque baixo: {p.stock}</span>}
-              </div>
-              <div className="field">
-                <label>Qtd</label>
-                <input type="number" min={1} className="num-input" value={line.qty} onChange={e => updateLine(idx, { qty: Math.max(1, Number(e.target.value)) })} />
-              </div>
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', paddingTop: 26 }}>
-                <span style={{ fontWeight: 700 }}>{fmtBRL((p?.price || 0) * line.qty)}</span>
-                <button className="btn btn-ghost btn-sm" onClick={() => removeLine(idx)} disabled={lines.length === 1}><X size={14} /></button>
-              </div>
-            </div>
-          )
-        })}
-
-        <button className="btn btn-secondary btn-sm" onClick={addLine}><Plus size={14} /> Adicionar item</button>
-
-        <div className="form-grid" style={{ marginTop: 'var(--space-6)' }}>
-          <div className="field">
-            <label>Forma de pagamento</label>
-            <select value={payment} onChange={e => setPayment(e.target.value as Sale['payment'])}>
-              {PAYMENTS.map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
-            </select>
-          </div>
-          <div className="field">
-            <label>Canal de venda</label>
-            <select value={channel} onChange={e => setChannel(e.target.value as Sale['channel'])}>
-              {CHANNELS.map(c => <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>)}
-            </select>
-          </div>
-          <div className="field">
-            <label>Cliente</label>
-            <select value={customerId} onChange={e => setCustomerId(e.target.value)}>
-              <option value="">Sem cliente</option>
-              {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-            </select>
-          </div>
-          <div className="field">
-            <label>Status</label>
-            <select value={status} onChange={e => setStatus(e.target.value as Sale['status'])}>
-              <option value="Pago">Pago</option>
-              <option value="Pendente">Pendente</option>
-              <option value="Debitado">Debitado</option>
-              <option value="Presente">Presente</option>
-            </select>
-          </div>
-        </div>
-
-        {error && <p style={{ color: 'var(--danger-500)', marginTop: 'var(--space-4)', fontWeight: 600 }}>{error}</p>}
-
-        <div className="sale-total">
-          <span>Total</span>
-          <strong>{fmtBRL(total)}</strong>
-        </div>
-        <div className="modal-actions">
-          <button className="btn btn-primary" onClick={submit}><CheckCircle2 size={16} /> Salvar Venda</button>
+      {/* Toggle: Registrar (manual) / Colar texto (planilha) */}
+      <div className="card" style={{ marginBottom: 'var(--sp-5)', background: 'var(--bg-soft, transparent)' }}>
+        <div style={{ display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap' }}>
+          <button
+            className={`btn ${mode === 'manual' ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => setMode('manual')}
+            style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}
+          >
+            <ShoppingCart size={16} /> Registrar venda
+          </button>
+          <button
+            className={`btn ${mode === 'paste' ? 'btn-primary' : 'btn-ghost'}`}
+            onClick={() => setMode('paste')}
+            style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}
+          >
+            <ClipboardPaste size={16} /> Colar texto (planilha)
+          </button>
         </div>
       </div>
+
+      {mode === 'paste' ? (
+        <QuickSaleView products={products} customers={customers} onSaleAdded={onSaleAdded} pushToast={pushToast} />
+      ) : (
+        <div className="card">
+          {products.length === 0 && (
+            <div className="empty-state"><p>Cadastre produtos primeiro para registrar vendas.</p></div>
+          )}
+
+          {lines.map((line, idx) => {
+            const p = products.find(x => x.id === line.productId)
+            return (
+              <div key={idx} className="sale-item-row">
+                <div className="field">
+                  <label>Produto</label>
+                  <select value={line.productId} onChange={e => updateLine(idx, { productId: e.target.value })}>
+                    {products.map(p => <option key={p.id} value={p.id}>{p.emoji} {p.name} — {fmtBRL(p.price)}</option>)}
+                  </select>
+                  {p && p.stock <= LOW_STOCK_THRESHOLD && <span className="hint" style={{ color: 'var(--warn-600)' }}>Estoque baixo: {p.stock}</span>}
+                </div>
+                <div className="field">
+                  <label>Qtd</label>
+                  <input type="number" min={1} className="num-input" value={line.qty} onChange={e => updateLine(idx, { qty: Math.max(1, Number(e.target.value)) })} />
+                </div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', paddingTop: 26 }}>
+                  <span style={{ fontWeight: 700 }}>{fmtBRL((p?.price || 0) * line.qty)}</span>
+                  <button className="btn btn-ghost btn-sm" onClick={() => removeLine(idx)} disabled={lines.length === 1}><X size={14} /></button>
+                </div>
+              </div>
+            )
+          })}
+
+          <button className="btn btn-secondary btn-sm" onClick={addLine}><Plus size={14} /> Adicionar item</button>
+
+          <div className="form-grid" style={{ marginTop: 'var(--space-6)' }}>
+            <div className="field">
+              <label>Forma de pagamento</label>
+              <select value={payment} onChange={e => setPayment(e.target.value as Sale['payment'])}>
+                {PAYMENTS.map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
+              </select>
+            </div>
+            <div className="field">
+              <label>Canal de venda</label>
+              <select value={channel} onChange={e => setChannel(e.target.value as Sale['channel'])}>
+                {CHANNELS.map(c => <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>)}
+              </select>
+            </div>
+            <div className="field">
+              <label>Cliente</label>
+              <select value={customerId} onChange={e => setCustomerId(e.target.value)}>
+                <option value="">Sem cliente</option>
+                {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
+            </div>
+            <div className="field">
+              <label>Status</label>
+              <select value={status} onChange={e => setStatus(e.target.value as Sale['status'])}>
+                <option value="Pago">Pago</option>
+                <option value="Pendente">Pendente</option>
+                <option value="Debitado">Debitado</option>
+                <option value="Presente">Presente</option>
+              </select>
+            </div>
+          </div>
+
+          {error && <p style={{ color: 'var(--danger-500)', marginTop: 'var(--space-4)', fontWeight: 600 }}>{error}</p>}
+
+          <div className="sale-total">
+            <span>Total</span>
+            <strong>{fmtBRL(total)}</strong>
+          </div>
+          <div className="modal-actions">
+            <button className="btn btn-primary" onClick={submit}><CheckCircle2 size={16} /> Salvar Venda</button>
+          </div>
+        </div>
+      )}
 
       {historyOpen && <SaleHistory sales={sales} />}
     </>

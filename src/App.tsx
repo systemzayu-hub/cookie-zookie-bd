@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, Suspense, lazy } from 'react'
-import { LayoutDashboard, ShoppingCart, Package, BarChart3, Boxes, Users, Sun, Moon, Cookie, Download, Upload, HandCoins, LogIn, LogOut, Lock, AlertTriangle, Percent, ClipboardPaste, ShieldCheck, Menu, X } from 'lucide-react'
+import { LayoutDashboard, ShoppingCart, Package, BarChart3, Boxes, Users, Sun, Moon, Cookie, Download, Upload, HandCoins, LogIn, LogOut, Lock, AlertTriangle, Percent, ShieldCheck, Menu, X } from 'lucide-react'
 import { Product, Sale, Customer, Tab, Pendencia, fmtBRL } from './types'
 import { seedProducts, seedCustomers, seedSales, load, save } from './data'
 import { baixarBackup, aplicarBackup } from './db'
@@ -18,7 +18,6 @@ const CobrancaView = lazy(() => import('./views/Cobranca').then(m => ({ default:
 const PerdasView = lazy(() => import('./views/Perdas').then(m => ({ default: m.PerdasView })))
 const CustosView = lazy(() => import('./views/Custos').then(m => ({ default: m.CustosView })))
 const AuditView = lazy(() => import('./views/Audit').then(m => ({ default: m.AuditView })))
-const QuickSaleView = lazy(() => import('./views/QuickSale').then(m => ({ default: m.QuickSaleView })))
 
 export default function App() {
   const [tab, setTab] = useState<Tab>('dashboard')
@@ -116,8 +115,7 @@ export default function App() {
 
   const nav: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="icon" /> },
-    { id: 'vendas', label: 'Nova Venda', icon: <ShoppingCart className="icon" /> },
-    { id: 'venda-rapida', label: 'Venda Rápida', icon: <ClipboardPaste className="icon" /> },
+    { id: 'vendas', label: 'Vendas', icon: <ShoppingCart className="icon" /> },
     { id: 'produtos', label: 'Produtos', icon: <Package className="icon" /> },
     { id: 'relatorios', label: 'Relatórios', icon: <BarChart3 className="icon" /> },
     { id: 'estoque', label: 'Estoque', icon: <Boxes className="icon" /> },
@@ -228,7 +226,7 @@ export default function App() {
       <main className="main">
         <Suspense fallback={<div className="loading">Carregando...</div>}>
           {tab === 'dashboard' && <Dashboard sales={sales} products={products} customers={customers} onNewSale={() => setTab('vendas')} />}
-          {tab === 'vendas' && <SalesView products={products} customers={customers} sales={sales} onSaleAdded={handleSaleAdded} />}
+          {tab === 'vendas' && <SalesView products={products} customers={customers} sales={sales} onSaleAdded={handleSaleAdded} pushToast={pushToast} />}
           {tab === 'produtos' && <ProductsView products={products} setProducts={setProducts} pushToast={pushToast} />}
           {tab === 'relatorios' && <ReportsView sales={sales} />}
           {tab === 'estoque' && <StockView products={products} setProducts={setProducts} pushToast={pushToast} />}
@@ -237,7 +235,6 @@ export default function App() {
           {tab === 'perdas' && <PerdasView />}
           {tab === 'custos' && <CustosView />}
           {tab === 'audit' && <AuditView />}
-          {tab === 'venda-rapida' && <QuickSaleView products={products} customers={customers} onSaleAdded={handleSaleAdded} pushToast={pushToast} />}
         </Suspense>
       </main>
 

@@ -395,7 +395,7 @@ export function AuditView() {
         </section>
 
         {/* Timeline principal */}
-        <section className="audit-timeline card" style={{ gridColumn: 'span 1' }}>
+        <section className="audit-timeline card">
           <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
             <ShieldCheck size={18} /> Linha do tempo <span className="badge badge-brand">{filtered.length}</span>
           </h3>

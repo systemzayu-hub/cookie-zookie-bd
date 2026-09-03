@@ -1,0 +1,93 @@
+{
+  "falhas": [
+    {
+      "arquivo": "src/App.tsx",
+      "linha": 159,
+      "problema": "Bug A não corrigido: hamburger fixo (z-index:200) sobrepõe page-header no mobile. O .main/.page-header não tem padding-top para compensar o botão fixo de 44px + gap.",
+      "correcao": "Adicionar padding-top no .main ou .page-header no @media (max-width: 768px) igual à altura do hamburger + espaçamento (ex: calc(44px + var(--sp-4) + var(--sp-2)))."
+    },
+    {
+      "arquivo": "src/App.tsx",
+      "linha": 159,
+      "problema": "Bug B não corrigido: menu-toggle sempre mostra ícone Menu (hamburger), nunca vira X quando drawer abre. O botão fica fora do sidebar (fixed, z-index:200) e permanece visível por cima do sidebar aberto (z-index:180).",
+      "correcao": "Mover o botão de fechar (X) para dentro do <aside className=\"sidebar\"> (ex: no .brand ou topo do sidebar-nav) e condicionar ícone: isMenuOpen ? <X /> : <Menu />. Remover menu-toggle fixo do fluxo quando drawer aberto ou escondê-lo via CSS (.sidebar.open ~ .menu-toggle { display:none })."
+    },
+    {
+      "arquivo": "src/App.tsx",
+      "linha": 23,
+      "problema": "Bug C não corrigido: não há scroll-lock no body quando drawer mobile abre. Falta useEffect que observe isMenuOpen e faça document.body.style.overflow = isMenuOpen ? 'hidden' : '' (restaurar ao fechar).",
+      "correcao": "Adicionar useEffect(() => { document.body.style.overflow = isMenuOpen ? 'hidden' : ''; return () => { document.body.style.overflow = ''; } }, [isMenuOpen]) no componente App."
+    },
+    {
+      "arquivo": "src/styles.css",
+      "linha": 176,
+      "problema": "Bug D risco de regressão: .main usa flex:1 sem margin-left no desktop. Se .sidebar virar position:fixed (conforme descrição do bug), o conteúdo vazará por baixo da sidebar. Atualmente .sidebar é sticky (funciona com flex), mas a correção planejada pode quebrar layout.",
+      "correcao": "Se .sidebar tornar-se fixed no desktop, adicionar .main { margin-left: 256px; } no escopo desktop (fora de @media). Ou manter sticky (atual) que já funciona com flex."
+    },
+    {
+      "arquivo": "src/styles.css",
+      "linha": 121,
+      "problema": ".sidebar desktop usa height: 100vh (não 100dvh). Em navegadores móveis com barra de endereço dinâmica, sticky pode falhar ao rolar. Já usa 100dvh no mobile (linha 495), mas desktop ficou só 100vh.",
+      "correcao": "Trocar height: 100vh por height: 100vh; height: 100dvh; na regra .sidebar (linha 121), igual ao body/app."
+    },
+    {
+      "arquivo": "src/App.tsx",
+      "linha": 162,
+      "problema": "sidebar-overlay tem onClick que fecha drawer, mas não impede propagação de clique para elementos internos. Se clicar no overlay, fecha; mas se houver elementos por cima (não há), ok. Porém, o overlay não tem role='dialog' nem aria-modal para acessibilidade.",
+      "correcao": "Adicionar role=\"dialog\" aria-modal=\"true\" no <aside className=\"sidebar\"> e aria-hidden no overlay quando fechado."
+    },
+    {
+      "arquivo": "src/styles.css",
+      "linha": 455,
+      "problema": ".menu-toggle usa position:fixed com top/left fixos. No @media (max-width: 768px) linha 603 corrige com safe-area-inset, mas a regra base (fora do media) não tem safe-area. Em iOS com notch, o botão pode ficar cortado mesmo no desktop (se viewport < 768px forçado).",
+      "correcao": "Mover top/left com max(var(--sp-4), env(safe-area-inset-top/left)) para a regra base .menu-toggle, não só no media query."
+    }
+  ],
+  "aprovacoes": [
+    {
+      "arquivo": "src/styles.css",
+      "linha": 105,
+      "item": "body usa min-height: 100vh; min-height: 100dvh; — fallback correto para viewport dinâmico."
+    },
+    {
+      "arquivo": "src/styles.css",
+      "linha": 115,
+      "item": ".app usa min-height: 100vh; min-height: 100dvh; overflow-x: hidden — layout flex full-height correto."
+    },
+    {
+      "arquivo": "src/styles.css",
+      "linha": 147,
+      "item": ".sidebar-nav com overflow-y:auto, min-height:0, flex:1 — captura scroll interno da navegação sem vazar para body (wheel capturado corretamente)."
+    },
+    {
+      "arquivo": "src/styles.css",
+      "linha": 488,
+      "item": "Media queries mobile-first bem estruturadas: ≤768px e ≤480px com ajustes progressivos de padding, tipografia, grids."
+    },
+    {
+      "arquivo": "src/styles.css",
+      "linha": 602,
+      "item": "Safe-area iOS preservado: env(safe-area-inset-*) aplicado em menu-toggle, sidebar, main, toast-container no @media (max-width: 768px)."
+    },
+    {
+      "arquivo": "src/styles.css",
+      "linha": 612,
+      "item": "@media (prefers-reduced-motion: reduce) desativa animações/transições — acessibilidade OK."
+    },
+    {
+      "arquivo": "src/App.tsx",
+      "linha": 162,
+      "item": "sidebar-overlay com onClick para fechar drawer — padrão UX mobile correto (clique fora fecha)."
+    },
+    {
+      "arquivo": "src/App.tsx",
+      "linha": 173,
+      "item": "Nav items chamam setIsMenuOpen(false) ao clicar — fecha drawer após navegação mobile."
+    },
+    {
+      "arquivo": "src/App.tsx",
+      "linha": 156,
+      "item": "Estrutura JSX: menu-toggle → sidebar-overlay → sidebar → main — ordem de z-index condiz (overlay 150, sidebar 180, toggle 200)."
+    }
+  ]
+}

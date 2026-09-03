@@ -1,0 +1,76 @@
+{
+  "riscos": [
+    {
+      "view": "Sales.tsx",
+      "trecho": "Coluna 'Itens' (linha 136-137): <td>{s.items.map(i => `${i.name} x${i.qty}`).join(', ')}</td>",
+      "problema": "Concatenação de múltiplos itens com vírgula gera texto longo que não quebra bem em mobile, mesmo com overflow-wrap: anywhere",
+      "correcao_css": ".table td:nth-child(2) { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } @media (max-width: 480px) { .table td:nth-child(2) { max-width: 140px; } }"
+    },
+    {
+      "view": "Dashboard.tsx",
+      "trecho": "Coluna 'Itens' (linha 158): <td>{s.items.map(i => `${i.name} x${i.qty}`).join(', ')}</td>",
+      "problema": "Mesmo problema do Sales - itens concatenados estouram largura em mobile",
+      "correcao_css": ".table td:nth-child(3) { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } @media (max-width: 480px) { .table td:nth-child(3) { max-width: 140px; } }"
+    },
+    {
+      "view": "Reports.tsx",
+      "trecho": "Coluna 'Itens' (linha 139): <td>{s.items.map(i => `${i.name} x${i.qty}`).join(', ')}</td>",
+      "problema": "Mesmo padrão de concatenação de itens - risco de overflow horizontal",
+      "correcao_css": ".table td:nth-child(2) { max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; } @media (max-width: 480px) { .table td:nth-child(2) { max-width: 140px; } }"
+    },
+    {
+      "view": "QuickSale.tsx",
+      "trecho": "Tabela com 8 colunas (linha 306): <th>#</th><th>Data</th><th>Qtd</th><th>Produto</th><th>Cliente</th><th>Status</th><th>Subtotal</th><th>Observação</th>",
+      "problema": "8 colunas excedem largura de tela mobile; min-width: 600px (768px) / 500px (480px) força scroll horizontal excessivo",
+      "correcao_css": "@media (max-width: 768px) { .table { min-width: 700px; } .table th:nth-child(8), .table td:nth-child(8) { display: none; } } @media (max-width: 480px) { .table { min-width: 600px; } .table th:nth-child(7), .table td:nth-child(7) { display: none; } }"
+    },
+    {
+      "view": "Customers.tsx",
+      "trecho": "Coluna 'Ações' com 2 botões (linha 142-145): <button className=\"btn btn-secondary btn-sm\"><Pencil /></button><button className=\"btn btn-danger btn-sm\"><Trash2 /></button>",
+      "problema": "Em mobile, .btn { width: 100% } empilha botões verticalmente, ocupando altura excessiva na célula",
+      "correcao_css": "@media (max-width: 768px) { .table td:last-child { white-space: nowrap; } .table td:last-child .btn { width: auto; min-width: 40px; padding: var(--sp-2) var(--sp-3); } .table td:last-child .btn-sm { font-size: 0.75rem; } }"
+    },
+    {
+      "view": "Custos.tsx",
+      "trecho": "Input de edição inline (linha 117-128): <input className=\"num-input\" style={{ width: '100%', minWidth: '100px' }} />",
+      "problema": "Input num-input com width: 100% + min-width: 100px em célula de tabela mobile causa overflow ou quebra layout",
+      "correcao_css": "@media (max-width: 768px) { .table .num-input { width: 85px !important; min-width: 70px !important; font-size: 1rem !important; padding: var(--sp-2) var(--sp-3) !important; } }"
+    },
+    {
+      "view": "Perdas.tsx",
+      "trecho": "Tabela com 7 colunas + Ações (linhas 100-108): Custo Unit, Custo Total, Ações com botão excluir",
+      "problema": "7 colunas + valores monetários longos (R$ 1.234,56) + botão de ação excedem largura mobile",
+      "correcao_css": "@media (max-width: 768px) { .table { min-width: 650px; } .table td.text-right { font-size: 0.8rem; } .table td:last-child .btn { width: auto; min-width: 36px; padding: var(--sp-2); } }"
+    },
+    {
+      "view": "Stock.tsx",
+      "trecho": "Coluna 'Ações' com 3 botões + número (linhas 57-62): -1, stock, +1, +10",
+      "problema": "4 elementos inline em célula estreita; em mobile .btn { width: 100% } quebra em 4 linhas verticais",
+      "correcao_css": "@media (max-width: 768px) { .table td:last-child { display: flex; gap: var(--sp-1); align-items: center; justify-content: center; flex-wrap: wrap; } .table td:last-child .btn { width: auto; min-width: 44px; padding: var(--sp-2) var(--sp-3); font-size: 0.8rem; } .table td:last-child span { padding: 0 var(--sp-2); } }"
+    },
+    {
+      "view": "Audit.tsx",
+      "trecho": "Coluna 'Detalhe' (linha 157): <td>{e.detail}</td> com whiteSpace: 'nowrap' no pai",
+      "problema": "Texto livre longo sem quebra (nowrap no <td> pai linha 154) força scroll horizontal em mobile",
+      "correcao_css": "@media (max-width: 768px) { .table td:last-child { white-space: normal !important; overflow-wrap: anywhere; word-break: break-word; max-width: 200px; } }"
+    },
+    {
+      "view": "Dashboard.tsx / App.tsx (header mobile)",
+      "trecho": "CSS linha 511: .main { padding-left: calc(var(--sp-4) + 44px + var(--sp-3)); } ≈ 72px + .btn { width: 100% }",
+      "problema": "padding-left do .main (~72px) + btn width: 100% espreme botão 'Registrar Venda' reduzindo área útil em ~30% em mobile",
+      "correcao_css": "@media (max-width: 768px) { .main { padding-left: var(--sp-4); padding-right: var(--sp-4); } .page-row .btn { width: auto; min-width: 200px; } } @media (max-width: 480px) { .main { padding-left: var(--sp-3); padding-right: var(--sp-3); } .page-row .btn { width: 100%; min-width: 0; } }"
+    },
+    {
+      "view": "Geral - valores monetários",
+      "trecho": "Múltiplas views: fmtBRL(s.total), fmtBRL(c.lucroUnitario), fmtBRL(p.custoTotal) etc.",
+      "problema": "Valores como 'R$ 12.345,67' (11 chars) em células estreitas mobile podem quebrar layout ou requerer scroll",
+      "correcao_css": "@media (max-width: 768px) { .table .text-right { font-size: 0.8rem; font-family: var(--font-display); white-space: nowrap; } } @media (max-width: 480px) { .table .text-right { font-size: 0.75rem; } .table td:has(.text-right) { min-width: 90px; } }"
+    },
+    {
+      "view": "Geral - datas completas",
+      "trecho": "Sales.tsx linha 136, Audit.tsx linha 154: toLocaleDateString + toLocaleTimeString",
+      "problema": "Strings como '02/09/2026 14:30' (16 chars) em colunas estreitas mobile",
+      "correcao_css": "@media (max-width: 768px) { .table td:first-child { white-space: nowrap; font-size: 0.8rem; } } @media (max-width: 480px) { .table td:first-child { font-size: 0.75rem; } }"
+    }
+  ]
+}

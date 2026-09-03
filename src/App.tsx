@@ -67,6 +67,11 @@ export default function App() {
     document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light')
     save('cc_theme', dark)
   }, [dark])
+  useEffect(() => {
+    document.body.style.overflow = isMenuOpen ? 'hidden' : '';
+    return () => { document.body.style.overflow = ''; };
+  }, [isMenuOpen]);
+
   useEffect(() => save('cc_products', products), [products])
   useEffect(() => save('cc_sales', sales), [sales])
   useEffect(() => save('cc_customers', customers), [customers])
@@ -156,9 +161,9 @@ export default function App() {
   return (
       <PasswordProvider>
       <div className="app">
-        <button className="menu-toggle" aria-label="Abrir menu" onClick={() => setIsMenuOpen(true)}>
-          <Menu className="icon" />
-        </button>
+        <button className={`menu-toggle ${isMenuOpen ? 'is-open' : ''}`} aria-label={isMenuOpen ? 'Fechar menu' : 'Abrir menu'} onClick={() => setIsMenuOpen(!isMenuOpen)}>
+                          {isMenuOpen ? <X className="icon" /> : <Menu className="icon" />}
+                        </button>
         <div className={`sidebar-overlay ${isMenuOpen ? 'open' : ''}`} onClick={() => setIsMenuOpen(false)} />
         <aside className={`sidebar ${isMenuOpen ? 'open' : ''}`}>
         <div className="brand">

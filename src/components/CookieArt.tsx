@@ -1,46 +1,66 @@
 /**
- * CookieArt.tsx — Cookie SVG procedural com borda ondulada orgânica,
- * textura de massa assada, relevo 3D e indicadores por sabor.
- * Massa creme (nunca marrom/chocolate). Indicadores: Trad=liso, Meio Amargo=barra,
- * Nutella=pote, Kinder=coração.
+ * CookieArt.tsx — Cookie SVG fotorrealista estilo "assado de verdade".
+ * Massa dourada assada + gotas de chocolate (chips) embutidas + textura.
+ * RENDER ADAPTATIVO: em tamanhos pequenos simplifica (menos/maiores chips,
+ * menos textura) para não virar borrão.
+ * Indicadores de sabor assados na superfície (não logos flutuando):
+ *   Tradicional = chip cookie clássico (limpo)
+ *   Meio Amargo = fio de ganache de chocolate meio-amargo + achocolatados
+ *   Nutella     = topo de creme de avelã (Nutella) derretido + avelã
+ *   Kinder      = chips de chocolate branco + fita Kinder de chocolate vermelho
  */
 
 import React from 'react'
 
 function seededRandom(seed: number) {
-  let s = seed
+  let s = seed >>> 0 || 1
   return () => {
     s = (s * 16807 + 0) % 2147483647
     return (s - 1) / 2147483646
   }
 }
 
-/* ---- Gerar path de borda ondulada de cookie ---- */
 function generateCookiePath(
   cx: number, cy: number, radius: number,
   nPoints: number, seed: number
 ): string {
   const rng = seededRandom(seed)
   const points: [number, number][] = []
-
   for (let i = 0; i < nPoints; i++) {
     const angle = (i / nPoints) * Math.PI * 2
-    const r = radius + (rng() - 0.5) * radius * 0.28
+    const r = radius + (rng() - 0.5) * radius * 0.3
     points.push([cx + Math.cos(angle) * r, cy + Math.sin(angle) * r])
   }
-
   let d = `M ${points[0][0]} ${points[0][1]} `
   for (let i = 0; i < nPoints; i++) {
     const curr = points[i]
     const next = points[(i + 1) % nPoints]
-    const cpx = (curr[0] + next[0]) / 2 + (rng() - 0.5) * radius * 0.15
-    const cpy = (curr[1] + next[1]) / 2 + (rng() - 0.5) * radius * 0.15
+    const cpx = (curr[0] + next[0]) / 2 + (rng() - 0.5) * radius * 0.16
+    const cpy = (curr[1] + next[1]) / 2 + (rng() - 0.5) * radius * 0.16
     d += `Q ${cpx} ${cpy} ${next[0]} ${next[1]} `
   }
   return d + 'Z'
 }
 
-/* ---- Gerar pontos de textura da massa ---- */
+function generateChips(
+  cx: number, cy: number, radius: number,
+  count: number, seed: number, minD: number, spread: number
+): Array<{ x: number; y: number; w: number; h: number; rot: number }> {
+  const rng = seededRandom(seed)
+  const chips: Array<{ x: number; y: number; w: number; h: number; rot: number }> = []
+  for (let i = 0; i < count; i++) {
+    const a = rng() * Math.PI * 2
+    const d = minD + rng() * (radius * spread - minD)
+    const x = cx + Math.cos(a) * d
+    const y = cy + Math.sin(a) * d
+    const w = radius * (0.15 + rng() * 0.12)
+    const h = radius * (0.12 + rng() * 0.09)
+    const rot = rng() * Math.PI
+    chips.push({ x, y, w, h, rot })
+  }
+  return chips
+}
+
 function generateTexturePoints(
   cx: number, cy: number, radius: number,
   count: number, seed: number
@@ -49,18 +69,17 @@ function generateTexturePoints(
   const pts: Array<{ x: number; y: number; r: number; o: number }> = []
   for (let i = 0; i < count; i++) {
     const a = rng() * Math.PI * 2
-    const d = rng() * radius * 0.85
+    const d = rng() * radius * 0.86
     pts.push({
       x: cx + Math.cos(a) * d,
       y: cy + Math.sin(a) * d,
-      r: 0.8 + rng() * 1.8,
-      o: 0.03 + rng() * 0.07
+      r: radius * (0.018 + rng() * 0.028),
+      o: 0.06 + rng() * 0.12
     })
   }
   return pts
 }
 
-/* ---- Gerar fissuras da massa ---- */
 function generateCracks(
   cx: number, cy: number, radius: number,
   count: number, seed: number
@@ -70,11 +89,11 @@ function generateCracks(
   for (let i = 0; i < count; i++) {
     const a = rng() * Math.PI * 2
     const d1 = rng() * radius * 0.3
-    const len = radius * (0.15 + rng() * 0.3)
+    const len = radius * (0.12 + rng() * 0.28)
     const x1 = cx + Math.cos(a) * d1
     const y1 = cy + Math.sin(a) * d1
-    const x2 = x1 + Math.cos(a + (rng() - 0.5) * 0.6) * len
-    const y2 = y1 + Math.sin(a + (rng() - 0.5) * 0.6) * len
+    const x2 = x1 + Math.cos(a + (rng() - 0.5) * 0.7) * len
+    const y2 = y1 + Math.sin(a + (rng() - 0.5) * 0.7) * len
     const cpx = (x1 + x2) / 2 + (rng() - 0.5) * len * 0.4
     const cpy = (y1 + y2) / 2 + (rng() - 0.5) * len * 0.4
     cracks.push(`M ${x1} ${y1} Q ${cpx} ${cpy} ${x2} ${y2}`)
@@ -84,7 +103,6 @@ function generateCracks(
 
 type Props = { name: string; size?: number; className?: string }
 
-/* ---- Names → variant key (robust substring matching) ---- */
 function variant(name: string): 'tradicional' | 'meio-amargo' | 'nutella' | 'kinder' {
   const n = name.toLowerCase()
   if (n.includes('meio amargo') || n.includes('meio-amargo') || n.includes('meioamargo')) return 'meio-amargo'
@@ -100,20 +118,34 @@ export function CookieArt({ name, size = 72, className }: Props) {
   const cy = s / 2
   const r = s * 0.40
 
-  // Seed baseada no nome para consistência
+  // Nível de detalhe por tamanho (grande = cheio, pequeno = simplificado)
+  const isSmall = s < 40
+  const isTiny = s < 28
+
   let seedHash = 0
   for (let i = 0; i < name.length; i++) seedHash = ((seedHash << 5) - seedHash + name.charCodeAt(i)) | 0
   const seed = Math.abs(seedHash) || 1
 
-  // Sufixo ÚNICO por instância (evita colisão de IDs SVG entre cookies iguais)
   const uid = React.useId().replace(/[^a-zA-Z0-9]/g, '')
   const id = (k: string) => `${k}-${seed}-${uid}`
 
-  const path = generateCookiePath(cx, cy, r, 14, seed)
-  const innerPath = generateCookiePath(cx, cy, r * 0.88, 12, seed + 500)
-  const texturePts = generateTexturePoints(cx, cy, r, 24, seed + 200)
-  const cracks = generateCracks(cx, cy, r, 5, seed + 300)
-  const edgeDots = generateTexturePoints(cx, cy, r * 0.95, 30, seed + 400)
+  const path = generateCookiePath(cx, cy, r, isSmall ? 10 : 14, seed)
+  const texturePts = isSmall
+    ? []
+    : generateTexturePoints(cx, cy, r, isTiny ? 12 : 30, seed + 200)
+
+  // Gotas de chocolate: grandes = muitas/pequenas; pequenas = poucas/maiores
+  const chipCount = v === 'kinder' ? (isSmall ? 4 : 6) : (isSmall ? 5 : 11)
+  const chips = generateChips(cx, cy, r, chipCount, seed + 700, 0, isSmall ? 0.72 : 0.9)
+    .filter((c) => Math.sqrt((c.x - cx) ** 2 + (c.y - cy) ** 2) < r * (isSmall ? 0.74 : 0.86))
+  const whiteChips = v === 'kinder'
+    ? generateChips(cx, cy, r, isSmall ? 2 : 5, seed + 800, 0, 0.8)
+        .filter((c) => Math.sqrt((c.x - cx) ** 2 + (c.y - cy) ** 2) < r * 0.82)
+    : []
+
+  const cracks = isSmall ? [] : generateCracks(cx, cy, r, isTiny ? 2 : 5, seed + 300)
+
+  const chipW = (c: { w: number }) => Math.max(1.5, c.w)
 
   return (
     <svg
@@ -126,180 +158,212 @@ export function CookieArt({ name, size = 72, className }: Props) {
       style={{ display: 'inline-block', verticalAlign: 'middle', overflow: 'visible' }}
     >
       <defs>
-        {/* Gradiente principal da massa */}
-        <radialGradient id={id('cg')} cx="42%" cy="38%" r="58%" fx="38%" fy="35%">
-          <stop offset="0%" stopColor="#FFF8EE" />
-          <stop offset="35%" stopColor="#F5ECD7" />
-          <stop offset="65%" stopColor="#EDE0C4" />
-          <stop offset="100%" stopColor="#DCC9A3" />
+        <radialGradient id={id('cg')} cx="42%" cy="36%" r="62%" fx="38%" fy="32%">
+          <stop offset="0%" stopColor="#F7E6C3" />
+          <stop offset="38%" stopColor="#EDD29B" />
+          <stop offset="68%" stopColor="#DDBE7E" />
+          <stop offset="90%" stopColor="#C9A25F" />
+          <stop offset="100%" stopColor="#BC9150" />
         </radialGradient>
 
-        {/* Gradiente da borda (mais escura) */}
         <radialGradient id={id('ce')} cx="50%" cy="50%" r="50%">
-          <stop offset="60%" stopColor="#DCC9A3" stopOpacity="0" />
-          <stop offset="85%" stopColor="#C4AD82" stopOpacity="0.3" />
-          <stop offset="100%" stopColor="#B89B6B" stopOpacity="0.5" />
+          <stop offset="58%" stopColor="#A97E43" stopOpacity="0" />
+          <stop offset="84%" stopColor="#9A6F35" stopOpacity="0.32" />
+          <stop offset="100%" stopColor="#8A5F2B" stopOpacity="0.55" />
         </radialGradient>
 
-        {/* Sombra projetada */}
-        <filter id={id('cs')} x="-20%" y="-10%" width="140%" height="140%">
-          <feDropShadow dx="0" dy={s * 0.04} stdDeviation={s * 0.04} floodColor="#8B7355" floodOpacity="0.3" />
+        <filter id={id('cs')} x="-25%" y="-15%" width="150%" height="150%">
+          <feDropShadow dx="0" dy={s * 0.045} stdDeviation={s * 0.045} floodColor="#5b3d16" floodOpacity="0.35" />
         </filter>
 
-        {/* Brilho do centro */}
-        <radialGradient id={id('ch')} cx="40%" cy="35%" r="30%">
-          <stop offset="0%" stopColor="#FFFCF5" stopOpacity="0.6" />
-          <stop offset="100%" stopColor="#FFFCF5" stopOpacity="0" />
+        <radialGradient id={id('ch')} cx="40%" cy="34%" r="34%">
+          <stop offset="0%" stopColor="#FFF6DC" stopOpacity="0.5" />
+          <stop offset="100%" stopColor="#FFF6DC" stopOpacity="0" />
         </radialGradient>
 
-        {/* Clip path orgânico */}
         <clipPath id={id('cc')}>
           <path d={path} />
         </clipPath>
       </defs>
 
-      {/* === Camada 1: Sombra projetada === */}
-      <path d={path} fill="#8B7355" opacity="0.25" filter={`url(#${id('cs')})`} transform={`translate(0,${s * 0.02})`} />
-
-      {/* === Camada 2: Borda escura (baked edge) === */}
-      <path d={path} fill="#C4A265" />
-
-      {/* === Camada 3: Massa creme com gradiente === */}
+      <path d={path} fill="#5b3d16" opacity="0.25" filter={`url(#${id('cs')})`} transform={`translate(0,${s * 0.02})`} />
+      <path d={path} fill="#A97E43" />
       <path d={path} fill={`url(#${id('cg')})`} />
-
-      {/* === Camada 4: Escurecimento sutil da borda === */}
       <path d={path} fill={`url(#${id('ce')})`} />
 
-      {/* === Camada 5: Detalhes internos (clipeados à forma do cookie) === */}
       <g clipPath={`url(#${id('cc')})`}>
-        {/* Textura de massa — pontinhos */}
         {texturePts.map((p, i) => (
-          <circle key={`t${i}`} cx={p.x} cy={p.y} r={p.r} fill="#C4A265" opacity={p.o} />
+          <circle key={`t${i}`} cx={p.x} cy={p.y} r={p.r} fill="#9A6F35" opacity={p.o} />
         ))}
 
-        {/* Bordas internas — pontos escuros (edge dots) */}
-        {edgeDots.map((p, i) => {
-          const dist = Math.sqrt((p.x - cx) ** 2 + (p.y - cy) ** 2)
-          if (dist < r * 0.6) return null
-          return <circle key={`e${i}`} cx={p.x} cy={p.y} r={p.r * 0.6} fill="#B89B6B" opacity={p.o * 1.2} />
+        {cracks.map((dd, i) => (
+          <path key={`cr${i}`} d={dd} fill="none" stroke="#A97E43" strokeWidth={Math.max(0.3, s * 0.006)} opacity={0.18} strokeLinecap="round" />
+        ))}
+
+        <circle cx={cx * 0.94} cy={cy * 0.9} r={r * 0.42} fill={`url(#${id('ch')})`} />
+
+        {/* gotas de chocolate */}
+        {chips.map((c, i) => {
+          const ccx = c.x, ccy = c.y
+          const w = chipW(c), h = Math.max(1.3, c.h)
+          return (
+            <g key={`chip${i}`} transform={`rotate(${c.rot} ${ccx} ${ccy})`}>
+              <ellipse cx={ccx + w * 0.03} cy={ccy + h * 0.09} rx={w * 0.55} ry={h * 0.52} fill="#7A4E1F" opacity="0.35" />
+              <ellipse cx={ccx} cy={ccy} rx={w * 0.5} ry={h * 0.48} fill="#3E2412" />
+              <ellipse cx={ccx - w * 0.12} cy={ccy - h * 0.18} rx={w * 0.16} ry={h * 0.13} fill="#7A4E1F" opacity="0.6" />
+              <ellipse cx={ccx - w * 0.16} cy={ccy - h * 0.22} rx={w * 0.08} ry={h * 0.07} fill="#FFE9C2" opacity="0.35" />
+            </g>
+          )
         })}
 
-        {/* Fissuras da massa (linhas curvas leves) */}
-        {cracks.map((d, i) => (
-          <path key={`cr${i}`} d={d} fill="none" stroke="#C4A265" strokeWidth={0.4} opacity={0.15} strokeLinecap="round" />
-        ))}
+        {/* chips brancos Kinder */}
+        {whiteChips.map((c, i) => {
+          const ccx = c.x, ccy = c.y
+          const w = chipW(c), h = Math.max(1.3, c.h)
+          return (
+            <g key={`wchip${i}`} transform={`rotate(${c.rot} ${ccx} ${ccy})`}>
+              <ellipse cx={ccx + w * 0.03} cy={ccy + h * 0.09} rx={w * 0.55} ry={h * 0.52} fill="#7A4E1F" opacity="0.25" />
+              <ellipse cx={ccx} cy={ccy} rx={w * 0.5} ry={h * 0.48} fill="#F5EFE0" />
+              <ellipse cx={ccx - w * 0.12} cy={ccy - h * 0.18} rx={w * 0.16} ry={h * 0.13} fill="#FFFFFF" opacity="0.8" />
+            </g>
+          )
+        })}
 
-        {/* Centro levemente mais claro (relevo) */}
-        <circle cx={cx * 0.92} cy={cy * 0.88} r={r * 0.35} fill={`url(#${id('ch')})`} />
-
-        {/* Pequeno brilho especular */}
-        <ellipse cx={cx * 0.82} cy={cy * 0.78} rx={r * 0.18} ry={r * 0.12} fill="#FFFCF5" opacity={0.25} transform={`rotate(-15 ${cx * 0.82} ${cy * 0.78})`} />
+        {!isSmall && (
+          <ellipse cx={cx * 0.8} cy={cy * 0.74} rx={r * 0.2} ry={r * 0.13} fill="#FFF6DC" opacity="0.28" transform={`rotate(-16 ${cx * 0.8} ${cy * 0.74})`} />
+        )}
       </g>
 
-      {/* === Indicadores por sabor === */}
+      {/* ==== Indicadores de sabor (assados na superfície) ==== */}
+
+      {/* Meio Amargo: pedaço de barra de chocolate meio-amargo assado no centro */}
       {v === 'meio-amargo' && (
         <g clipPath={`url(#${id('cc')})`}>
-          {/* Barra diagonal escura — chocolate amargo sobre o cookie */}
-          <rect
-            x={cx - r * 0.65}
-            y={cy - r * 0.12}
-            width={r * 1.3}
-            height={r * 0.24}
-            rx={r * 0.06}
-            fill="#3E2723"
-            opacity={0.6}
-            transform={`rotate(-35 ${cx} ${cy})`}
-          />
-          {/* Highlight na barra */}
-          <rect
-            x={cx - r * 0.5}
-            y={cy - r * 0.06}
-            width={r * 1.0}
-            height={r * 0.04}
-            rx={r * 0.02}
-            fill="#5D4037"
-            opacity={0.3}
-            transform={`rotate(-35 ${cx} ${cy})`}
-          />
+          {(() => {
+            const bw = r * (isSmall ? 0.5 : 0.6)
+            const bh = r * (isSmall ? 0.4 : 0.5)
+            const bx = cx - bw / 2, by = cy - bh / 2
+            const nCols = isSmall ? 2 : 3
+            const nRows = isSmall ? 2 : 3
+            const cw = bw / nCols
+            const chh = bh / nRows
+            const squares: { x: number; y: number }[] = []
+            for (let i = 0; i < nRows; i++)
+              for (let j = 0; j < nCols; j++)
+                squares.push({ x: bx + j * cw, y: by + i * chh })
+            return (
+              <>
+                {/* sombra projetada na massa */}
+                <rect x={bx + s * 0.012} y={by + s * 0.016} width={bw} height={bh} rx={s * 0.02} fill="#2E1A0E" opacity="0.32" />
+                {/* corpo sólido da barra meio-amargo */}
+                <rect x={bx} y={by} width={bw} height={bh} rx={s * 0.018} fill="#2A1A0E" />
+                {/* quadradinhos separados (textura de barra de chocolate) */}
+                {squares.map((sq, i) => (
+                  <rect key={`sq${i}`} x={sq.x + cw * 0.06} y={sq.y + chh * 0.06}
+                    width={cw - cw * 0.12} height={chh - chh * 0.12} rx={s * 0.012} fill="#331F10" />
+                ))}
+                {/* brilho mate suave */}
+                <path
+                  d={`M ${bx + s * 0.05} ${by + s * 0.06} L ${bx + bw - s * 0.05} ${by + s * 0.06}`}
+                  stroke="#6b4520" strokeWidth={s * 0.02} strokeLinecap="round" opacity="0.7"
+                />
+                {!isSmall && (
+                  <path
+                    d={`M ${bx + s * 0.1} ${by + bh * 0.2} C ${bx + bw * 0.3} ${by + bh * 0.1} ${bx + bw * 0.6} ${by + bh * 0.3} ${bx + bw - s * 0.06} ${by + bh * 0.16}`}
+                    stroke="#B8853C" strokeWidth={s * 0.016} strokeLinecap="round" opacity="0.45" fill="none"
+                  />
+                )}
+              </>
+            )
+          })()}
         </g>
       )}
 
+      {/* Nutella: creme de avelã derretido ao centro + avelãs */}
       {v === 'nutella' && (
         <g clipPath={`url(#${id('cc')})`}>
-          {/* Pote de Nutella estilizado — centro do cookie */}
           {(() => {
-            const jx = cx - r * 0.22
-            const jy = cy - r * 0.28
-            const jw = r * 0.44
-            const jh = r * 0.48
+            const bw = r * (isSmall ? 0.44 : 0.52)
+            const bh = r * (isSmall ? 0.38 : 0.44)
+            const bx = cx - bw / 2, by = cy - bh / 2
             return (
               <>
-                {/* Corpo do pote */}
-                <rect x={jx} y={jy + jh * 0.15} width={jw} height={jh * 0.7} rx={jw * 0.12}
-                  fill="#5D3A1A" stroke="#4A2E14" strokeWidth={0.5} />
-                {/* Tampa branca */}
-                <rect x={jx - jw * 0.05} y={jy} width={jw * 1.1} height={jh * 0.2} rx={jw * 0.1}
-                  fill="#F5F0E8" stroke="#D4C8B5" strokeWidth={0.4} />
-                {/* Label "Nutella" — barrinha vermelha + texto */}
-                <rect x={jx + jw * 0.1} y={jy + jh * 0.32} width={jw * 0.8} height={jh * 0.28} rx={2}
-                  fill="#CC0000" />
-                <text x={jx + jw * 0.5} y={jy + jh * 0.53} textAnchor="middle"
-                  fontSize={Math.max(5, r * 0.22)} fill="#FFF" fontWeight="700"
-                  fontFamily="Arial,sans-serif">N</text>
-                {/* Tampa brilho */}
-                <rect x={jx + jw * 0.15} y={jy + jh * 0.03} width={jw * 0.7} height={jh * 0.06} rx={1}
-                  fill="#FFF" opacity={0.35} />
+                <ellipse cx={cx} cy={cy + s * 0.015} rx={bw * 0.56} ry={bh * 0.5} fill="#2E1A0E" opacity="0.3" />
+                <path
+                  d={`M ${bx + bh * 0.3} ${by + bh * 0.75} C ${bx - bh * 0.28} ${by + bh * 0.55} ${bx - bh * 0.18} ${by + bh * 0.08} ${bx + bh * 0.14} ${by + bh * 0.05} C ${bx + bh * 0.4} ${by + bh * 0.02} ${bx + bw * 0.74} ${by + bh * 0.12} ${bx + bw * 0.78} ${by + bh * 0.42} C ${bx + bw * 0.82} ${by + bh * 0.74} ${bx + bh * 0.6} ${by + bh * 0.82} ${bx + bh * 0.42} ${by + bh * 0.8} C ${bx + bh * 0.2} ${by + bh * 0.78} ${bx + bh * 0.42} ${by + bh * 0.85} ${bx + bh * 0.3} ${by + bh * 0.75} Z`}
+                  fill="#6A3A1B"
+                />
+                {!isSmall && (
+                  <path
+                    d={`M ${bx + bh * 0.28} ${by + bh * 0.52} C ${bx + bh * 0.05} ${by + bh * 0.36} ${bx + bh * 0.28} ${by + bh * 0.28} ${bx + bw * 0.55} ${by + bh * 0.34}`}
+                    fill="none" stroke="#A96A2F" strokeWidth={Math.max(0.8, s * 0.04)} strokeLinecap="round" opacity="0.55"
+                  />
+                )}
+                {/* avelãs */}
+                <circle cx={cx - r * 0.16} cy={cy - r * 0.06} r={Math.max(1.5, s * 0.07)} fill="#8a5a2e" />
+                <circle cx={cx - r * 0.16} cy={cy - r * 0.06} r={Math.max(1, s * 0.035)} fill="#C99A5B" />
+                <circle cx={cx + r * 0.18} cy={cy + r * 0.1} r={Math.max(1.5, s * 0.075)} fill="#8a5a2e" />
+                <circle cx={cx + r * 0.18} cy={cy + r * 0.1} r={Math.max(1, s * 0.038)} fill="#C99A5B" />
               </>
             )
           })()}
         </g>
       )}
 
+      {/* Kinder: fita de chocolate vermelho ASSADA, embutida na massa + chips brancos */}
       {v === 'kinder' && (
         <g clipPath={`url(#${id('cc')})`}>
-          {/* Retangulo Kinder com k + coração */}
           {(() => {
-            const kx = cx - r * 0.28
-            const ky = cy - r * 0.26
-            const kw = r * 0.56
-            const kh = r * 0.52
+            const kw = r * (isSmall ? 0.6 : 0.7)
+            const kh = r * (isSmall ? 0.34 : 0.4)
+            const kx = cx - kw / 2, ky = cy - kh / 2
+            // cor vermelho-chocolate assada (mate, não neon)
+            const redFill = isSmall ? "#B93A33" : "#A9322C"
             return (
               <>
-                {/* Base retangular Kinder (vermelho-marrom) */}
-                <rect x={kx} y={ky} width={kw} height={kh} rx={kw * 0.15}
-                  fill="#CC3333" stroke="#A02828" strokeWidth={0.5} />
-                {/* Faixa branca no meio */}
-                <rect x={kx} y={ky + kh * 0.3} width={kw} height={kh * 0.4}
-                  fill="#FFF" />
-                {/* "k" na faixa branca */}
-                <text x={cx - r * 0.04} y={ky + kh * 0.6} textAnchor="middle"
-                  fontSize={Math.max(6, r * 0.3)} fill="#CC3333" fontWeight="800"
-                  fontFamily="Arial,sans-serif">k</text>
-                {/* Coração azul claro — path proporcional */}
-                {(() => {
-                  const ts = r * 0.18
-                  const hx = cx + r * 0.04
-                  const hy = ky + kh * 0.11
-                  return (
-                    <path d={
-                      `M ${hx} ${hy + ts * 0.35} ` +
-                      `C ${hx - ts * 0.02} ${hy + ts * 0.22} ${hx - ts * 0.5} ${hy - ts * 0.05} ${hx - ts * 0.5} ${hy - ts * 0.25} ` +
-                      `C ${hx - ts * 0.5} ${hy - ts * 0.55} ${hx} ${hy - ts * 0.35} ${hx} ${hy - ts * 0.1} ` +
-                      `C ${hx} ${hy - ts * 0.35} ${hx + ts * 0.5} ${hy - ts * 0.55} ${hx + ts * 0.5} ${hy - ts * 0.25} ` +
-                      `C ${hx + ts * 0.5} ${hy - ts * 0.05} ${hx + ts * 0.02} ${hy + ts * 0.22} ${hx} ${hy + ts * 0.35} Z`
-                    } fill="#4DA6FF" opacity={0.85} />
-                  )
-                })()}
-                {/* Brilho no retangulo */}
-                <rect x={kx + kw * 0.1} y={ky + kh * 0.05} width={kw * 0.5} height={kh * 0.12}
-                  rx={2} fill="#FFF" opacity={0.25} />
+                {/* sombra suave projetada na massa */}
+                <path
+                  d={`M ${kx + kh * 0.2} ${ky + kh * 0.8} C ${kx - kh * 0.3} ${ky + kh * 0.5} ${kx - kh * 0.2} ${ky + kh * 0.1} ${kx + kh * 0.15} ${ky + kh * 0.05} C ${kx + kw * 0.74} ${ky - kh * 0.1} ${kx + kw * 0.9} ${ky + kh * 0.5} ${kx + kw * 0.7} ${ky + kh * 0.7} C ${kx + kw * 0.5} ${ky + kh * 0.9} ${kx + kh * 0.42} ${ky + kh * 0.85} ${kx + kh * 0.2} ${ky + kh * 0.8} Z`}
+                  fill="#2E1A0E" opacity="0.3" transform={`translate(${s*0.012},${s*0.014})`}
+                />
+                {/* corpo de chocolate vermelho (borda irregular = feito na mão, tom mate) */}
+                <path
+                  d={`M ${kx + kh * 0.2} ${ky + kh * 0.8} C ${kx - kh * 0.3} ${ky + kh * 0.5} ${kx - kh * 0.2} ${ky + kh * 0.1} ${kx + kh * 0.15} ${ky + kh * 0.05} C ${kx + kw * 0.42} ${ky - kh * 0.16} ${kx + kw * 0.5} ${ky + kh * 0.02} ${kx + kw * 0.74} ${ky - kh * 0.1} C ${kx + kw * 0.9} ${ky + kh * 0.4} ${kx + kw * 0.78} ${ky + kh * 0.5} ${kx + kw * 0.7} ${ky + kh * 0.7} C ${kx + kw * 0.5} ${ky + kh * 0.9} ${kx + kh * 0.42} ${ky + kh * 0.85} ${kx + kh * 0.2} ${ky + kh * 0.8} Z`}
+                  fill={redFill}
+                />
+                {/* brilho mate + leve granulação do chocolate vermelho */}
+                <path
+                  d={`M ${kx + kh * 0.3} ${ky + kh * 0.16} C ${kx + kh * 0.1} ${ky + kh * 0.06} ${kx + kw * 0.3} ${ky - kh * 0.02} ${kx + kw * 0.52} ${ky + kh * 0.02}`}
+                  fill="none" stroke="#D4756B" strokeWidth={Math.max(0.7, s * 0.026)} strokeLinecap="round" opacity="0.55"
+                />
+                {/* fita de leite central, mais grossa e levemente irregular (embutida) */}
+                <path
+                  d={`M ${kx + kh * 0.24} ${ky + kh * 0.5} C ${kx + kh * 0.06} ${ky + kh * 0.32} ${kx + kh * 0.34} ${ky + kh * 0.2} ${kx + kw * 0.55} ${ky + kh * 0.24} C ${kx + kw * 0.72} ${ky + kh * 0.26} ${kx + kw * 0.8} ${ky + kh * 0.34} ${kx + kw * 0.82} ${ky + kh * 0.43}`}
+                  fill="none" stroke="#EFE3CB" strokeWidth={Math.max(1.6, s * 0.06)} strokeLinecap="round" opacity="0.96"
+                />
+                {/* sombra sob a fita dentro do cookie (embutida) */}
+                <path
+                  d={`M ${kx + kh * 0.3} ${ky + kh * 0.58} C ${kx + kh * 0.12} ${ky + kh * 0.4} ${kx + kh * 0.34} ${ky + kh * 0.3} ${kx + kw * 0.6} ${ky + kh * 0.32}`}
+                  fill="none" stroke="#4a1210" strokeWidth={Math.max(0.6, s * 0.02)} strokeLinecap="round" opacity="0.35"
+                />
+                {!isSmall && (
+                  <>
+                    {/* rebordo de massa dobrada sobre as bordas (assado/embutido) */}
+                    <path
+                      d={`M ${kx + kh * 0.08} ${ky + kh * 0.62} C ${kx + kh * 0.28} ${ky + kh * 0.74} ${kx + kh * 0.44} ${ky + kh * 0.86} ${kx + kh * 0.62} ${ky + kh * 0.8}`}
+                      fill="none" stroke="#DDBE7E" strokeWidth={Math.max(1, s * 0.03)} strokeLinecap="round" opacity="0.6"
+                    />
+                    <path
+                      d={`M ${kx + kh * 0.3} ${ky + kh * 0.02} C ${kx + kh * 0.16} ${ky - kh * 0.08} ${kx + kw * 0.3} ${ky - kh * 0.14} ${kx + kw * 0.46} ${ky - kh * 0.08}`}
+                      fill="none" stroke="#C9A25F" strokeWidth={Math.max(1, s * 0.028)} strokeLinecap="round" opacity="0.55"
+                    />
+                  </>
+                )}
               </>
             )
           })()}
         </g>
       )}
-
-      {/* Tradicional: sem indicador, cookie limpo */}
     </svg>
   )
 }

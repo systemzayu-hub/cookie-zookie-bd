@@ -1,4 +1,4 @@
-import{r as z,c as Cu,g as fe,R as P}from"./vendor-icons-BifSUxfG.js";var $1={exports:{}},jt={},T1={exports:{}},k1={};/**
+import{r as z,c as Cu,g as fe,R as P}from"./vendor-icons-B8ViFXIj.js";var $1={exports:{}},jt={},T1={exports:{}},k1={};/**
  * @license React
  * scheduler.production.min.js
  *

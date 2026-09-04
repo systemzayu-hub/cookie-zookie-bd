@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, Suspense, lazy } from 'react'
 import { LayoutDashboard, ShoppingCart, Package, BarChart3, Users, Sun, Moon, Download, Upload, LogIn, LogOut, Lock, Percent, ShieldCheck, Menu, X } from 'lucide-react'
 import { Product, Sale, Customer, Tab, Pendencia, fmtBRL } from './types'
-import { seedProducts, seedCustomers, seedSales, load, save } from './data'
+import { seedProducts, seedCustomers, seedSales, load, save, STORAGE_ERROR_EVENT } from './data'
 import { baixarBackup, aplicarBackup } from './db'
-import { authLoginGoogle, authLogout, authOnChange, firebaseReady } from './sync'
+import { authLoginGoogle, authLogout, authOnChange, firebaseReady, onRemoteChanges, syncPull, syncPush } from './sync'
 import { PasswordProvider } from './components/PasswordGate'
 import { setAuditActor, logAction } from './audit'
+import { revokeAll } from './auth'
 import logoUrl from './assets/logo.png'
 
 const Dashboard = lazy(() => import('./views/Dashboard').then(m => ({ default: m.Dashboard })))
@@ -28,23 +29,52 @@ export default function App() {
   const [firebaseOn, setFirebaseOn] = useState(false)
   const [authLoading, setAuthLoading] = useState(true)
   const fileRef = useRef<HTMLInputElement>(null)
+  const remoteHydrated = useRef(false)
 
   useEffect(() => {
-    firebaseReady().then(on => setFirebaseOn(on))
-    const unsub = authOnChange(u => {
-      setUser(u ? { email: u.email, name: u.displayName } : null)
-      setAuditActor(u?.displayName || u?.email || null, u?.email || null)
-      setAuthLoading(false)
-      // Registra a entrada/saída na auditoria em toda mudança de sessão
-      // (cobre login via botão E restauração de sessão já autenticada).
-      if (u) {
-        try {
-          logAction('login', `${u.displayName || u.email || 'alguém'} entrou no sistema`)
-        } catch { /* auditoria é best-effort */ }
-      }
+    let active = true
+    let unsub = () => {}
+    void firebaseReady().then(on => {
+      if (!active) return
+      setFirebaseOn(on)
+      if (!on) { setAuthLoading(false); return }
+      unsub = authOnChange(u => {
+        setUser(u ? { email: u.email, name: u.displayName } : null)
+        setAuditActor(u?.displayName || u?.email || null, u?.email || null)
+        setAuthLoading(false)
+        if (u) {
+          try { logAction('login', `${u.displayName || u.email || 'alguém'} entrou no sistema`) }
+          catch { /* auditoria é best-effort */ }
+        }
+      })
     })
-    return () => unsub()
+    return () => { active = false; unsub() }
   }, [])
+
+  // Firestore é a fonte compartilhada; o estado local continua como fallback offline.
+  useEffect(() => {
+    if (!user) { remoteHydrated.current = false; return }
+    let active = true
+    let unsubscribeRemote = () => {}
+    void (async () => {
+      const remote = await syncPull()
+      if (!active) return
+      if (remote) {
+        setProducts(remote.products as Product[])
+        setSales(remote.sales as Sale[])
+        setCustomers(remote.customers as Customer[])
+      }
+      if (!active) return
+      remoteHydrated.current = true
+      unsubscribeRemote = onRemoteChanges(data => {
+        if (!active) return
+        setProducts(data.products as Product[])
+        setSales(data.sales as Sale[])
+        setCustomers(data.customers as Customer[])
+      })
+    })()
+    return () => { active = false; remoteHydrated.current = false; unsubscribeRemote() }
+  }, [user?.email])
 
   const doLogin = async () => {
     try {
@@ -63,6 +93,7 @@ export default function App() {
   const doLogout = async () => {
     logAction('login', `${user?.name || user?.email || 'alguém'} saiu do sistema`)
     await authLogout()
+    revokeAll()
     pushToast('Você saiu da conta.')
   }
 
@@ -75,9 +106,20 @@ export default function App() {
     return () => { document.body.style.overflow = ''; };
   }, [isMenuOpen]);
 
-  useEffect(() => save('cc_products', products), [products])
-  useEffect(() => save('cc_sales', sales), [sales])
-  useEffect(() => save('cc_customers', customers), [customers])
+  useEffect(() => { save('cc_products', products) }, [products])
+  useEffect(() => { save('cc_sales', sales) }, [sales])
+  useEffect(() => { save('cc_customers', customers) }, [customers])
+  useEffect(() => {
+    if (!user || !remoteHydrated.current) return
+    const timer = window.setTimeout(() => { void syncPush(products, sales, customers) }, 400)
+    return () => window.clearTimeout(timer)
+  }, [products, sales, customers, user])
+
+  useEffect(() => {
+    const onStorageError = () => pushToast('Não foi possível salvar neste aparelho. Verifique o espaço do navegador.', 'error')
+    window.addEventListener(STORAGE_ERROR_EVENT, onStorageError)
+    return () => window.removeEventListener(STORAGE_ERROR_EVENT, onStorageError)
+  }, [])
 
   const pushToast = (msg: string, type: 'success' | 'error' = 'success') => {
     const id = Math.random().toString(36).slice(2)

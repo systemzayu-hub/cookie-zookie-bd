@@ -1,8 +1,9 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
-import { Lock, Eye, EyeOff, ShieldCheck, X, RefreshCw, ChevronDown, ChevronRight, Users, Tag, Calendar, Filter, Download } from 'lucide-react'
-import { useAuth, grant, revoke, HASHES } from '../auth'
-import { loadAuditRemote, auditHash, type AuditEntry } from '../audit'
-import { onAuditChanges } from '../sync'
+import { Lock, ShieldCheck, X, RefreshCw, ChevronDown, ChevronRight, Users, Tag, Calendar, Filter, Download } from 'lucide-react'
+import { useAuth, grant, revoke } from '../auth'
+import { loadAuditRemote, type AuditEntry } from '../audit'
+import { authReauthenticateGoogle, onAuditChanges } from '../sync'
+import { startSessionLock } from '../useSessionLock'
 
 const ACTION_ICON: Record<string, string> = {
   venda: '🛒', produto: '📦', estoque: '📊', perda: '⚠️',
@@ -31,9 +32,8 @@ type FilterState = { member: string; action: string; period: PeriodOption; date:
 export function AuditView() {
   // Em memória via auth compartilhado — mesmina senha de auditoria desbloqueia Financial views também
   const unlocked = useAuth('audit')
-  const [pw, setPw] = useState('')
-  const [showPw, setShowPw] = useState(false)
-  const [err, setErr] = useState(false)
+  const [unlocking, setUnlocking] = useState(false)
+  const [err, setErr] = useState('')
   const [entries, setEntries] = useState<AuditEntry[]>([])
   const [loading, setLoading] = useState(false)
 
@@ -68,8 +68,18 @@ export function AuditView() {
   }, [unlocked, refresh])
 
   const doUnlock = async () => {
-    if ((await auditHash(pw)) === HASHES.audit) { grant('audit'); setErr(false) }
-    else setErr(true)
+    if (unlocking) return
+    setUnlocking(true)
+    setErr('')
+    try {
+      await authReauthenticateGoogle()
+      grant('audit')
+      startSessionLock('audit')
+    } catch {
+      setErr('Não foi possível confirmar sua conta Google.')
+    } finally {
+      setUnlocking(false)
+    }
   }
 
   // --- Helpers ---
@@ -172,35 +182,11 @@ export function AuditView() {
           <ShieldCheck size={44} style={{ color: 'var(--cz-500)' }} />
           <h2 style={{ margin: 'var(--sp-3) 0' }}>Auditoria da equipe</h2>
           <p style={{ color: 'var(--tx-2)', marginBottom: 'var(--sp-6)' }}>
-            Área restrita ao administrador. Informe a senha para ver o histórico de ações de cada pessoa.
+            Área sensível. Confirme novamente a conta Google conectada para ver o histórico da equipe.
           </p>
-          <div style={{ position: 'relative', maxWidth: 320, margin: '0 auto var(--sp-4)', width: '100%' }}>
-            <input
-              type={showPw ? 'text' : 'password'}
-              className={`pw-input ${err ? 'pw-error' : ''}`}
-              placeholder="Senha de administrador"
-              style={{ width: '100%', paddingRight: '44px', textAlign: 'left' }}
-              value={pw}
-              onChange={e => { setPw(e.target.value); setErr(false) }}
-              onKeyDown={e => e.key === 'Enter' && doUnlock()}
-              autoFocus
-            />
-            <button
-              type="button"
-              onClick={() => setShowPw(s => !s)}
-              aria-label={showPw ? 'Ocultar senha' : 'Mostrar senha'}
-              style={{
-                position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)',
-                background: 'none', border: 'none', cursor: 'pointer',
-                color: 'var(--tx-3)', padding: '8px', display: 'flex',
-              }}
-            >
-              {showPw ? <EyeOff size={20} /> : <Eye size={20} />}
-            </button>
-          </div>
-          {err && <div className="pw-error-msg">Senha incorreta</div>}
+          {err && <div className="pw-error-msg" role="alert">{err}</div>}
           <div>
-            <button className="btn btn-cz" onClick={doUnlock}><Lock size={16} /> Acessar auditoria</button>
+            <button className="btn btn-cz" disabled={unlocking} onClick={doUnlock}><ShieldCheck size={16} /> {unlocking ? 'Confirmando…' : 'Confirmar com Google'}</button>
           </div>
         </div>
       </div>

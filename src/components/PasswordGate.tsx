@@ -1,79 +1,63 @@
-import { createContext, useContext, useState, useCallback, type ReactNode } from 'react'
-import { Lock, Eye, EyeOff } from 'lucide-react'
-import { useAuth, grant, HASHES } from '../auth'
+import { createContext, useCallback, useContext, useState, type ReactNode } from 'react'
+import { ShieldCheck } from 'lucide-react'
+import { authReauthenticateGoogle } from '../sync'
+import { grant, isUnlocked } from '../auth'
+import { startSessionLock } from '../useSessionLock'
 
-interface Ctx { guard: (label: string, fn: () => void) => void }
-const C = createContext<Ctx>({ guard: (_, fn) => fn() })
+interface GuardContext { guard: (label: string, action: () => void) => void }
+const Guard = createContext<GuardContext>({ guard: (_, action) => action() })
 
-export function usePasswordGuard() { return useContext(C) }
-
-async function hashPw(pw: string): Promise<string> {
-  const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(pw))
-  return Array.from(new Uint8Array(buf)).map(b => b.toString(16).padStart(2, '0')).join('')
-}
+export function usePasswordGuard() { return useContext(Guard) }
 
 export function PasswordProvider({ children }: { children: ReactNode }) {
-  const [pending, setPending] = useState<{ label: string; fn: () => void } | null>(null)
-  const [input, setInput] = useState('')
-  const [show, setShow] = useState(false)
-  const [error, setError] = useState(false)
-  // Em memória apenas — recarregar a página volta a pedir a senha
-  const unlocked = useAuth('admin')
+  const [pending, setPending] = useState<{ label: string; action: () => void } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState('')
 
-  const guard = useCallback((label: string, fn: () => void) => {
-    if (unlocked) { fn(); return }
-    setPending({ label, fn }); setInput(''); setShow(false); setError(false)
-  }, [unlocked])
+  const guard = useCallback((label: string, action: () => void) => {
+    if (isUnlocked('admin')) { action(); return }
+    setError('')
+    setPending({ label, action })
+  }, [])
 
-  const verify = async () => {
-    if ((await hashPw(input)) === HASHES.admin) {
+  const confirm = async () => {
+    if (!pending || busy) return
+    setBusy(true)
+    setError('')
+    try {
+      await authReauthenticateGoogle()
       grant('admin')
-      pending?.fn()
+      startSessionLock('admin')
+      const action = pending.action
       setPending(null)
-    } else { setError(true) }
+      action()
+    } catch {
+      setError('Não foi possível confirmar sua conta Google. Tente novamente.')
+    } finally {
+      setBusy(false)
+    }
   }
 
   return (
-    <C.Provider value={{ guard }}>
+    <Guard.Provider value={{ guard }}>
       {children}
       {pending && (
-        <div className="pw-overlay" onClick={() => setPending(null)}>
-          <div className="pw-modal" onClick={e => e.stopPropagation()}>
-            <Lock size={32} style={{ color: 'var(--cz-500)' }} />
-            <h3 style={{ margin: '8px 0 4px' }}>Senha necessária</h3>
+        <div className="pw-overlay" role="presentation" onClick={() => !busy && setPending(null)}>
+          <div className="pw-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title" onClick={event => event.stopPropagation()}>
+            <ShieldCheck size={34} aria-hidden="true" style={{ color: 'var(--cz-500)' }} />
+            <h3 id="confirm-title" style={{ margin: '8px 0 4px' }}>Confirmar alteração</h3>
             <p className="pw-action">{pending.label}</p>
-            <div style={{ position: 'relative', width: '100%' }}>
-              <input
-                type={show ? 'text' : 'password'}
-                className={`pw-input ${error ? 'pw-error' : ''}`}
-                placeholder="Digite a senha"
-                value={input}
-                onChange={e => { setInput(e.target.value); setError(false) }}
-                onKeyDown={e => e.key === 'Enter' && verify()}
-                autoFocus
-                style={{ width: '100%', paddingRight: '44px', textAlign: 'left' }}
-              />
-              <button
-                type="button"
-                onClick={() => setShow(s => !s)}
-                aria-label={show ? 'Ocultar senha' : 'Mostrar senha'}
-                style={{
-                  position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)',
-                  background: 'none', border: 'none', cursor: 'pointer',
-                  color: 'var(--tx-3)', padding: '8px', display: 'flex',
-                }}
-              >
-                {show ? <EyeOff size={20} /> : <Eye size={20} />}
-              </button>
-            </div>
-            {error && <div className="pw-error-msg">Senha incorreta</div>}
+            <p style={{ color: 'var(--tx-2)', fontSize: '0.88rem', margin: 0 }}>
+              Confirme sua identidade com a conta Google conectada. Nenhuma senha fica no código do site.
+            </p>
+            {error && <div className="pw-error-msg" role="alert">{error}</div>}
             <div className="pw-buttons">
-              <button className="btn btn-ghost" onClick={() => setPending(null)}>Cancelar</button>
-              <button className="btn btn-cz" onClick={verify}>Confirmar</button>
+              <button className="btn btn-ghost" disabled={busy} onClick={() => setPending(null)}>Cancelar</button>
+              <button className="btn btn-cz" disabled={busy} onClick={confirm}>{busy ? 'Confirmando…' : 'Confirmar com Google'}</button>
             </div>
           </div>
         </div>
       )}
-    </C.Provider>
+    </Guard.Provider>
   )
 }

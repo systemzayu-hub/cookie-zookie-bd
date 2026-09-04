@@ -1,4 +1,4 @@
-import { revoke, revokeAll, type Level } from './auth'
+import { revokeAll, type Level } from './auth'
 
 /**
  * useSessionLock — gerencia timeout de inatividade e bloqueio imediato.
@@ -24,7 +24,9 @@ function startIdleTimer(level: Level) {
   clearIdleTimer()
   currentLevel = level
   idleTimer = setTimeout(() => {
-    revoke(level)
+    // A mesma sessão pode ter liberado mais de uma área. Ao expirar,
+    // revoga tudo para não deixar um segundo nível aberto por engano.
+    revokeAll()
     currentLevel = null
   }, IDLE_TIMEOUT_MS)
 }

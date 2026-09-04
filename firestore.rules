@@ -1,0 +1,28 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function signedIn() { return request.auth != null; }
+
+    match /loja/dados {
+      allow read, create, update: if signedIn();
+      allow delete: if false;
+    }
+
+    // Append-only: o cliente não pode apagar nem reescrever rastros existentes.
+    match /audit/{entryId} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['id', 'ts', 'actor', 'email', 'action', 'detail'])
+        && request.resource.data.id is string
+        && request.resource.data.ts is int
+        && request.resource.data.actor is string
+        && request.resource.data.action is string
+        && request.resource.data.detail is string
+        && (!('email' in request.resource.data)
+          || request.resource.data.email == request.auth.token.email);
+      allow update, delete: if false;
+    }
+
+    match /{document=**} { allow read, write: if false; }
+  }
+}

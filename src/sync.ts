@@ -1,6 +1,6 @@
 import { initializeApp, getApps, type FirebaseApp } from 'firebase/app'
 import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection, query, orderBy, limit, getDocs, addDoc, type Firestore } from 'firebase/firestore'
-import { getAuth, signInWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut, type Auth, type User } from 'firebase/auth'
+import { getAuth, signInWithPopup, reauthenticateWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut, type Auth, type User } from 'firebase/auth'
 import { FIREBASE_CONFIG } from './firebase-config'
 
 let app: FirebaseApp | null = null
@@ -49,6 +49,15 @@ export async function authLoginGoogle(): Promise<User | null> {
 /** Retorna o usuário logado no momento (ou null). */
 export function authCurrentUser(): User | null {
   return auth?.currentUser ?? null
+}
+
+/** Exige autenticação Google recente antes de revelar ou alterar dados sensíveis. */
+export async function authReauthenticateGoogle(): Promise<User> {
+  await firebaseReady()
+  const user = auth?.currentUser
+  if (!user) throw new Error('Usuário não autenticado')
+  const result = await reauthenticateWithPopup(user, new GoogleAuthProvider())
+  return result.user
 }
 
 /** Observa mudanças de estado de autenticação. Retorna função de unsubscribe. */

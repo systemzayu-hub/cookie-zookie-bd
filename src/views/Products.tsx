@@ -113,7 +113,7 @@ export function ProductsView({ products, setProducts, pushToast }: {
         <div className="product-grid">
           {products.map(p => (
             <div key={p.id} className="product-card">
-              <div className="p-emoji"><CookieArt name={p.name} size={64} /></div>
+              <div className="p-emoji"><CookieArt name={p.name} size={76} /></div>
               <div className="p-name">{p.name}</div>
                             <div className="p-price"><MaskedMoney value={p.price} className="font-display" /></div>
               <span className="badge p-cat badge-neutral">{CAT_LABEL[p.category]}</span>

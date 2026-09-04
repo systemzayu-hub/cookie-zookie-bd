@@ -101,7 +101,7 @@ export function CustomersView({ customers, setCustomers, sales, pushToast }: {
         pushToast('Cliente removido.')
         logAction('cliente', `Excluiu cliente "${deleteConfirm.name}"`)
         setDeleteConfirm(null)
-      })
+      }, 'audit')
     }
 
   const spendOf = (id: string) => sales.filter(s => s.customerId === id).reduce((a, s) => a + s.total, 0)

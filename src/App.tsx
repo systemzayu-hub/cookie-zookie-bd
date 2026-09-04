@@ -19,6 +19,12 @@ const CustomersBillingView = lazy(() => import('./views/CustomersBilling').then(
 const FinanceiroView = lazy(() => import('./views/Financeiro').then(m => ({ default: m.FinanceiroView })))
 const AuditView = lazy(() => import('./views/Audit').then(m => ({ default: m.AuditView })))
 
+const normalizeCustomerName = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLocaleLowerCase('pt-BR')
+const mergeImportedContacts = (list: Customer[], contacts: Record<string, string>) => list.map(customer => {
+  const contact = contacts[normalizeCustomerName(customer.name)]
+  return contact ? { ...customer, contact } : customer
+})
+
 export default function App() {
   const tabs: Tab[] = ['dashboard', 'vendas', 'produtos', 'relatorios', 'clientes', 'financeiro', 'audit']
   const [tab, setTab] = useState<Tab>(() => {
@@ -41,6 +47,7 @@ export default function App() {
   const sidebarRef = useRef<HTMLElement>(null)
   const remoteHydrated = useRef(false)
   const skipNextPush = useRef(false)
+  const pendingContactImport = useRef<Record<string, string> | null>(null)
 
   useEffect(() => {
     let active = true
@@ -86,20 +93,20 @@ export default function App() {
       const remote = await syncPull()
       if (!active) return
       if (remote) {
-        skipNextPush.current = true
+        skipNextPush.current = !pendingContactImport.current
         setProducts(remote.products)
         setSales(remote.sales)
-        setCustomers(remote.customers)
+        setCustomers(pendingContactImport.current ? mergeImportedContacts(remote.customers, pendingContactImport.current) : remote.customers)
       }
       if (!active) return
       remoteHydrated.current = true
       setSyncState(remote ? 'synced' : 'offline')
       unsubscribeRemote = onRemoteChanges(data => {
         if (!active) return
-        skipNextPush.current = true
+        skipNextPush.current = !pendingContactImport.current
         setProducts(data.products)
         setSales(data.sales)
-        setCustomers(data.customers)
+        setCustomers(pendingContactImport.current ? mergeImportedContacts(data.customers, pendingContactImport.current) : data.customers)
         setSyncState('synced')
       }, () => setSyncState(navigator.onLine ? 'error' : 'offline'))
     })()
@@ -173,7 +180,10 @@ export default function App() {
     if (skipNextPush.current) { skipNextPush.current = false; return }
     setSyncState('syncing')
     const timer = window.setTimeout(() => {
-      void syncPush(products, sales, customers).then(ok => setSyncState(ok ? 'synced' : (navigator.onLine ? 'error' : 'offline')))
+      void syncPush(products, sales, customers).then(ok => {
+        if (ok) pendingContactImport.current = null
+        setSyncState(ok ? 'synced' : (navigator.onLine ? 'error' : 'offline'))
+      })
     }, 650)
     return () => window.clearTimeout(timer)
   }, [products, sales, customers, user])
@@ -185,12 +195,12 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    const normalize = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLocaleLowerCase('pt-BR')
     const importContacts = (event: Event) => {
       const contacts = (event as CustomEvent<Record<string, string>>).detail
+      pendingContactImport.current = contacts
       let changed = 0
       setCustomers(previous => previous.map(customer => {
-        const contact = contacts[normalize(customer.name)]
+        const contact = contacts[normalizeCustomerName(customer.name)]
         if (!contact || customer.contact === contact) return customer
         changed++
         return { ...customer, contact }

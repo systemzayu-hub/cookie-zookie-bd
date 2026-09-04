@@ -1,23 +1,23 @@
 import { createContext, useCallback, useContext, useState, type ReactNode } from 'react'
 import { ShieldCheck } from 'lucide-react'
-import { grant, isUnlocked, verifyAccessPassword } from '../auth'
+import { grant, isUnlocked, verifyAccessPassword, type Level } from '../auth'
 import { startSessionLock } from '../useSessionLock'
 
-interface GuardContext { guard: (label: string, action: () => void) => void }
+interface GuardContext { guard: (label: string, action: () => void, level?: Level) => void }
 const Guard = createContext<GuardContext>({ guard: (_, action) => action() })
 
 export function usePasswordGuard() { return useContext(Guard) }
 
 export function PasswordProvider({ children }: { children: ReactNode }) {
-  const [pending, setPending] = useState<{ label: string; action: () => void } | null>(null)
+  const [pending, setPending] = useState<{ label: string; action: () => void; level: Level } | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [password, setPassword] = useState('')
 
-  const guard = useCallback((label: string, action: () => void) => {
-    if (isUnlocked('admin')) { action(); return }
+  const guard = useCallback((label: string, action: () => void, level: Level = 'admin') => {
+    if (isUnlocked(level)) { action(); return }
     setError('')
-    setPending({ label, action })
+    setPending({ label, action, level })
   }, [])
 
   const confirm = async () => {
@@ -25,12 +25,12 @@ export function PasswordProvider({ children }: { children: ReactNode }) {
     setBusy(true)
     setError('')
     try {
-      if (!await verifyAccessPassword('admin', password)) {
-        setError('Senha de acesso incorreta.')
+      if (!await verifyAccessPassword(pending.level, password)) {
+        setError(pending.level === 'audit' ? 'Senha administrativa incorreta.' : 'Senha de acesso incorreta.')
         return
       }
-      grant('admin')
-      startSessionLock('admin')
+      grant(pending.level)
+      startSessionLock(pending.level)
       const action = pending.action
       setPending(null)
       setPassword('')
@@ -51,10 +51,10 @@ export function PasswordProvider({ children }: { children: ReactNode }) {
             <ShieldCheck size={34} aria-hidden="true" style={{ color: 'var(--cz-500)' }} />
             <h3 id="confirm-title" style={{ margin: '8px 0 4px' }}>Confirmar alteração</h3>
             <p className="pw-action">{pending.label}</p>
-            <p style={{ color: 'var(--tx-2)', fontSize: '0.88rem', margin: 0 }}>Digite a senha geral para continuar. Ela valerá no site inteiro até o F5.</p>
+            <p style={{ color: 'var(--tx-2)', fontSize: '0.88rem', margin: 0 }}>{pending.level === 'audit' ? 'Digite a senha administrativa para esta ação.' : 'Digite a senha geral para continuar. Ela valerá no site inteiro até o F5.'}</p>
             <form onSubmit={event => { event.preventDefault(); void confirm() }}>
-              <label className="sr-only" htmlFor="admin-password">Senha geral</label>
-              <input id="admin-password" className="pw-input" type="password" value={password} maxLength={128} autoComplete="current-password" autoFocus placeholder="Senha geral" onChange={event => setPassword(event.target.value)} />
+              <label className="sr-only" htmlFor="admin-password">{pending.level === 'audit' ? 'Senha administrativa' : 'Senha geral'}</label>
+              <input id="admin-password" className="pw-input" type="password" value={password} maxLength={128} autoComplete="current-password" autoFocus placeholder={pending.level === 'audit' ? 'Senha administrativa' : 'Senha geral'} onChange={event => setPassword(event.target.value)} />
             </form>
             {error && <div className="pw-error-msg" role="alert">{error}</div>}
             <div className="pw-buttons">

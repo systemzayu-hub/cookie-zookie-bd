@@ -144,7 +144,7 @@ export function Dashboard({ sales, products, customers, onNewSale }: {
       </div>
 
       {/* Faturamento financeiro — protegido por senha de auditoria */}
-      <SensitiveData label="Dados financeiros" level="audit">
+      <SensitiveData label="Dados financeiros" level="financial">
               <div className="grid grid-stats" style={{ marginTop: 'var(--sp-6)', marginBottom: 'var(--sp-4)' }}>
                 <StatCard icon={<DollarSign size={20} />} color="linear-gradient(135deg,#22C55E,#16A34A)" label="Faturamento total" value={<MaskedMoney value={sales.reduce((a, s) => a + s.total, 0)} />} sub={`${sales.length} vendas`} />
                 <StatCard icon={<Wallet size={20} />} color="linear-gradient(135deg,#3B82F6,#2563EB)" label="Recebido" value={<MaskedMoney value={sales.reduce((a, s) => a + salePaidAmount(s), 0)} />} sub={`${paidCount} quitadas`} />

@@ -1,8 +1,8 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
 import { Lock, ShieldCheck, X, RefreshCw, ChevronDown, ChevronRight, Users, Tag, Calendar, Filter, Download } from 'lucide-react'
-import { useAuth, grant, revoke } from '../auth'
+import { useAuth, grant, revoke, verifyAccessPassword } from '../auth'
 import { loadAuditRemote, type AuditEntry } from '../audit'
-import { authReauthenticateGoogle, onAuditChanges } from '../sync'
+import { onAuditChanges } from '../sync'
 import { startSessionLock } from '../useSessionLock'
 
 const ACTION_ICON: Record<string, string> = {
@@ -34,6 +34,7 @@ export function AuditView() {
   const unlocked = useAuth('audit')
   const [unlocking, setUnlocking] = useState(false)
   const [err, setErr] = useState('')
+  const [password, setPassword] = useState('')
   const [entries, setEntries] = useState<AuditEntry[]>([])
   const [loading, setLoading] = useState(false)
 
@@ -72,11 +73,15 @@ export function AuditView() {
     setUnlocking(true)
     setErr('')
     try {
-      await authReauthenticateGoogle()
+      if (!await verifyAccessPassword('audit', password)) {
+        setErr('Senha administrativa incorreta.')
+        return
+      }
       grant('audit')
       startSessionLock('audit')
+      setPassword('')
     } catch {
-      setErr('Não foi possível confirmar sua conta Google.')
+      setErr('Não foi possível validar a senha administrativa.')
     } finally {
       setUnlocking(false)
     }
@@ -186,12 +191,14 @@ export function AuditView() {
           <ShieldCheck size={44} style={{ color: 'var(--cz-500)' }} />
           <h2 style={{ margin: 'var(--sp-3) 0' }}>Auditoria da equipe</h2>
           <p style={{ color: 'var(--tx-2)', marginBottom: 'var(--sp-6)' }}>
-            Área sensível. Confirme novamente a conta Google conectada para ver o histórico da equipe.
+            Área sensível. Digite a senha administrativa para ver o histórico da equipe.
           </p>
           {err && <div className="pw-error-msg" role="alert">{err}</div>}
-          <div>
-            <button className="btn btn-cz" disabled={unlocking} onClick={doUnlock}><ShieldCheck size={16} /> {unlocking ? 'Confirmando…' : 'Confirmar com Google'}</button>
-          </div>
+          <form onSubmit={event => { event.preventDefault(); void doUnlock() }} className="audit-unlock-form">
+            <label className="sr-only" htmlFor="audit-password">Senha administrativa</label>
+            <input id="audit-password" className="pw-input" type="password" value={password} maxLength={128} autoComplete="current-password" autoFocus placeholder="Senha administrativa" onChange={event => setPassword(event.target.value)} />
+            <button className="btn btn-cz" disabled={unlocking || !password} type="submit"><ShieldCheck size={16} /> {unlocking ? 'Validando…' : 'Abrir auditoria'}</button>
+          </form>
         </div>
       </div>
     )

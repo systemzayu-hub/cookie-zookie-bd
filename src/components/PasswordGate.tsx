@@ -1,7 +1,6 @@
 import { createContext, useCallback, useContext, useState, type ReactNode } from 'react'
 import { ShieldCheck } from 'lucide-react'
-import { authReauthenticateGoogle } from '../sync'
-import { grant, isUnlocked } from '../auth'
+import { grant, isUnlocked, verifyAccessPassword } from '../auth'
 import { startSessionLock } from '../useSessionLock'
 
 interface GuardContext { guard: (label: string, action: () => void) => void }
@@ -13,6 +12,7 @@ export function PasswordProvider({ children }: { children: ReactNode }) {
   const [pending, setPending] = useState<{ label: string; action: () => void } | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
+  const [password, setPassword] = useState('')
 
   const guard = useCallback((label: string, action: () => void) => {
     if (isUnlocked('admin')) { action(); return }
@@ -25,14 +25,18 @@ export function PasswordProvider({ children }: { children: ReactNode }) {
     setBusy(true)
     setError('')
     try {
-      await authReauthenticateGoogle()
+      if (!await verifyAccessPassword('admin', password)) {
+        setError('Senha administrativa incorreta.')
+        return
+      }
       grant('admin')
       startSessionLock('admin')
       const action = pending.action
       setPending(null)
+      setPassword('')
       action()
     } catch {
-      setError('Não foi possível confirmar sua conta Google. Tente novamente.')
+      setError('Não foi possível validar a senha administrativa.')
     } finally {
       setBusy(false)
     }
@@ -47,13 +51,15 @@ export function PasswordProvider({ children }: { children: ReactNode }) {
             <ShieldCheck size={34} aria-hidden="true" style={{ color: 'var(--cz-500)' }} />
             <h3 id="confirm-title" style={{ margin: '8px 0 4px' }}>Confirmar alteração</h3>
             <p className="pw-action">{pending.label}</p>
-            <p style={{ color: 'var(--tx-2)', fontSize: '0.88rem', margin: 0 }}>
-              Confirme sua identidade com a conta Google conectada. Nenhuma senha fica no código do site.
-            </p>
+            <p style={{ color: 'var(--tx-2)', fontSize: '0.88rem', margin: 0 }}>Digite a senha administrativa para continuar.</p>
+            <form onSubmit={event => { event.preventDefault(); void confirm() }}>
+              <label className="sr-only" htmlFor="admin-password">Senha administrativa</label>
+              <input id="admin-password" className="pw-input" type="password" value={password} maxLength={128} autoComplete="current-password" autoFocus placeholder="Senha administrativa" onChange={event => setPassword(event.target.value)} />
+            </form>
             {error && <div className="pw-error-msg" role="alert">{error}</div>}
             <div className="pw-buttons">
-              <button className="btn btn-ghost" disabled={busy} onClick={() => setPending(null)}>Cancelar</button>
-              <button className="btn btn-cz" disabled={busy} onClick={confirm}>{busy ? 'Confirmando…' : 'Confirmar com Google'}</button>
+              <button className="btn btn-ghost" disabled={busy} onClick={() => { setPending(null); setPassword('') }}>Cancelar</button>
+              <button className="btn btn-cz" disabled={busy || !password} onClick={() => void confirm()}>{busy ? 'Validando…' : 'Confirmar alteração'}</button>
             </div>
           </div>
         </div>

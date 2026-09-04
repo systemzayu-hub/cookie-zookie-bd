@@ -109,7 +109,11 @@ export function AuditView() {
 
   const exportCSV = () => {
     // Escapa campos para CSV (vírgulas, aspas, quebras de linha)
-    const csvEsc = (s: string) => `"${(s ?? '').replace(/"/g, '""')}"`
+    const csvEsc = (s: string) => {
+      const value = s ?? ''
+      const safe = /^[=+\-@]/.test(value.trimStart()) ? `'${value}` : value
+      return `"${safe.replace(/"/g, '""')}"`
+    }
     const head = ['Data/Hora', 'Pessoa', 'Email', 'Tipo', 'Detalhe']
     const rows = filtered.map(e => [
       formatFull(e.ts),
@@ -127,7 +131,7 @@ export function AuditView() {
     document.body.appendChild(a)
     a.click()
     document.body.removeChild(a)
-    URL.revokeObjectURL(url)
+    window.setTimeout(() => URL.revokeObjectURL(url), 1_000)
   }
 
   const filterEntries = useCallback((list: AuditEntry[]) => {

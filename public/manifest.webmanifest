@@ -1,0 +1,19 @@
+{
+  "name": "Cookie Zookie — Gestão",
+  "short_name": "Cookie Zookie",
+  "description": "Painel privado de vendas, estoque, clientes e cobranças.",
+  "lang": "pt-BR",
+  "start_url": "./#dashboard",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#fffaf4",
+  "theme_color": "#8b5a3c",
+  "icons": [
+    {
+      "src": "./logo.png",
+      "sizes": "any",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

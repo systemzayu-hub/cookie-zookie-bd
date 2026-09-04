@@ -148,9 +148,9 @@ function parseText(text: string, products: Product[], customers: Customer[]): Pa
 }
 
 /* ========== QUICK SALE VIEW ========== */
-export function QuickSaleView({ products, customers, onSaleAdded, pushToast }: {
+export function QuickSaleView({ products, customers, onSaleAdded, onCustomersAdded, pushToast }: {
   products: Product[]; customers: Customer[]
-  onSaleAdded: (s: Sale) => void; pushToast: (m: string, t?: 'success' | 'error') => void
+  onSaleAdded: (s: Sale) => void; onCustomersAdded: (customers: Customer[]) => void; pushToast: (m: string, t?: 'success' | 'error') => void
 }) {
   const [text, setText] = useState('')
   const [parsed, setParsed] = useState<ParsedLine[]>([])
@@ -166,9 +166,25 @@ export function QuickSaleView({ products, customers, onSaleAdded, pushToast }: {
   }
 
   const doConfirm = () => {
+    const createdCustomers = new Map<string, Customer>()
+    for (const line of parsed.filter(item => item.productId && !item.customerId && item.customerNameRaw.trim())) {
+      const key = normalize(line.customerNameRaw)
+      if (!createdCustomers.has(key)) {
+        createdCustomers.set(key, {
+          id: uid(),
+          name: line.customerNameRaw.trim().slice(0, 120),
+          contact: '',
+          createdAt: new Date().toISOString(),
+        })
+      }
+    }
+    onCustomersAdded(Array.from(createdCustomers.values()))
+
     const saleDateMap = new Map<string, ParsedLine[]>()
     parsed.filter(l => l.productId).forEach(l => {
-      const key = `${l.date}|${l.customerId || l.customerNameRaw}|${l.status}`
+      const resolvedCustomerId = l.customerId || createdCustomers.get(normalize(l.customerNameRaw))?.id || ''
+      const dateKey = l.date || new Date().toISOString().slice(0, 10)
+      const key = `${dateKey}|${resolvedCustomerId}|${l.status}`
       const arr = saleDateMap.get(key) || []
       arr.push(l)
       saleDateMap.set(key, arr)
@@ -193,6 +209,7 @@ export function QuickSaleView({ products, customers, onSaleAdded, pushToast }: {
         total,
         customerId: customerId || undefined,
         status: status as Sale['status'],
+        paidAmount: status === 'Pago' ? total : 0,
       }
       onSaleAdded(sale)
       count++

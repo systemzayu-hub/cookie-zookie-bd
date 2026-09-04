@@ -1,6 +1,6 @@
 import { useState, useMemo } from 'react'
 import { Plus, Pencil, Trash2, X, Users, ShoppingBag, AlertCircle, CheckCircle2, Check } from 'lucide-react'
-import { Customer, Sale, fmtBRL } from '../types'
+import { Customer, Sale, fmtBRL, uid } from '../types'
 import { usePasswordGuard } from '../components/PasswordGate'
 import { logAction } from '../audit'
 import { MaskedMoney } from '../components/MaskedMoney'
@@ -16,7 +16,7 @@ function ConfirmDeleteModal({ isOpen, onClose, onConfirm, title, message, itemNa
   if (!isOpen) return null
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal modal-sm" onClick={e => e.stopPropagation()}>
+      <div className="modal modal-sm" role="dialog" aria-modal="true" aria-label={title} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3>{title}</h3>
         </div>
@@ -54,24 +54,34 @@ export function CustomersView({ customers, setCustomers, sales, pushToast }: {
   const openEdit = (c: Customer) => { setEditing(c); setForm({ name: c.name, contact: c.contact }); setShowModal(true) }
 
   const submit = () => {
-    if (!form.name.trim()) { pushToast('Informe o nome.', 'error'); return }
+    const name = form.name.trim()
+    const contact = form.contact.trim()
+    if (!name) { pushToast('Informe o nome.', 'error'); return }
+    if (name.length > 120 || contact.length > 120) { pushToast('Nome e contato devem ter até 120 caracteres.', 'error'); return }
+    if (customers.some(customer => customer.id !== editing?.id && customer.name.toLocaleLowerCase('pt-BR') === name.toLocaleLowerCase('pt-BR'))) { pushToast('Já existe um cliente com esse nome.', 'error'); return }
     if (editing) {
       guard('Alterar cliente', () => {
-        setCustomers(cs => cs.map(c => c.id === editing.id ? { ...c, name: form.name.trim(), contact: form.contact.trim() } : c))
+        setCustomers(cs => cs.map(c => c.id === editing.id ? { ...c, name, contact } : c))
         setShowModal(false)
         logAction('cliente', `Editou cliente "${editing.name}"`)
         pushToast('Cliente atualizado!')
       })
     } else {
-      setCustomers(cs => [{ id: Math.random().toString(36).slice(2), name: form.name.trim(), contact: form.contact.trim(), createdAt: new Date().toISOString().slice(0, 10) }, ...cs])
-      logAction('cliente', `Cadastrou cliente "${form.name.trim()}"`)
-      pushToast('Cliente adicionado!')
-      setShowModal(false)
+      guard('Cadastrar cliente', () => {
+        setCustomers(cs => [{ id: uid(), name, contact, createdAt: new Date().toISOString() }, ...cs])
+        logAction('cliente', `Cadastrou cliente "${name}"`)
+        pushToast('Cliente adicionado!')
+        setShowModal(false)
+      })
     }
   }
 
   const remove = (id: string) => {
       const c = customers.find(x => x.id === id)
+      if (sales.some(sale => sale.customerId === id)) {
+        pushToast('Este cliente possui vendas no histórico e não pode ser excluído.', 'error')
+        return
+      }
       if (c) setDeleteConfirm({ id: c.id, name: c.name })
     }
 
@@ -187,8 +197,8 @@ export function CustomersView({ customers, setCustomers, sales, pushToast }: {
                                         <td><span className="badge badge-brand">{countOf(c.id)}</span></td>
                                         <td className="text-right" style={{ fontWeight: 700 }}><MaskedMoney value={spendOf(c.id)} /></td>
                     <td className="text-right">
-                      <button className="btn btn-secondary btn-sm" onClick={() => openEdit(c)}><Pencil size={14} /></button>
-                      <button className="btn btn-danger btn-sm" onClick={() => remove(c.id)}><Trash2 size={14} /></button>
+                      <button className="btn btn-secondary btn-sm" aria-label={`Editar ${c.name}`} onClick={() => openEdit(c)}><Pencil size={14} /></button>
+                      <button className="btn btn-danger btn-sm" aria-label={`Excluir ${c.name}`} onClick={() => remove(c.id)}><Trash2 size={14} /></button>
                     </td>
                   </tr>
                 ))}
@@ -200,14 +210,14 @@ export function CustomersView({ customers, setCustomers, sales, pushToast }: {
 
       {showModal && (
               <div className="modal-backdrop" onClick={() => setShowModal(false)}>
-                <div className="modal" onClick={e => e.stopPropagation()}>
+                <div className="modal" role="dialog" aria-modal="true" aria-label={editing ? 'Editar cliente' : 'Novo cliente'} onClick={e => e.stopPropagation()}>
                   <div className="modal-header">
                     <h3>{editing ? 'Editar Cliente' : 'Novo Cliente'}</h3>
-                    <button className="modal-close" onClick={() => setShowModal(false)}><X size={20} /></button>
+                    <button className="modal-close" aria-label="Fechar" onClick={() => setShowModal(false)}><X size={20} /></button>
                   </div>
                   <div className="form">
-                    <div className="field"><label>Nome</label><input value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Nome do cliente" /></div>
-                    <div className="field"><label>Contato (email/telefone)</label><input value={form.contact} onChange={e => setForm(f => ({ ...f, contact: e.target.value }))} placeholder="ex: (11) 99999-0000" /></div>
+                    <div className="field"><label>Nome</label><input value={form.name} maxLength={120} autoComplete="name" onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Nome do cliente" /></div>
+                    <div className="field"><label>Contato (email/telefone)</label><input value={form.contact} maxLength={120} autoComplete="tel" inputMode="tel" onChange={e => setForm(f => ({ ...f, contact: e.target.value }))} placeholder="ex: (11) 99999-0000" /></div>
                     <div className="modal-actions">
                       <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancelar</button>
                       <button className="btn btn-primary" onClick={submit}>{editing ? 'Salvar' : 'Adicionar'}</button>

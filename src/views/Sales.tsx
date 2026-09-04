@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { Plus, X, CheckCircle2, Trash2, ClipboardPaste, ShoppingCart } from 'lucide-react'
-import { Product, Customer, Sale, SaleItem, LOW_STOCK_THRESHOLD, CHANNELS, PAYMENTS, fmtBRL } from '../types'
+import { Product, Customer, Sale, SaleItem, LOW_STOCK_THRESHOLD, CHANNELS, PAYMENTS, fmtBRL, uid } from '../types'
 import { StatusBadge } from './Dashboard'
 import { QuickSaleView } from './QuickSale'
 
-export function SalesView({ products, customers, sales, onSaleAdded, pushToast }: {
-  products: Product[]; customers: Customer[]; sales: Sale[]; onSaleAdded: (s: Sale) => void; pushToast: (m: string, t?: 'success' | 'error') => void
+export function SalesView({ products, customers, sales, onSaleAdded, onCustomersAdded, pushToast }: {
+  products: Product[]; customers: Customer[]; sales: Sale[]; onSaleAdded: (s: Sale) => void; onCustomersAdded: (customers: Customer[]) => void; pushToast: (m: string, t?: 'success' | 'error') => void
 }) {
   const [mode, setMode] = useState<'manual' | 'paste'>('manual')
   const [lines, setLines] = useState<SaleItem[]>(() => products.length ? [{ productId: products[0].id, qty: 1 }] : [])
@@ -20,19 +20,28 @@ export function SalesView({ products, customers, sales, onSaleAdded, pushToast }
   const updateLine = (idx: number, patch: Partial<SaleItem>) => setLines(l => l.map((x, i) => i === idx ? { ...x, ...patch } : x))
   const removeLine = (idx: number) => setLines(l => l.filter((_, i) => i !== idx))
 
-  const finalItems = lines.map(l => {
-    const p = products.find(x => x.id === l.productId)
-    return { ...l, name: p?.name || '?', unitPrice: p?.price || 0 }
-  })
+  const finalItems = Array.from(lines.reduce((items, line) => {
+    const product = products.find(item => item.id === line.productId)
+    if (!product) return items
+    const existing = items.get(product.id)
+    items.set(product.id, {
+      productId: product.id,
+      name: product.name,
+      unitPrice: product.price,
+      qty: (existing?.qty || 0) + line.qty,
+    })
+    return items
+  }, new Map<string, Sale['items'][number]>()).values())
   const total = finalItems.reduce((a, i) => a + i.unitPrice * i.qty, 0)
 
   const submit = () => {
     if (finalItems.length === 0 || finalItems.some(i => !i.productId || i.qty <= 0)) { setError('Selecione produto e quantidade válida.'); return }
+    if (status === 'Pendente' && !customerId) { setError('Selecione um cliente para uma venda pendente.'); return }
     for (const it of finalItems) {
       const p = products.find(x => x.id === it.productId)
       if (p && it.qty > p.stock) { setError(`Estoque insuficiente para ${p.name} (restam ${p.stock}).`); return }
     }
-    const sale: Sale = { id: Math.random().toString(36).slice(2) + Date.now().toString(36), date: new Date().toISOString(), items: finalItems, payment, channel, total, customerId: customerId || undefined, status }
+    const sale: Sale = { id: uid(), date: new Date().toISOString(), items: finalItems, payment, channel, total, customerId: customerId || undefined, status, paidAmount: status === 'Pago' ? total : 0 }
     onSaleAdded(sale)
     setLines(products.length ? [{ productId: products[0].id, qty: 1 }] : [])
     setError('')
@@ -66,7 +75,7 @@ export function SalesView({ products, customers, sales, onSaleAdded, pushToast }
       </div>
 
       {mode === 'paste' ? (
-        <QuickSaleView products={products} customers={customers} onSaleAdded={onSaleAdded} pushToast={pushToast} />
+        <QuickSaleView products={products} customers={customers} onSaleAdded={onSaleAdded} onCustomersAdded={onCustomersAdded} pushToast={pushToast} />
       ) : (
         <div className="card">
           {products.length === 0 && (

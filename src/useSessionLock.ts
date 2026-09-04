@@ -15,6 +15,8 @@ const IDLE_TIMEOUT_MS = 5 * 60 * 1000 // 5 minutos
 let idleTimer: ReturnType<typeof setTimeout> | null = null
 let isInitialized = false
 let currentLevel: Level | null = null
+let lastActivityReset = 0
+let hiddenAt: number | null = null
 
 function clearIdleTimer() {
   if (idleTimer) { clearTimeout(idleTimer); idleTimer = null }
@@ -32,14 +34,23 @@ function startIdleTimer(level: Level) {
 }
 
 function onActivity() {
-  if (currentLevel) startIdleTimer(currentLevel)
+  const now = Date.now()
+  if (currentLevel && now - lastActivityReset > 1_000) {
+    lastActivityReset = now
+    startIdleTimer(currentLevel)
+  }
 }
 
 function initGlobalListeners() {
   if (typeof window === 'undefined' || isInitialized) return
-  const events = ['mousemove', 'keydown', 'touchstart', 'scroll'] as const
+  const events = ['pointerdown', 'keydown', 'touchstart', 'scroll'] as const
   for (const e of events) window.addEventListener(e, onActivity, { passive: true })
-  window.addEventListener('beforeunload', () => { revokeAll() }, { passive: true })
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) hiddenAt = Date.now()
+    else if (hiddenAt && Date.now() - hiddenAt > 60_000) lockAll()
+    if (!document.hidden) hiddenAt = null
+  })
+  window.addEventListener('pagehide', () => { revokeAll() })
   isInitialized = true
 }
 

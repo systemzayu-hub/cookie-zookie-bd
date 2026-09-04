@@ -10,17 +10,17 @@ export interface MaskedPIIProps {
 
 function maskCPF(v: string) {
   const digits = v.replace(/\D/g, '').slice(0, 11)
-  if (digits.length !== 11) return '*.*.*-**'
-  return `${digits.slice(0, 3)}.${digits.slice(3, 6)}.${digits.slice(6, 9)}-${digits.slice(9, 11)}`
+  if (digits.length !== 11) return '***.***.***-**'
+  return `***.***.${digits.slice(6, 9)}-**`
 }
 
 function maskPhone(v: string) {
   const digits = v.replace(/\D/g, '').slice(0, 11)
-  if (digits.length < 10) return '(**) ****-****'
+  if (digits.length < 10) return '(**) *****-****'
   if (digits.length === 10) {
-    return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6, 10)}`
+    return `(**) ****-${digits.slice(6, 10)}`
   }
-  return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7, 11)}`
+  return `(**) *****-${digits.slice(7, 11)}`
 }
 
 function unmaskCPF(v: string) {
@@ -70,12 +70,12 @@ export function MaskedPII({ value, type, className = '' }: MaskedPIIProps) {
       </span>
       <button
         type="button"
-        className="ml-1 text-xs px-2 py-0.5 rounded bg-gray-100 hover:bg-gray-200 text-gray-700 transition-colors"
+        className="pii-reveal-button"
         onClick={(e: MouseEvent<HTMLButtonElement>) => {
           e.stopPropagation()
           reveal()
         }}
-        aria-label={revealed ? 'Ocultar' : 'Mostrar'}
+        aria-label={revealed ? `Ocultar ${type === 'cpf' ? 'CPF' : 'telefone'}` : `Mostrar ${type === 'cpf' ? 'CPF' : 'telefone'} por 3 segundos`}
       >
         {revealed ? 'Ocultar' : 'Mostrar'}
       </button>

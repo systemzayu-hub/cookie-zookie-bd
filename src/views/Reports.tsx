@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
 import { DollarSign, ShoppingBag, TrendingUp, Download } from 'lucide-react'
-import { ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, CartesianGrid, Legend } from 'recharts'
 import { Sale, CHANNELS, PAYMENTS, fmtBRL, fmtDate } from '../types'
 import { StatusBadge } from './Dashboard'
 import { SensitiveData } from '../components/SensitiveData'
 import { MaskedMoney } from '../components/MaskedMoney'
+import { MetricBars } from '../components/MetricBars'
+import { authReauthenticateGoogle } from '../sync'
 
 function StatCard({ icon, color, label, value }: { icon: React.ReactNode; color: string; label: string; value: React.ReactNode }) {
   return (
@@ -42,14 +43,25 @@ export function ReportsView({ sales }: { sales: Sale[] }) {
   const byChannel = CHANNELS.map(c => ({ name: c, value: filtered.filter(s => s.channel === c).reduce((a, s) => a + s.total, 0) })).filter(x => x.value > 0)
   const byPay = PAYMENTS.map(p => ({ name: p, value: filtered.filter(s => s.payment === p).reduce((a, s) => a + s.total, 0) })).filter(x => x.value > 0)
 
-  const exportCSV = () => {
-    const rows = filtered.map(s => `${fmtDate(s.date)};${s.items.map(i => `${i.name} x${i.qty}`).join('; ')};${s.payment};${s.channel};${s.total.toFixed(2).replace('.', ',')}`)
-    const csv = '\uFEFFData;Itens;Pagamento;Canal;Total\n' + rows.join('\n')
+  const exportCSV = async () => {
+    try { await authReauthenticateGoogle() } catch { return }
+    const csvCell = (value: string) => {
+      const safe = /^[=+\-@]/.test(value.trimStart()) ? `'${value}` : value
+      return `"${safe.replace(/"/g, '""')}"`
+    }
+    const rows = filtered.map(s => [
+      fmtDate(s.date),
+      s.items.map(i => `${i.name} x${i.qty}`).join(', '),
+      s.payment,
+      s.channel,
+      s.total.toFixed(2).replace('.', ','),
+    ].map(csvCell).join(';'))
+    const csv = '\uFEFFData;Itens;Pagamento;Canal;Total\r\n' + rows.join('\r\n')
     const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = url; a.download = 'relatorio-vendas.csv'; a.click()
-    URL.revokeObjectURL(url)
+    a.href = url; a.download = 'relatorio-vendas.csv'; document.body.appendChild(a); a.click(); a.remove()
+    window.setTimeout(() => URL.revokeObjectURL(url), 1_000)
   }
 
   return (
@@ -62,7 +74,7 @@ export function ReportsView({ sales }: { sales: Sale[] }) {
               {p === 'all' ? 'Tudo' : p + ' dias'}
             </button>
           ))}
-          <button className="btn btn-secondary btn-sm" onClick={exportCSV}><Download size={14} /> CSV</button>
+          <button className="btn btn-secondary btn-sm" onClick={() => void exportCSV()}><Download size={14} /> CSV</button>
         </div>
       </div>
 
@@ -76,54 +88,22 @@ export function ReportsView({ sales }: { sales: Sale[] }) {
       <div className="grid grid-2">
         <div className="card">
           <h3 className="card-title">Vendas por dia</h3>
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={dayData}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-              <XAxis dataKey="dia" stroke="var(--tx-3)" fontSize={11} />
-              <YAxis stroke="var(--tx-3)" fontSize={11} />
-              <Tooltip formatter={(v: number) => fmtBRL(v)} contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8 }} />
-              <Bar dataKey="total" fill="var(--cz-500)" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          <MetricBars items={dayData.map(item => ({ label: item.dia, value: item.total }))} format={fmtBRL} />
         </div>
 
         <div className="card">
           <h3 className="card-title">Produtos por faturamento</h3>
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={prodData} layout="vertical" margin={{ left: 20 }}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--border)" />
-              <XAxis type="number" stroke="var(--tx-3)" fontSize={11} />
-              <YAxis type="category" dataKey="name" stroke="var(--tx-3)" fontSize={11} width={90} />
-              <Tooltip formatter={(v: number) => fmtBRL(v)} contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8 }} />
-              <Bar dataKey="total" fill="var(--cz-400)" radius={[0, 4, 4, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          <MetricBars items={prodData.map(item => ({ label: item.name, value: item.total }))} format={fmtBRL} />
         </div>
 
         <div className="card">
           <h3 className="card-title">Por canal de venda</h3>
-          <ResponsiveContainer width="100%" height={240}>
-            <PieChart>
-              <Pie data={byChannel} dataKey="value" nameKey="name" innerRadius={50} outerRadius={85} paddingAngle={3}>
-                {byChannel.map((_, i) => <Cell key={i} fill={['var(--cz-400)', 'var(--cz-600)', 'var(--cz-300)'][i % 3]} />)}
-              </Pie>
-              <Tooltip formatter={(v: number) => fmtBRL(v)} contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8 }} />
-              <Legend wrapperStyle={{ color: 'var(--tx-1)' }} />
-            </PieChart>
-          </ResponsiveContainer>
+          <MetricBars items={byChannel.map(item => ({ label: item.name, value: item.value }))} format={fmtBRL} />
         </div>
 
         <div className="card">
           <h3 className="card-title">Por forma de pagamento</h3>
-          <ResponsiveContainer width="100%" height={240}>
-            <PieChart>
-              <Pie data={byPay} dataKey="value" nameKey="name" innerRadius={50} outerRadius={85} paddingAngle={3}>
-                {byPay.map((_, i) => <Cell key={i} fill={['var(--ok-500)', 'var(--cz-500)', 'var(--cz-300)'][i % 3]} />)}
-              </Pie>
-              <Tooltip formatter={(v: number) => fmtBRL(v)} contentStyle={{ background: 'var(--card)', border: '1px solid var(--border)', borderRadius: 8 }} />
-              <Legend wrapperStyle={{ color: 'var(--tx-1)' }} />
-            </PieChart>
-          </ResponsiveContainer>
+          <MetricBars items={byPay.map(item => ({ label: item.name, value: item.value }))} format={fmtBRL} />
         </div>
       </div>
 

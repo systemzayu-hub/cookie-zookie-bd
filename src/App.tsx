@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState, Suspense, lazy } from 'react'
-import { LayoutDashboard, ShoppingCart, Package, BarChart3, Users, Sun, Moon, Download, Upload, LogIn, LogOut, Lock, Percent, ShieldCheck, Menu, X } from 'lucide-react'
+import { LayoutDashboard, ShoppingCart, Package, BarChart3, Users, Sun, Moon, Download, Upload, LogIn, LogOut, Lock, Percent, ShieldCheck, Menu, X, Cloud, CloudOff, RefreshCw } from 'lucide-react'
 import { Product, Sale, Customer, Tab, Pendencia, fmtBRL } from './types'
 import { seedProducts, seedCustomers, seedSales, load, save, STORAGE_ERROR_EVENT } from './data'
 import { baixarBackup, aplicarBackup } from './db'
-import { authLoginGoogle, authLogout, authOnChange, firebaseReady, onRemoteChanges, syncPull, syncPush } from './sync'
+import { authLoginGoogle, authLogout, authOnChange, authReauthenticateGoogle, firebaseReady, onRemoteChanges, syncPull, syncPush } from './sync'
 import { PasswordProvider } from './components/PasswordGate'
+import { ErrorBoundary } from './components/ErrorBoundary'
 import { setAuditActor, logAction } from './audit'
-import { revokeAll } from './auth'
+import { lockAll } from './useSessionLock'
+import { validateCustomers, validateProducts, validateSales } from './validation'
 import logoUrl from './assets/logo.png'
 
 const Dashboard = lazy(() => import('./views/Dashboard').then(m => ({ default: m.Dashboard })))
@@ -18,18 +20,27 @@ const FinanceiroView = lazy(() => import('./views/Financeiro').then(m => ({ defa
 const AuditView = lazy(() => import('./views/Audit').then(m => ({ default: m.AuditView })))
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>('dashboard')
+  const tabs: Tab[] = ['dashboard', 'vendas', 'produtos', 'relatorios', 'clientes', 'financeiro', 'audit']
+  const [tab, setTab] = useState<Tab>(() => {
+    const hash = window.location.hash.slice(1) as Tab
+    return tabs.includes(hash) ? hash : 'dashboard'
+  })
   const [dark, setDark] = useState<boolean>(() => load('cc_theme', false))
   const [isMenuOpen, setIsMenuOpen] = useState(false)
-  const [products, setProducts] = useState<Product[]>(() => load<Product[]>('cc_products', seedProducts))
-  const [sales, setSales] = useState<Sale[]>(() => load<Sale[]>('cc_sales', seedSales))
-  const [customers, setCustomers] = useState<Customer[]>(() => load<Customer[]>('cc_customers', seedCustomers))
+  const [products, setProducts] = useState<Product[]>(() => validateProducts(load<unknown[]>('cc_products', seedProducts)) ?? seedProducts)
+  const [sales, setSales] = useState<Sale[]>(() => validateSales(load<unknown[]>('cc_sales', seedSales)) ?? seedSales)
+  const [customers, setCustomers] = useState<Customer[]>(() => validateCustomers(load<unknown[]>('cc_customers', seedCustomers)) ?? seedCustomers)
   const [toasts, setToasts] = useState<{ id: string; msg: string; type: 'success' | 'error' }[]>([])
   const [user, setUser] = useState<{ email: string | null; name: string | null } | null>(null)
   const [firebaseOn, setFirebaseOn] = useState(false)
   const [authLoading, setAuthLoading] = useState(true)
+  const [syncState, setSyncState] = useState<'offline' | 'syncing' | 'synced' | 'error'>('offline')
+  const [online, setOnline] = useState(navigator.onLine)
   const fileRef = useRef<HTMLInputElement>(null)
+  const menuButtonRef = useRef<HTMLButtonElement>(null)
+  const sidebarRef = useRef<HTMLElement>(null)
   const remoteHydrated = useRef(false)
+  const skipNextPush = useRef(false)
 
   useEffect(() => {
     let active = true
@@ -37,7 +48,7 @@ export default function App() {
     void firebaseReady().then(on => {
       if (!active) return
       setFirebaseOn(on)
-      if (!on) { setAuthLoading(false); return }
+      if (!on) { setSyncState('error'); setAuthLoading(false); return }
       unsub = authOnChange(u => {
         setUser(u ? { email: u.email, name: u.displayName } : null)
         setAuditActor(u?.displayName || u?.email || null, u?.email || null)
@@ -51,27 +62,46 @@ export default function App() {
     return () => { active = false; unsub() }
   }, [])
 
+  useEffect(() => {
+    const update = () => setOnline(navigator.onLine)
+    window.addEventListener('online', update)
+    window.addEventListener('offline', update)
+    return () => {
+      window.removeEventListener('online', update)
+      window.removeEventListener('offline', update)
+    }
+  }, [])
+
+  useEffect(() => {
+    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#${tab}`)
+  }, [tab])
+
   // Firestore é a fonte compartilhada; o estado local continua como fallback offline.
   useEffect(() => {
     if (!user) { remoteHydrated.current = false; return }
     let active = true
     let unsubscribeRemote = () => {}
     void (async () => {
+      setSyncState('syncing')
       const remote = await syncPull()
       if (!active) return
       if (remote) {
-        setProducts(remote.products as Product[])
-        setSales(remote.sales as Sale[])
-        setCustomers(remote.customers as Customer[])
+        skipNextPush.current = true
+        setProducts(remote.products)
+        setSales(remote.sales)
+        setCustomers(remote.customers)
       }
       if (!active) return
       remoteHydrated.current = true
+      setSyncState(remote ? 'synced' : 'offline')
       unsubscribeRemote = onRemoteChanges(data => {
         if (!active) return
-        setProducts(data.products as Product[])
-        setSales(data.sales as Sale[])
-        setCustomers(data.customers as Customer[])
-      })
+        skipNextPush.current = true
+        setProducts(data.products)
+        setSales(data.sales)
+        setCustomers(data.customers)
+        setSyncState('synced')
+      }, () => setSyncState(navigator.onLine ? 'error' : 'offline'))
     })()
     return () => { active = false; remoteHydrated.current = false; unsubscribeRemote() }
   }, [user?.email])
@@ -84,16 +114,21 @@ export default function App() {
         // login é registrado na auditoria pelo authOnChange (evita duplicar)
       }
     } catch (e) {
-      const emsg = (e as { code?: string; message?: string }).message || String(e)
+      const code = (e as { code?: string }).code || ''
       console.error('[login]', e)
-      pushToast(`Falha no login: ${emsg}`.slice(0, 120), 'error')
+      const message = code.includes('popup-closed') || code.includes('cancelled')
+        ? 'Login cancelado.'
+        : code.includes('unauthorized-domain')
+          ? 'Este endereço ainda não foi autorizado no Firebase.'
+          : 'Não foi possível entrar com Google. Tente novamente.'
+      pushToast(message, 'error')
     }
   }
 
   const doLogout = async () => {
     logAction('login', `${user?.name || user?.email || 'alguém'} saiu do sistema`)
+    lockAll()
     await authLogout()
-    revokeAll()
     pushToast('Você saiu da conta.')
   }
 
@@ -103,15 +138,43 @@ export default function App() {
   }, [dark])
   useEffect(() => {
     document.body.style.overflow = isMenuOpen ? 'hidden' : '';
+    const sidebar = sidebarRef.current
+    const mobile = window.matchMedia('(max-width: 768px)').matches
+    if (sidebar && mobile && !isMenuOpen) sidebar.setAttribute('inert', '')
+    else sidebar?.removeAttribute('inert')
     return () => { document.body.style.overflow = ''; };
   }, [isMenuOpen]);
+
+  useEffect(() => {
+    if (!isMenuOpen || !sidebarRef.current) return
+    const focusable = Array.from(sidebarRef.current.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled)'))
+    focusable[0]?.focus()
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        setIsMenuOpen(false)
+        menuButtonRef.current?.focus()
+        return
+      }
+      if (event.key !== 'Tab' || focusable.length === 0) return
+      const first = focusable[0]
+      const last = focusable[focusable.length - 1]
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
+    }
+    document.addEventListener('keydown', onKeyDown)
+    return () => document.removeEventListener('keydown', onKeyDown)
+  }, [isMenuOpen])
 
   useEffect(() => { save('cc_products', products) }, [products])
   useEffect(() => { save('cc_sales', sales) }, [sales])
   useEffect(() => { save('cc_customers', customers) }, [customers])
   useEffect(() => {
     if (!user || !remoteHydrated.current) return
-    const timer = window.setTimeout(() => { void syncPush(products, sales, customers) }, 400)
+    if (skipNextPush.current) { skipNextPush.current = false; return }
+    setSyncState('syncing')
+    const timer = window.setTimeout(() => {
+      void syncPush(products, sales, customers).then(ok => setSyncState(ok ? 'synced' : (navigator.onLine ? 'error' : 'offline')))
+    }, 650)
     return () => window.clearTimeout(timer)
   }, [products, sales, customers, user])
 
@@ -130,8 +193,8 @@ export default function App() {
   const handleSaleAdded = (s: Sale) => {
     setSales(prev => [s, ...prev])
     setProducts(prev => prev.map(p => {
-      const item = s.items.find(i => i.productId === p.id)
-      return item ? { ...p, stock: Math.max(0, p.stock - item.qty) } : p
+      const quantity = s.items.filter(i => i.productId === p.id).reduce((total, item) => total + item.qty, 0)
+      return quantity ? { ...p, stock: Math.max(0, p.stock - quantity) } : p
     }))
     const det = s.items.map(i => `${i.qty}x ${i.name}`).join(' + ')
     const cliente = customers.find(c => c.id === s.customerId)?.name
@@ -139,16 +202,37 @@ export default function App() {
     pushToast('Venda registrada!')
   }
 
+  const handleCustomersAdded = (newCustomers: Customer[]) => {
+    if (newCustomers.length === 0) return
+    setCustomers(previous => {
+      const existing = new Set(previous.map(customer => customer.id))
+      return [...previous, ...newCustomers.filter(customer => !existing.has(customer.id))]
+    })
+  }
+
   const onImport = async (file: File) => {
     try {
+      await authReauthenticateGoogle()
       await aplicarBackup(file, (data) => {
         setProducts(data.products)
         setSales(data.sales)
         setCustomers(data.customers)
+        logAction('backup', `Restaurou backup com ${data.sales.length} vendas, ${data.customers.length} clientes e ${data.products.length} produtos`)
         pushToast('Backup restaurado com sucesso!')
       })
     } catch (e) {
       pushToast((e as Error).message, 'error')
+    }
+  }
+
+  const exportBackup = async () => {
+    try {
+      await authReauthenticateGoogle()
+      baixarBackup(products, sales, customers)
+      logAction('backup', 'Exportou um backup completo do painel')
+      pushToast('Backup exportado com segurança.')
+    } catch {
+      pushToast('Confirmação Google cancelada. O backup não foi exportado.', 'error')
     }
   }
 
@@ -168,7 +252,7 @@ export default function App() {
       <div className="login-gate login-loading">
         <img src={logoUrl} alt="Cookie Zookie" className="login-cookie" />
         <div>Cookie Zookie</div>
-        <div className="login-sub">Carregando...</div>
+        <div className="login-sub" role="status">Carregando…</div>
       </div>
     )
   }
@@ -202,11 +286,12 @@ export default function App() {
   return (
       <PasswordProvider>
       <div className="app">
-        <button className={`menu-toggle ${isMenuOpen ? 'is-open' : ''}`} aria-label={isMenuOpen ? 'Fechar menu' : 'Abrir menu'} onClick={() => setIsMenuOpen(!isMenuOpen)}>
+        <a className="skip-link" href="#main-content">Pular para o conteúdo</a>
+        <button ref={menuButtonRef} className={`menu-toggle ${isMenuOpen ? 'is-open' : ''}`} aria-label={isMenuOpen ? 'Fechar menu' : 'Abrir menu'} aria-expanded={isMenuOpen} aria-controls="main-navigation" onClick={() => setIsMenuOpen(!isMenuOpen)}>
                           {isMenuOpen ? <X className="icon" /> : <Menu className="icon" />}
                         </button>
-        <div className={`sidebar-overlay ${isMenuOpen ? 'open' : ''}`} onClick={() => setIsMenuOpen(false)} />
-        <aside className={`sidebar ${isMenuOpen ? 'open' : ''}`}>
+        <div className={`sidebar-overlay ${isMenuOpen ? 'open' : ''}`} aria-hidden="true" onClick={() => setIsMenuOpen(false)} />
+        <aside ref={sidebarRef} id="main-navigation" className={`sidebar ${isMenuOpen ? 'open' : ''}`} aria-label="Navegação principal">
         <div className="brand">
           <div className="brand-logo"><img src={logoUrl} alt="Cookie Zookie" /></div>
           <div>
@@ -216,7 +301,7 @@ export default function App() {
         </div>
         <nav className="sidebar-nav">
                   {nav.map(n => (
-                    <button key={n.id} className={`nav-item ${tab === n.id ? 'active' : ''}`} onClick={() => { setTab(n.id); setIsMenuOpen(false); }}>
+                    <button key={n.id} className={`nav-item ${tab === n.id ? 'active' : ''}`} aria-current={tab === n.id ? 'page' : undefined} onClick={() => { setTab(n.id); setIsMenuOpen(false); }}>
                       {n.icon} {n.label}
                     </button>
                   ))}
@@ -240,41 +325,52 @@ export default function App() {
             {!firebaseOn && (
               <div className="auth-offline">⚠️ sincronização desligada</div>
             )}
+            {firebaseOn && (
+              <div className={`sync-status sync-${!online ? 'offline' : syncState}`} role="status" aria-live="polite">
+                {!online || syncState === 'offline' ? <CloudOff size={14} /> : syncState === 'syncing' ? <RefreshCw size={14} className="spin" /> : <Cloud size={14} />}
+                {!online || syncState === 'offline' ? 'Offline · salvo neste aparelho' : syncState === 'syncing' ? 'Sincronizando…' : syncState === 'error' ? 'Falha na sincronização' : 'Sincronizado com a equipe'}
+              </div>
+            )}
           </div>
           <button className="theme-toggle" onClick={() => setDark(d => !d)}>
             {dark ? <Sun size={18} /> : <Moon size={18} />}
             {dark ? 'Tema claro' : 'Tema escuro'}
           </button>
+          <button className="theme-toggle" onClick={() => { lockAll(); pushToast('Áreas sensíveis bloqueadas.') }}>
+            <Lock size={16} /> Bloquear áreas sensíveis
+          </button>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)', marginTop: 'var(--sp-2)' }}>
-            <button className="theme-toggle" onClick={() => baixarBackup(products, sales, customers)}>
+            <button className="theme-toggle" onClick={() => void exportBackup()}>
               <Download size={16} /> Exportar backup
             </button>
             <button className="theme-toggle" onClick={() => fileRef.current?.click()}>
               <Upload size={16} /> Importar backup
             </button>
-            <input ref={fileRef} type="file" accept="application/json" style={{ display: 'none' }} onChange={e => {
-              const f = e.target.files?.[0]; if (f) onImport(f); e.target.value = ''
+            <input ref={fileRef} type="file" accept=".json,application/json" style={{ display: 'none' }} onChange={e => {
+              const f = e.target.files?.[0]; if (f) void onImport(f); e.target.value = ''
             }} />
           </div>
         </div>
       </aside>
 
-      <main className="main">
-        <Suspense fallback={<div className="loading">Carregando...</div>}>
+      <main id="main-content" className="main" tabIndex={-1}>
+        <ErrorBoundary>
+        <Suspense fallback={<div className="loading" role="status">Carregando tela…</div>}>
           {tab === 'dashboard' && <Dashboard sales={sales} products={products} customers={customers} onNewSale={() => setTab('vendas')} />}
-          {tab === 'vendas' && <SalesView products={products} customers={customers} sales={sales} onSaleAdded={handleSaleAdded} pushToast={pushToast} />}
-          {tab === 'produtos' && <ProductsStockView products={products} setProducts={setProducts} pushToast={pushToast} />}
+          {tab === 'vendas' && <SalesView products={products} customers={customers} sales={sales} onSaleAdded={handleSaleAdded} onCustomersAdded={handleCustomersAdded} pushToast={pushToast} />}
+          {tab === 'produtos' && <ProductsStockView products={products} setProducts={setProducts} sales={sales} pushToast={pushToast} />}
           {tab === 'relatorios' && <ReportsView sales={sales} />}
           {tab === 'clientes' && <CustomersBillingView customers={customers} setCustomers={setCustomers} sales={sales} setSales={setSales} pushToast={pushToast} />}
           {tab === 'financeiro' && <FinanceiroView />}
           {tab === 'audit' && <AuditView />}
         </Suspense>
+        </ErrorBoundary>
       </main>
 
       {toasts.length > 0 && (
-        <div className="toast-container">
+        <div className="toast-container" aria-live="polite" aria-atomic="true">
           {toasts.map(t => (
-            <div key={t.id} className={`toast ${t.type === 'success' ? 'toast-success' : 'toast-error'}`}>
+            <div key={t.id} className={`toast ${t.type === 'success' ? 'toast-success' : 'toast-error'}`} role={t.type === 'error' ? 'alert' : 'status'}>
               {t.type === 'success' ? '✅' : '❌'} {t.msg}
             </div>
           ))}

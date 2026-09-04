@@ -1,18 +1,29 @@
 import { initializeApp, getApps, type FirebaseApp } from 'firebase/app'
-import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection, query, orderBy, limit, getDocs, addDoc, type Firestore } from 'firebase/firestore'
+import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection, query, orderBy, limit, getDocs, serverTimestamp, type Firestore } from 'firebase/firestore'
 import { getAuth, signInWithPopup, reauthenticateWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut, type Auth, type User } from 'firebase/auth'
-import { FIREBASE_CONFIG } from './firebase-config'
+import { FIREBASE_APP_CHECK_SITE_KEY, FIREBASE_CONFIG } from './firebase-config'
+import { validateStoreData, type StoreData } from './validation'
+import type { Customer, Product, Sale } from './types'
 
 let app: FirebaseApp | null = null
 let db: Firestore | null = null
 let auth: Auth | null = null
 let firebaseInitialized = false
+let appCheckInitialized = false
 
 /** Inicializa o Firebase (idempotente). Retorna true se ok, false se falhar. */
 export async function firebaseReady(): Promise<boolean> {
   if (firebaseInitialized) return !!db
   try {
     app = getApps().length ? getApps()[0] : initializeApp(FIREBASE_CONFIG)
+    if (FIREBASE_APP_CHECK_SITE_KEY && !appCheckInitialized) {
+      const { initializeAppCheck, ReCaptchaV3Provider } = await import('firebase/app-check')
+      initializeAppCheck(app, {
+        provider: new ReCaptchaV3Provider(FIREBASE_APP_CHECK_SITE_KEY),
+        isTokenAutoRefreshEnabled: true,
+      })
+      appCheckInitialized = true
+    }
     db = getFirestore(app)
     auth = getAuth(app)
     firebaseInitialized = true
@@ -39,6 +50,7 @@ export async function authLoginGoogle(): Promise<User | null> {
   if (!auth) return null
   try {
     const provider = new GoogleAuthProvider()
+    provider.setCustomParameters({ prompt: 'select_account' })
     const result = await signInWithPopup(auth, provider)
     return result.user
   } catch (e) {
@@ -80,54 +92,47 @@ export async function authLogout(): Promise<void> {
 }
 
 /** Puxa dados do Firestore (collection 'loja', doc 'dados'). */
-export async function syncPull(): Promise<{ products: unknown[]; sales: unknown[]; customers: unknown[]; pendencias: unknown[] } | null> {
+export async function syncPull(): Promise<StoreData | null> {
   const ready = await firebaseReady()
   if (!ready || !db) return null
   try {
     const snap = await getDoc(doc(db, 'loja', 'dados'))
     if (!snap.exists()) return null
-    const data = snap.data()
-    return {
-      products: data.products ?? [],
-      sales: data.sales ?? [],
-      customers: data.customers ?? [],
-      pendencias: data.pendencias ?? [],
-    }
+    return validateStoreData(snap.data())
   } catch {
     return null
   }
 }
 
 /** Empurra dados para o Firestore (collection 'loja', doc 'dados'). */
-export async function syncPush(products: unknown[], sales: unknown[], customers: unknown[], pendencias?: unknown[]): Promise<void> {
+export async function syncPush(products: Product[], sales: Sale[], customers: Customer[]): Promise<boolean> {
   const ready = await firebaseReady()
-  if (!ready || !db) return
+  if (!ready || !db || !auth?.currentUser) return false
   try {
     await setDoc(doc(db, 'loja', 'dados'), {
       products,
       sales,
       customers,
-      ...(pendencias ? { pendencias } : {}),
-      updatedAt: new Date().toISOString(),
-    })
+      schemaVersion: 2,
+      updatedAt: serverTimestamp(),
+      updatedBy: auth.currentUser.uid,
+      updatedByEmail: auth.currentUser.email || '',
+    }, { merge: true })
+    return true
   } catch {
-    /* ignore - localStorage é fallback */
+    return false
   }
 }
 
 /** Observa mudanças remotas no doc 'dados'. Retorna função de unsubscribe. */
-export function onRemoteChanges(cb: (data: { products: unknown[]; sales: unknown[]; customers: unknown[]; pendencias: unknown[] }) => void): () => void {
+export function onRemoteChanges(cb: (data: StoreData) => void, onError?: () => void): () => void {
   if (!db) return () => {}
   const unsub = onSnapshot(doc(db, 'loja', 'dados'), (snap) => {
     if (!snap.exists()) return
-    const data = snap.data()
-    cb({
-      products: data.products ?? [],
-      sales: data.sales ?? [],
-      customers: data.customers ?? [],
-      pendencias: data.pendencias ?? [],
-    })
-  })
+    const data = validateStoreData(snap.data())
+    if (data) cb(data)
+    else onError?.()
+  }, () => onError?.())
   return unsub
 }
 
@@ -151,7 +156,7 @@ export async function auditPushDB(entry: AuditEntryDB): Promise<void> {
   const ready = await firebaseReady()
   if (!ready || !db) return
   try {
-    await addDoc(collection(db, 'audit'), entry)
+    await setDoc(doc(db, 'audit', entry.id), entry)
   } catch (e) {
     console.error('[audit] falha ao gravar no Firestore', e)
   }

@@ -3,6 +3,10 @@ dist/
 *.log
 .DS_Store
 .vite/
+.env
+.env.local
+.env.*.local
+!.env.example
 
 # Render tests
 .render-out/

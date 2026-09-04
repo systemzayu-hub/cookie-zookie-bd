@@ -20,5 +20,10 @@ export const LOW_STOCK_THRESHOLD = 10
 
 export const uid = () => (typeof crypto !== 'undefined' && crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2, 10) + Date.now().toString(36))
 export const fmtBRL = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
+export const salePaidAmount = (sale: Sale) => {
+  if (sale.status === 'Pago') return sale.total
+  return Math.min(sale.total, Math.max(0, sale.paidAmount || 0))
+}
+export const saleOutstanding = (sale: Sale) => Math.max(0, sale.total - salePaidAmount(sale))
 export const fmtDate = (iso: string) =>
   new Date(iso).toLocaleDateString('pt-BR') + ' ' + new Date(iso).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })

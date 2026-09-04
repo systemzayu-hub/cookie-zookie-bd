@@ -1,9 +1,9 @@
 import { DollarSign, TrendingUp, ShoppingBag, Users, AlertTriangle, CheckCircle2, Plus, Wallet, Clock3, BarChart3, Package, Truck, Store, Award } from 'lucide-react'
-import { ResponsiveContainer, LineChart, Line, PieChart, Pie, Cell, XAxis, YAxis, Tooltip, CartesianGrid, Legend, BarChart, Bar } from 'recharts'
-import { Product, Sale, Customer, LOW_STOCK_THRESHOLD, fmtBRL, CHANNELS } from '../types'
+import { Product, Sale, Customer, LOW_STOCK_THRESHOLD, fmtBRL, CHANNELS, saleOutstanding, salePaidAmount } from '../types'
 import { CookieArt } from '../components/CookieArt'
 import { SensitiveData } from '../components/SensitiveData'
 import { MaskedMoney } from '../components/MaskedMoney'
+import { MetricBars } from '../components/MetricBars'
 
 export function StatusBadge({ status }: { status?: string }) {
   const map: Record<string, string> = {
@@ -26,7 +26,6 @@ function StatCard({ icon, color, label, value, sub }: { icon: React.ReactNode; c
 export function Dashboard({ sales, products, customers, onNewSale }: {
   sales: Sale[]; products: Product[]; customers: Customer[]; onNewSale: () => void
 }) {
-  const paid = sales.filter(s => s.status !== 'Debitado')
   const pending = sales.filter(s => s.status === 'Pendente')
   const lowStock = products.filter(p => p.stock > 0 && p.stock <= LOW_STOCK_THRESHOLD)
   const totalSold = sales.reduce((a, s) => a + s.items.reduce((x, i) => x + i.qty, 0), 0)
@@ -40,7 +39,7 @@ export function Dashboard({ sales, products, customers, onNewSale }: {
   const byChannel = CHANNELS.map(c => ({ name: c, vendas: sales.filter(s => s.channel === c).length })).filter(x => x.vendas > 0)
 
   // Vendas por dia (contagem) — últimos 7 dias
-  const last7: { dia: string; vendas: number; unidades: number }[] = []
+  const last7: { dia: string; vendas: number; unidades: number; total: number }[] = []
   for (let i = 6; i >= 0; i--) {
     const d = new Date(Date.now() - i * 86400000)
     const key = d.toDateString()
@@ -48,7 +47,8 @@ export function Dashboard({ sales, products, customers, onNewSale }: {
     last7.push({
       dia: d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
       vendas: daySales.length,
-      unidades: daySales.reduce((a, s) => a + s.items.reduce((x, i) => x + i.qty, 0), 0)
+      unidades: daySales.reduce((a, s) => a + s.items.reduce((x, i) => x + i.qty, 0), 0),
+      total: daySales.reduce((sum, sale) => sum + salePaidAmount(sale), 0),
     })
   }
 
@@ -97,34 +97,12 @@ export function Dashboard({ sales, products, customers, onNewSale }: {
       <div className="grid grid-2">
         <div className="card">
           <h3 className="card-title"><BarChart3 size={16} /> Vendas por dia (últimos 7)</h3>
-          <ResponsiveContainer width="100%" height={260}>
-            <BarChart data={last7}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
-              <XAxis dataKey="dia" stroke="var(--chart-axis)" fontSize={12} />
-              <YAxis stroke="var(--chart-axis)" fontSize={12} allowDecimals={false} />
-              <Tooltip formatter={(v: number, name: string) => [v, name === 'vendas' ? 'Vendas' : 'Unidades']} contentStyle={{ background: 'var(--chart-tooltip-bg)', border: '1px solid var(--chart-tooltip-border)', borderRadius: 12 }} />
-              <Legend wrapperStyle={{ color: 'var(--tx-1)' }} />
-              <Bar dataKey="vendas" name="Vendas" fill="var(--chart-1)" radius={[4, 4, 0, 0]} />
-              <Bar dataKey="unidades" name="Unidades" fill="var(--chart-2)" radius={[4, 4, 0, 0]} />
-            </BarChart>
-          </ResponsiveContainer>
+          <MetricBars items={last7.map(day => ({ label: day.dia, value: day.vendas, secondary: day.unidades }))} secondaryLabel="Unidades" />
         </div>
 
         <div className="card">
           <h3 className="card-title"><Store size={16} /> Vendas por canal</h3>
-          {byChannel.length === 0 ? <p style={{ color: 'var(--tx-3)' }}>Sem dados.</p> : (
-            <ResponsiveContainer width="100%" height={260}>
-              <PieChart>
-                <Pie data={byChannel} dataKey="vendas" nameKey="name" innerRadius={50} outerRadius={90} paddingAngle={3}>
-                  {byChannel.map((_, i) => (
-                    <Cell key={i} fill={`var(--chart-${i + 1})`} />
-                  ))}
-                </Pie>
-                <Tooltip contentStyle={{ background: 'var(--chart-tooltip-bg)', border: '1px solid var(--chart-tooltip-border)', borderRadius: 12 }} />
-                <Legend wrapperStyle={{ color: 'var(--tx-1)' }} />
-              </PieChart>
-            </ResponsiveContainer>
-          )}
+          <MetricBars items={byChannel.map(item => ({ label: item.name, value: item.vendas }))} />
         </div>
       </div>
 
@@ -169,20 +147,12 @@ export function Dashboard({ sales, products, customers, onNewSale }: {
       <SensitiveData label="Dados financeiros" level="audit">
               <div className="grid grid-stats" style={{ marginTop: 'var(--sp-6)', marginBottom: 'var(--sp-4)' }}>
                 <StatCard icon={<DollarSign size={20} />} color="linear-gradient(135deg,#22C55E,#16A34A)" label="Faturamento total" value={<MaskedMoney value={sales.reduce((a, s) => a + s.total, 0)} />} sub={`${sales.length} vendas`} />
-                <StatCard icon={<Wallet size={20} />} color="linear-gradient(135deg,#3B82F6,#2563EB)" label="Pago" value={<MaskedMoney value={sales.filter(s => s.status === 'Pago').reduce((a, s) => a + s.total, 0)} />} sub={`${paidCount} pagas`} />
-                <StatCard icon={<Clock3 size={20} />} color="linear-gradient(135deg,#F59E0B,#D97706)" label="Pendente" value={<MaskedMoney value={pending.reduce((a, s) => a + s.total, 0)} />} sub={`${pending.length} a receber`} />
+                <StatCard icon={<Wallet size={20} />} color="linear-gradient(135deg,#3B82F6,#2563EB)" label="Recebido" value={<MaskedMoney value={sales.reduce((a, s) => a + salePaidAmount(s), 0)} />} sub={`${paidCount} quitadas`} />
+                <StatCard icon={<Clock3 size={20} />} color="linear-gradient(135deg,#F59E0B,#D97706)" label="Pendente" value={<MaskedMoney value={pending.reduce((a, s) => a + saleOutstanding(s), 0)} />} sub={`${pending.length} a receber`} />
               </div>
         <div className="card" style={{ marginBottom: 'var(--sp-6)' }}>
           <h3 className="card-title"><TrendingUp size={16} /> Faturamento (últimos 7 dias)</h3>
-          <ResponsiveContainer width="100%" height={240}>
-            <LineChart data={last7}>
-              <CartesianGrid strokeDasharray="3 3" stroke="var(--chart-grid)" />
-              <XAxis dataKey="dia" stroke="var(--chart-axis)" fontSize={12} />
-              <YAxis stroke="var(--chart-axis)" fontSize={12} />
-              <Tooltip formatter={(v: number) => [fmtBRL(v), 'Total']} contentStyle={{ background: 'var(--chart-tooltip-bg)', border: '1px solid var(--chart-tooltip-border)', borderRadius: 12 }} />
-              <Line type="monotone" dataKey="total" stroke="var(--chart-1)" strokeWidth={2.5} dot={{ r: 3, fill: 'var(--chart-1)' }} />
-            </LineChart>
-          </ResponsiveContainer>
+          <MetricBars items={last7.map(day => ({ label: day.dia, value: day.total }))} format={fmtBRL} />
         </div>
       </SensitiveData>
 

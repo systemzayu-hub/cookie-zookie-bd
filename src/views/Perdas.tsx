@@ -1,11 +1,12 @@
 import { useState, useEffect, useMemo } from 'react'
-import { Plus, Trash2, AlertTriangle, Package, Lock, Check } from 'lucide-react'
+import { Plus, Trash2, AlertTriangle, Package, X } from 'lucide-react'
 import { SEED_PERDAS, CUSTOS_PRODUCAO } from '../pendencias-avancado'
 import { load, save } from '../data'
 import { usePasswordGuard } from '../components/PasswordGate'
 import { logAction } from '../audit'
 import { MaskedMoney } from '../components/MaskedMoney'
 import { MaskedPII } from '../components/MaskedPII'
+import { uid } from '../types'
 
 // Modal de confirmação dupla para exclusão (reutilizável local)
 function ConfirmDeleteModal({ isOpen, onClose, onConfirm, title, message, itemName }: {
@@ -17,7 +18,7 @@ function ConfirmDeleteModal({ isOpen, onClose, onConfirm, title, message, itemNa
   if (!isOpen) return null
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal modal-sm" onClick={e => e.stopPropagation()}>
+      <div className="modal modal-sm" role="dialog" aria-modal="true" aria-label={title} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3>{title}</h3>
         </div>
@@ -75,7 +76,7 @@ export function PerdasView() {
     const custoUnit = Number(form.custoUnit)
     if (!date || !produto || isNaN(qtd) || qtd <= 0 || !motivo || isNaN(custoUnit) || custoUnit < 0) return
     const nova: Perda = {
-      id: Math.random().toString(36).slice(2) + Date.now().toString(36),
+      id: uid(),
       date,
       produto,
       qtd,
@@ -83,10 +84,12 @@ export function PerdasView() {
       custoUnit,
       custoTotal: qtd * custoUnit,
     }
-    setPerdas(prev => [nova, ...prev])
-    setForm({ date: '', produto: '', qtd: '', motivo: '', custoUnit: '' })
-    setShowForm(false)
-    logAction('perda', `Registrou perda de ${qtd} un de "${produto}" (${fmtBRL_audit(Number(qtd) * Number(custoUnit))}) — ${motivo}`)
+    guard('Registrar perda', () => {
+      setPerdas(prev => [nova, ...prev])
+      setForm({ date: '', produto: '', qtd: '', motivo: '', custoUnit: '' })
+      setShowForm(false)
+      logAction('perda', `Registrou perda de ${qtd} un de "${produto}" (${fmtBRL_audit(Number(qtd) * Number(custoUnit))}) — ${motivo}`)
+    })
   }
 
   // Ao escolher um produto conhecido, preenche o custo unitário automaticamente
@@ -173,7 +176,7 @@ export function PerdasView() {
                     <td className="text-right"><MaskedMoney value={p.custoUnit} /></td>
                     <td className="text-right" style={{ fontWeight: 700, color: 'var(--danger-600)' }}><MaskedMoney value={p.custoTotal} /></td>
                     <td className="text-right">
-                      <button className="btn btn-danger btn-sm" onClick={() => removePerda(p.id)} title="Excluir">
+                      <button className="btn btn-danger btn-sm" aria-label={`Excluir perda de ${p.produto}`} onClick={() => removePerda(p.id)} title="Excluir">
                         <Trash2 size={14} />
                       </button>
                     </td>
@@ -187,10 +190,10 @@ export function PerdasView() {
 
       {showForm && (
         <div className="modal-backdrop" onClick={() => setShowForm(false)}>
-          <div className="modal" onClick={e => e.stopPropagation()}>
+          <div className="modal" role="dialog" aria-modal="true" aria-label="Registrar perda" onClick={e => e.stopPropagation()}>
             <div className="modal-header">
               <h3>Registrar Perda</h3>
-              <button className="modal-close" onClick={() => setShowForm(false)}><Trash2 size={20} /></button>
+              <button className="modal-close" aria-label="Fechar" onClick={() => setShowForm(false)}><X size={20} /></button>
             </div>
             <div className="form">
               <div className="field">

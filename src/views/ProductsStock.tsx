@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { Package, Boxes } from 'lucide-react'
-import { Product } from '../types'
+import { Product, Sale } from '../types'
 import { ProductsView } from './Products'
 import { StockView } from './Stock'
 
-export function ProductsStockView({ products, setProducts, pushToast }: {
-  products: Product[]; setProducts: React.Dispatch<React.SetStateAction<Product[]>>; pushToast: (m: string, t?: 'success' | 'error') => void
+export function ProductsStockView({ products, setProducts, sales, pushToast }: {
+  products: Product[]; setProducts: React.Dispatch<React.SetStateAction<Product[]>>; sales: Sale[]; pushToast: (m: string, t?: 'success' | 'error') => void
 }) {
   const [section, setSection] = useState<'catalogo' | 'estoque'>('catalogo')
 
@@ -20,7 +20,7 @@ export function ProductsStockView({ products, setProducts, pushToast }: {
         </button>
       </div>
       {section === 'catalogo' ? (
-        <ProductsView products={products} setProducts={setProducts} pushToast={pushToast} />
+        <ProductsView products={products} setProducts={setProducts} sales={sales} pushToast={pushToast} />
       ) : (
         <StockView products={products} setProducts={setProducts} pushToast={pushToast} />
       )}

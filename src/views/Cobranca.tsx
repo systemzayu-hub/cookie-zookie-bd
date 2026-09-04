@@ -1,13 +1,11 @@
-import { useState, useMemo, useEffect } from 'react'
-import { MessageSquare, CheckCircle2, Phone, Copy, ChevronDown, ChevronUp, DollarSign, Users, AlertCircle, CreditCard, ShoppingBag, Calendar, Clock, Minus, X, Check, ChevronRight } from 'lucide-react'
-import { Sale, Customer, SaleItemFull } from '../types'
-import { fmtBRL } from '../types'
-import { authCurrentUser, syncPull, syncPush } from '../sync'
-import { load } from '../data'
+import { useState, useMemo } from 'react'
+import { MessageSquare, CheckCircle2, Copy, ChevronDown, ChevronUp, DollarSign, Users, AlertCircle, Calendar, Minus, Check, ChevronRight } from 'lucide-react'
+import { Sale, Customer, fmtBRL, saleOutstanding } from '../types'
 import { CookieArt } from '../components/CookieArt'
 import { usePasswordGuard } from '../components/PasswordGate'
 import { MaskedMoney } from '../components/MaskedMoney'
 import { MaskedPII } from '../components/MaskedPII'
+import { logAction } from '../audit'
 
 interface CobrancaViewProps {
   sales: Sale[]
@@ -27,7 +25,7 @@ type CustomerGroup = {
 export function CobrancaView({ sales, setSales, customers, pushToast }: CobrancaViewProps) {
   const { guard } = usePasswordGuard()
   const [sortBy, setSortBy] = useState<'total' | 'nome' | 'qtd' | 'data'>('data')
-  const [sortDesc, setSortDesc] = useState(false)
+  const [sortDesc, setSortDesc] = useState(true)
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set())
   const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set())
   const [partialAmounts, setPartialAmounts] = useState<Record<string, string>>({})
@@ -51,8 +49,8 @@ export function CobrancaView({ sales, setSales, customers, pushToast }: Cobranca
       }
       const g = map.get(cid)!
       g.sales.push(sale)
-      g.totalPending += sale.total
-      g.totalQty += sale.items.reduce((a, i) => a + i.qty, 0)
+      g.totalPending += saleOutstanding(sale)
+      g.totalQty += sale.items.filter(i => !i.paid).reduce((a, i) => a + i.qty, 0)
     })
     return Array.from(map.values())
   }, [pendentes, customers])
@@ -73,12 +71,6 @@ export function CobrancaView({ sales, setSales, customers, pushToast }: Cobranca
     })
   }, [groups, sortBy, sortDesc])
 
-  useEffect(() => {
-    if (!authCurrentUser()) return
-    const products = load('cc_products', [])
-    syncPush(products, sales, customers, [])
-  }, [sales])
-
   // --- Actions ---
   const normalizeWhats = (raw: string): string => {
     let n = raw.normalize('NFKC').replace(/[^0-9]/g, '')
@@ -89,19 +81,25 @@ export function CobrancaView({ sales, setSales, customers, pushToast }: Cobranca
   const buildMessage = (g: CustomerGroup) => {
     const name = g.customer?.name || 'cliente'
     const items = g.sales.flatMap(s => s.items.filter(i => !i.paid).map(i => `${i.qty}x ${i.name}`))
-    const totalUnpaid = g.sales.reduce((a, s) => a + s.items.filter(i => !i.paid).reduce((x, i) => x + i.unitPrice * i.qty, 0), 0)
+    const totalUnpaid = g.sales.reduce((a, s) => a + saleOutstanding(s), 0)
     return `Oi, ${name}! Passando aqui pra lembrar das pendências de cookies 🍪\n${items.join(', ')}\nTotal pendente: ${fmtBRL(totalUnpaid)}\nQuando puder acertar, me avisa 😊`
   }
 
   const openWhatsApp = (g: CustomerGroup) => {
     const telefone = normalizeWhats(g.customer?.contact || '')
     if (!telefone) { pushToast('Telefone não informado', 'error'); return }
-    window.open(`https://wa.me/${telefone}?text=${encodeURIComponent(buildMessage(g))}`, '_blank')
+    window.open(`https://wa.me/${telefone}?text=${encodeURIComponent(buildMessage(g))}`, '_blank', 'noopener,noreferrer')
+    logAction('cobranca', `Abriu cobrança por WhatsApp para ${g.customer?.name || 'cliente sem cadastro'}`)
   }
 
-  const copyMessage = (g: CustomerGroup) => {
-    navigator.clipboard.writeText(buildMessage(g))
-    pushToast('Mensagem copiada!')
+  const copyMessage = async (g: CustomerGroup) => {
+    try {
+      await navigator.clipboard.writeText(buildMessage(g))
+      pushToast('Mensagem copiada!')
+      logAction('cobranca', `Copiou cobrança para ${g.customer?.name || 'cliente sem cadastro'}`)
+    } catch {
+      pushToast('Não foi possível copiar. Selecione a mensagem manualmente.', 'error')
+    }
   }
 
   const toggleCard = (cid: string) => {
@@ -117,57 +115,51 @@ export function CobrancaView({ sales, setSales, customers, pushToast }: Cobranca
     guard('Marcar item como pago', () => {
       setSales(prev => prev.map(s => {
         if (s.id !== saleId) return s
+        const target = s.items[itemIdx]
+        if (!target) return s
         const items = s.items.map((item, i) => i === itemIdx ? { ...item, paid: !item.paid } : item)
-        const newTotal = items.reduce((a, i) => a + (i.paid ? 0 : i.unitPrice * i.qty), 0)
-        // If all paid, mark sale as Pago
-        if (items.every(i => i.paid)) {
-          return { ...s, items, total: 0, status: 'Pago' as const }
-        }
-        return { ...s, items, total: newTotal }
+        const delta = target.unitPrice * target.qty * (target.paid ? -1 : 1)
+        const paidAmount = Math.min(s.total, Math.max(0, (s.paidAmount || 0) + delta))
+        const allPaid = paidAmount >= s.total || items.every(i => i.paid)
+        return { ...s, items, paidAmount: allPaid ? s.total : paidAmount, status: allPaid ? 'Pago' as const : 'Pendente' as const }
       }))
+      logAction('cobranca', `Atualizou um item da venda ${saleId.slice(0, 8)}`)
       pushToast('Item atualizado!', 'success')
     })
   }
 
   // Partial payment
   const applyPartialPayment = (saleId: string) => {
-    const amount = parseFloat(partialAmounts[saleId] || '0')
+    const amount = Number((partialAmounts[saleId] || '0').replace(',', '.'))
     if (!amount || amount <= 0) { pushToast('Valor inválido', 'error'); return }
+    const sale = sales.find(s => s.id === saleId)
+    if (!sale || amount > saleOutstanding(sale) + 0.001) { pushToast('O valor supera o saldo pendente.', 'error'); return }
     guard('Aplicar pagamento parcial', () => {
       setSales(prev => prev.map(s => {
         if (s.id !== saleId) return s
-        let remaining = amount
-        const items = s.items.map(item => {
-          if (item.paid || remaining <= 0) return item
-          const itemTotal = item.unitPrice * item.qty
-          if (remaining >= itemTotal) {
-            remaining -= itemTotal
-            return { ...item, paid: true }
-          }
-          // Partial: reduce qty proportionally
-          const paidQty = Math.min(item.qty, Math.floor(remaining / item.unitPrice))
-          if (paidQty > 0) {
-            remaining -= paidQty * item.unitPrice
-            return { ...item, qty: item.qty - paidQty, paid: false }
-          }
-          return item
-        }).filter(i => i.qty > 0 || i.paid)
-        const newTotal = items.reduce((a, i) => a + (i.paid ? 0 : i.unitPrice * i.qty), 0)
-        const allPaid = items.every(i => i.paid)
-        setPartialAmounts(prev => ({ ...prev, [saleId]: '' }))
-        return { ...s, items, total: newTotal, status: allPaid ? 'Pago' as const : s.status }
+        const paidAmount = Math.min(s.total, (s.paidAmount || 0) + amount)
+        const allPaid = paidAmount >= s.total
+        return {
+          ...s,
+          paidAmount,
+          items: allPaid ? s.items.map(item => ({ ...item, paid: true })) : s.items,
+          status: allPaid ? 'Pago' as const : 'Pendente' as const,
+        }
       }))
+      setPartialAmounts(prev => ({ ...prev, [saleId]: '' }))
+      logAction('cobranca', `Registrou pagamento parcial de ${fmtBRL(amount)} na venda ${saleId.slice(0, 8)}`)
       pushToast(`${fmtBRL(amount)} descontado!`, 'success')
     })
   }
 
   // Mark all items of a sale as paid
-  const markAllPaid = (saleId: string) => {
+  const markAllPaid = (saleIds: string[]) => {
     guard('Marcar tudo como pago', () => {
       setSales(prev => prev.map(s =>
-        s.id === saleId ? { ...s, items: s.items.map(i => ({ ...i, paid: true })), total: 0, status: 'Pago' as const } : s
+        saleIds.includes(s.id) ? { ...s, items: s.items.map(i => ({ ...i, paid: true })), paidAmount: s.total, status: 'Pago' as const } : s
       ))
-      pushToast('Venda quitada!', 'success')
+      logAction('cobranca', `Quitou ${saleIds.length} venda(s)`)
+      pushToast(saleIds.length > 1 ? 'Pendências do cliente quitadas!' : 'Venda quitada!', 'success')
     })
   }
 
@@ -281,13 +273,13 @@ export function CobrancaView({ sales, setSales, customers, pushToast }: Cobranca
         {sortedGroups.map(g => {
           const cid = g.customerId
           const isExpanded = expandedCards.has(cid)
-          const unpaidTotal = g.sales.reduce((a, s) => a + s.items.filter(i => !i.paid).reduce((x, i) => x + i.unitPrice * i.qty, 0), 0)
+          const unpaidTotal = g.sales.reduce((a, s) => a + saleOutstanding(s), 0)
           const initials = (g.customer?.name || 'SC').split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
 
           return (
-            <div key={cid} className="card" style={{ overflow: 'hidden', transition: 'box-shadow 0.2s' }}>
+              <article key={cid} className="card billing-card">
               {/* Card header */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', cursor: 'pointer', padding: 'var(--sp-4)' }} onClick={() => toggleCard(cid)}>
+              <div className="billing-card-header" onClick={() => toggleCard(cid)} role="button" tabIndex={0} aria-expanded={isExpanded} onKeyDown={event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleCard(cid) } }}>
                 {/* Avatar */}
                 <div style={{
                   width: 48, height: 48, borderRadius: '50%',
@@ -329,14 +321,14 @@ export function CobrancaView({ sales, setSales, customers, pushToast }: Cobranca
               </div>
 
               {/* Ações rápidas (sempre visíveis) */}
-              <div style={{ display: 'flex', gap: 'var(--sp-2)', padding: '0 var(--sp-4) var(--sp-3)', borderTop: '1px solid var(--border)', paddingTop: 'var(--sp-3)' }}>
+              <div className="billing-quick-actions">
                 <button className="btn btn-primary btn-sm" onClick={(e) => { e.stopPropagation(); openWhatsApp(g) }} disabled={!g.customer?.contact} title="WhatsApp">
                   <MessageSquare size={14} /> WhatsApp
                 </button>
                 <button className="btn btn-secondary btn-sm" onClick={(e) => { e.stopPropagation(); copyMessage(g) }} title="Copiar mensagem">
                   <Copy size={14} /> Copiar
                 </button>
-                <button className="btn btn-success btn-sm" onClick={(e) => { e.stopPropagation(); markAllPaid(g.sales[0]?.id) }} title="Marcar tudo como pago">
+                <button className="btn btn-success btn-sm" onClick={(e) => { e.stopPropagation(); markAllPaid(g.sales.map(s => s.id)) }} title="Marcar todas as compras como pagas">
                   <CheckCircle2 size={14} /> Quitar tudo
                 </button>
               </div>
@@ -345,14 +337,16 @@ export function CobrancaView({ sales, setSales, customers, pushToast }: Cobranca
               {isExpanded && (
                 <div style={{ borderTop: '1px solid var(--border)', padding: 'var(--sp-4)' }}>
                   {/* Pagamento parcial */}
-                  <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', marginBottom: 'var(--sp-4)', flexWrap: 'wrap' }}>
+                  <div className="partial-payment-row">
                     <DollarSign size={16} color="var(--cz-500)" />
                     <span style={{ fontWeight: 600, fontSize: '0.9rem', color: 'var(--tx-2)' }}>Pagamento parcial:</span>
                     <input
-                      type="number"
+                      type="text"
+                      inputMode="decimal"
                       min="0"
                       step="0.01"
                       placeholder="Ex: 6,00"
+                      aria-label={`Valor parcial para ${g.customer?.name || 'cliente'}`}
                       value={partialAmounts[g.sales[0]?.id] || ''}
                       onChange={e => setPartialAmounts(prev => ({ ...prev, [g.sales[0]?.id]: e.target.value }))}
                       style={{
@@ -390,7 +384,7 @@ export function CobrancaView({ sales, setSales, customers, pushToast }: Cobranca
                                                     </span>
                                                     <span className="badge badge-neutral" style={{ fontSize: '0.7rem' }}>{sale.payment}</span>
                                                     <span style={{ flex: 1 }} />
-                                                    <span style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--cz-600)' }}><MaskedMoney value={sale.total} /></span>
+                                                    <span style={{ fontWeight: 700, fontSize: '0.9rem', color: 'var(--cz-600)' }}><MaskedMoney value={saleOutstanding(sale)} /></span>
                           <span style={{ fontSize: '0.78rem', color: 'var(--tx-3)' }}>
                             {saleUnpaid.length} pendente{saleUnpaid.length !== 1 ? 's' : ''}
                             {salePaid.length > 0 && ` • ${salePaid.length} pago${salePaid.length !== 1 ? 's' : ''}`}
@@ -456,9 +450,9 @@ export function CobrancaView({ sales, setSales, customers, pushToast }: Cobranca
                                 </div>
                               )
                             })}
-                            <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 'var(--sp-2)', borderTop: '1px solid var(--border)', marginTop: 'var(--sp-2)' }}>
-                              <span style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--tx-2)' }}>Total desta compra:</span>
-                              <span style={{ fontWeight: 700, color: 'var(--cz-600)' }}>{fmtBRL(sale.total)}</span>
+                             <div style={{ display: 'flex', justifyContent: 'space-between', paddingTop: 'var(--sp-2)', borderTop: '1px solid var(--border)', marginTop: 'var(--sp-2)' }}>
+                               <span style={{ fontWeight: 600, fontSize: '0.85rem', color: 'var(--tx-2)' }}>Saldo desta compra:</span>
+                               <span style={{ fontWeight: 700, color: 'var(--cz-600)' }}>{fmtBRL(saleOutstanding(sale))}</span>
                             </div>
                           </div>
                         )}
@@ -467,7 +461,7 @@ export function CobrancaView({ sales, setSales, customers, pushToast }: Cobranca
                   })}
                 </div>
               )}
-            </div>
+            </article>
           )
         })}
       </div>

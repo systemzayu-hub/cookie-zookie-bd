@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { Plus, Pencil, Trash2, X, Package, Check } from 'lucide-react'
-import { Product, CATEGORIES, CAT_LABEL, LOW_STOCK_THRESHOLD, fmtBRL } from '../types'
+import { Product, Sale, CATEGORIES, CAT_LABEL, LOW_STOCK_THRESHOLD, fmtBRL, uid } from '../types'
 import { CUSTOS_PRODUCAO } from '../pendencias-avancado'
 import { usePasswordGuard } from '../components/PasswordGate'
 import { logAction } from '../audit'
@@ -17,7 +17,7 @@ function ConfirmDeleteModal({ isOpen, onClose, onConfirm, title, message, itemNa
   if (!isOpen) return null
   return (
     <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal modal-sm" onClick={e => e.stopPropagation()}>
+      <div className="modal modal-sm" role="dialog" aria-modal="true" aria-label={title} onClick={e => e.stopPropagation()}>
         <div className="modal-header">
           <h3>{title}</h3>
         </div>
@@ -42,8 +42,8 @@ function ConfirmDeleteModal({ isOpen, onClose, onConfirm, title, message, itemNa
   )
 }
 
-export function ProductsView({ products, setProducts, pushToast }: {
-  products: Product[]; setProducts: React.Dispatch<React.SetStateAction<Product[]>>; pushToast: (m: string, t?: 'success' | 'error') => void
+export function ProductsView({ products, setProducts, sales, pushToast }: {
+  products: Product[]; setProducts: React.Dispatch<React.SetStateAction<Product[]>>; sales: Sale[]; pushToast: (m: string, t?: 'success' | 'error') => void
 }) {
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing] = useState<Product | null>(null)
@@ -69,6 +69,8 @@ export function ProductsView({ products, setProducts, pushToast }: {
     const price = Number(form.price)
     const stock = Number(form.stock)
     if (!name || isNaN(price) || price <= 0 || isNaN(stock) || stock < 0) { pushToast('Preencha todos os campos corretamente.', 'error'); return }
+    if (name.length > 100) { pushToast('O nome deve ter até 100 caracteres.', 'error'); return }
+    if (products.some(product => product.id !== editing?.id && product.name.toLocaleLowerCase('pt-BR') === name.toLocaleLowerCase('pt-BR'))) { pushToast('Já existe um produto com esse nome.', 'error'); return }
     const data = { name, price, category: form.category, stock, emoji: form.emoji || '🍪' }
     if (editing) {
       guard('Alterar produto', () => {
@@ -78,15 +80,21 @@ export function ProductsView({ products, setProducts, pushToast }: {
         pushToast('Produto atualizado!')
       })
     } else {
-      setProducts(ps => [{ id: Math.random().toString(36).slice(2) + Date.now().toString(36), ...data }, ...ps])
-      logAction('produto', `Cadastrou produto "${name}" (${fmtBRL(price)})`)
-      pushToast('Produto adicionado!')
+      guard('Cadastrar produto', () => {
+        setProducts(ps => [{ id: uid(), ...data }, ...ps])
+        logAction('produto', `Cadastrou produto "${name}" (${fmtBRL(price)})`)
+        pushToast('Produto adicionado!')
+        setShowModal(false)
+      })
     }
-    if (!editing) setShowModal(false)
   }
 
   const remove = (id: string) => {
       const p = products.find(x => x.id === id)
+      if (sales.some(sale => sale.items.some(item => item.productId === id))) {
+        pushToast('Este produto possui vendas no histórico e não pode ser excluído. Edite o estoque para zero.', 'error')
+        return
+      }
       if (p) setDeleteConfirm({ id: p.id, name: p.name })
     }
 
@@ -120,7 +128,7 @@ export function ProductsView({ products, setProducts, pushToast }: {
               <span className={`badge p-cat ${p.stock <= LOW_STOCK_THRESHOLD ? 'badge-warning' : 'badge-brand'}`}>Estoque: {p.stock}</span>
               <div className="p-actions">
                 <button className="btn btn-secondary btn-sm" onClick={() => openEdit(p)}><Pencil size={14} /> Editar</button>
-                <button className="btn btn-danger btn-sm" onClick={() => remove(p.id)}><Trash2 size={14} /></button>
+                <button className="btn btn-danger btn-sm" aria-label={`Excluir ${p.name}`} onClick={() => remove(p.id)}><Trash2 size={14} /></button>
               </div>
             </div>
           ))}
@@ -129,13 +137,13 @@ export function ProductsView({ products, setProducts, pushToast }: {
 
       {showModal && (
               <div className="modal-backdrop" onClick={() => setShowModal(false)}>
-                <div className="modal" onClick={e => e.stopPropagation()}>
+                <div className="modal" role="dialog" aria-modal="true" aria-label={editing ? 'Editar produto' : 'Novo produto'} onClick={e => e.stopPropagation()}>
                   <div className="modal-header">
                     <h3>{editing ? 'Editar Produto' : 'Novo Produto'}</h3>
-                    <button className="modal-close" onClick={() => setShowModal(false)}><X size={20} /></button>
+                    <button className="modal-close" aria-label="Fechar" onClick={() => setShowModal(false)}><X size={20} /></button>
                   </div>
                   <div className="form">
-                    <div className="field"><label>Nome do cookie</label><input value={form.name} onChange={e => changeName(e.target.value)} placeholder="ex: Chocolate, Aveia, Red Velvet" /></div>
+                    <div className="field"><label>Nome do cookie</label><input value={form.name} maxLength={100} onChange={e => changeName(e.target.value)} placeholder="ex: Chocolate, Aveia, Red Velvet" /></div>
                     <div className="form-grid">
                       <div className="field"><label>Preço (R$)</label><input type="number" min={0} step="0.01" className="num-input" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} /></div>
                       <div className="field"><label>Estoque inicial</label><input type="number" min={0} className="num-input" value={form.stock} onChange={e => setForm(f => ({ ...f, stock: e.target.value }))} /></div>

@@ -106,6 +106,7 @@ export function CustomersView({ customers, setCustomers, sales, pushToast }: {
 
   const spendOf = (id: string) => sales.filter(s => s.customerId === id).reduce((a, s) => a + s.total, 0)
   const countOf = (id: string) => sales.filter(s => s.customerId === id).length
+  const cookiesOf = (id: string) => sales.filter(s => s.customerId === id).reduce((total, sale) => total + sale.items.reduce((qty, item) => qty + item.qty, 0), 0)
 
   const clientStatus = useMemo(() => {
     const map = new Map<string, 'Pago' | 'Pendente' | 'Debitado' | 'Sem vendas'>()
@@ -128,7 +129,7 @@ export function CustomersView({ customers, setCustomers, sales, pushToast }: {
   const noSalesCount = customers.filter(c => clientStatus.get(c.id) === 'Sem vendas').length
 
   const top = [...customers].map(c => ({
-    ...c, spent: spendOf(c.id), purchases: countOf(c.id)
+    ...c, spent: spendOf(c.id), purchases: countOf(c.id), cookies: cookiesOf(c.id)
   })).sort((a, b) => b.spent - a.spent).slice(0, 5)
 
   return (
@@ -147,7 +148,7 @@ export function CustomersView({ customers, setCustomers, sales, pushToast }: {
                               <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap', minWidth: 0 }}>
                                 <span style={{ fontWeight: 700, color: 'var(--cz-600)', width: 20, flexShrink: 0 }}>{i + 1}º</span>
                                 <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{c.name}</span>
-                                <span className="badge badge-neutral" style={{ whiteSpace: 'nowrap' }}>{c.purchases} compras</span>
+                                <span className="badge badge-neutral" style={{ whiteSpace: 'nowrap' }}>{c.purchases} compras / {c.cookies} cookies</span>
                                 <strong style={{ whiteSpace: 'nowrap' }}><MaskedMoney value={c.spent} /></strong>
                               </div>
                             ))}
@@ -196,14 +197,14 @@ export function CustomersView({ customers, setCustomers, sales, pushToast }: {
         ) : (
           <div className="table-wrap customers-table-wrap">
             <table className="table customers-table">
-              <thead><tr><th>Nome</th><th>Contato</th><th>Cadastro</th><th>Compras</th><th className="text-right">Total gasto</th><th className="text-right">Ações</th></tr></thead>
+              <thead><tr><th>Nome</th><th>Contato</th><th>Cadastro</th><th>Compras / Cookies</th><th className="text-right">Total gasto</th><th className="text-right">Ações</th></tr></thead>
               <tbody>
                 {customers.map(c => (
                   <tr key={c.id}>
                     <td data-label="Cliente" style={{ fontWeight: 600 }}>{c.name}</td>
                     <td data-label="Telefone" className="customer-phone"><MaskedPII value={c.contact || ''} type="phone" /></td>
                     <td data-label="Cadastro">{c.createdAt}</td>
-                    <td data-label="Compras"><span className="badge badge-brand">{countOf(c.id)}</span></td>
+                    <td data-label="Compras / Cookies"><span className="badge badge-brand">{countOf(c.id)} / {cookiesOf(c.id)}</span></td>
                     <td data-label="Total gasto" className="text-right" style={{ fontWeight: 700 }}><MaskedMoney value={spendOf(c.id)} /></td>
                     <td data-label="Ações" className="text-right customer-actions">
                       <button className="btn btn-secondary btn-sm" aria-label={`Editar ${c.name}`} onClick={() => openEdit(c)}><Pencil size={14} /></button>

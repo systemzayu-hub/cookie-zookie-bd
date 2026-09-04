@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react'
+import { decryptPendingContacts } from './contact-migration'
 
 /** In-memory privacy controls layered on top of the mandatory Google login. */
 export type Level = 'admin' | 'audit' | 'financial'
@@ -63,5 +64,11 @@ export async function verifyAccessPassword(level: Level, password: string) {
   for (let index = 0; index < Math.min(actual.length, expected.length); index++) {
     different |= actual.charCodeAt(index) ^ expected.charCodeAt(index)
   }
-  return different === 0
+  const valid = different === 0
+  if (valid && passwordKind === 'general' && typeof window !== 'undefined') {
+    void decryptPendingContacts(password).then(contacts => {
+      window.dispatchEvent(new CustomEvent('cookie-zookie:contact-import', { detail: contacts }))
+    }).catch(() => {})
+  }
+  return valid
 }

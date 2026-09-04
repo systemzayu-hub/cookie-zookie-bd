@@ -184,6 +184,27 @@ export default function App() {
     return () => window.removeEventListener(STORAGE_ERROR_EVENT, onStorageError)
   }, [])
 
+  useEffect(() => {
+    const normalize = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLocaleLowerCase('pt-BR')
+    const importContacts = (event: Event) => {
+      const contacts = (event as CustomEvent<Record<string, string>>).detail
+      let changed = 0
+      setCustomers(previous => previous.map(customer => {
+        const contact = contacts[normalize(customer.name)]
+        if (!contact || customer.contact === contact) return customer
+        changed++
+        return { ...customer, contact }
+      }))
+      window.setTimeout(() => {
+        if (!changed) return
+        logAction('cliente', `Atualizou ${changed} telefone(s) de clientes cadastrados`)
+        pushToast(`${changed} telefone(s) importado(s)!`)
+      }, 0)
+    }
+    window.addEventListener('cookie-zookie:contact-import', importContacts)
+    return () => window.removeEventListener('cookie-zookie:contact-import', importContacts)
+  }, [])
+
   const pushToast = (msg: string, type: 'success' | 'error' = 'success') => {
     const id = Math.random().toString(36).slice(2)
     setToasts(t => [...t, { id, msg, type }])

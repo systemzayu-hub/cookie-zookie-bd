@@ -1,5 +1,5 @@
 import { initializeApp, getApps, type FirebaseApp } from 'firebase/app'
-import { getFirestore, doc, getDoc, setDoc, onSnapshot, collection, query, orderBy, limit, getDocs, serverTimestamp, type Firestore } from 'firebase/firestore'
+import { getFirestore, doc, getDoc, setDoc, runTransaction, onSnapshot, collection, query, orderBy, limit, getDocs, serverTimestamp, type Firestore } from 'firebase/firestore'
 import { getAuth, signInWithPopup, reauthenticateWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut, type Auth, type User } from 'firebase/auth'
 import { FIREBASE_APP_CHECK_SITE_KEY, FIREBASE_CONFIG } from './firebase-config'
 import { validateStoreData, type StoreData } from './validation'
@@ -122,6 +122,37 @@ export async function syncPush(products: Product[], sales: Sale[], customers: Cu
   } catch {
     return false
   }
+}
+
+/** Read the latest customers and update only contacts, with conflict retries. */
+export async function importCustomerContacts(contacts: Record<string, string>) {
+  await firebaseReady()
+  const user = auth?.currentUser
+  if (!db || !user) throw new Error('Entre com Google para importar os contatos.')
+  const reference = doc(db, 'loja', 'dados')
+  return runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(reference)
+    const data = snapshot.exists() ? validateStoreData(snapshot.data()) : null
+    if (!data) throw new Error('Não foi possível ler os clientes cadastrados.')
+    const normalize = (name: string) => name.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[°º]/g, '').replace(/\s+/g, ' ').trim().toLocaleLowerCase('pt-BR')
+    const remaining = Object.keys(contacts)
+    let updated = 0
+    const customers = data.customers.map(customer => {
+      const key = remaining.find(name => normalize(name) === normalize(customer.name))
+      if (!key) return customer
+      // Ambiguous names must be reviewed rather than assigned a phone silently.
+      if (data.customers.filter(item => normalize(item.name) === normalize(key)).length !== 1) return customer
+      remaining.splice(remaining.indexOf(key), 1)
+      if (customer.contact === contacts[key]) return customer
+      updated++
+      return { ...customer, contact: contacts[key] }
+    })
+    if (updated) transaction.update(reference, {
+      customers, schemaVersion: 2, updatedAt: serverTimestamp(),
+      updatedBy: user.uid, updatedByEmail: user.email || '',
+    })
+    return { updated, missing: remaining, customers }
+  })
 }
 
 /** Observa mudanças remotas no doc 'dados'. Retorna função de unsubscribe. */

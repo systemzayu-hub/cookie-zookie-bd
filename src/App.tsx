@@ -3,7 +3,7 @@ import { LayoutDashboard, ShoppingCart, Package, BarChart3, Users, Sun, Moon, Do
 import { Product, Sale, Customer, Tab, Pendencia, fmtBRL } from './types'
 import { seedProducts, seedCustomers, seedSales, load, save, STORAGE_ERROR_EVENT } from './data'
 import { baixarBackup, aplicarBackup } from './db'
-import { authLoginGoogle, authLogout, authOnChange, authReauthenticateGoogle, firebaseReady, onRemoteChanges, syncPull, syncPush } from './sync'
+import { authLoginGoogle, authLogout, authOnChange, authReauthenticateGoogle, firebaseReady, onRemoteChanges, syncPull, syncPush, importCustomerContacts } from './sync'
 import { PasswordProvider } from './components/PasswordGate'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { setAuditActor, logAction } from './audit'
@@ -18,12 +18,6 @@ const ReportsView = lazy(() => import('./views/Reports').then(m => ({ default: m
 const CustomersBillingView = lazy(() => import('./views/CustomersBilling').then(m => ({ default: m.CustomersBillingView })))
 const FinanceiroView = lazy(() => import('./views/Financeiro').then(m => ({ default: m.FinanceiroView })))
 const AuditView = lazy(() => import('./views/Audit').then(m => ({ default: m.AuditView })))
-
-const normalizeCustomerName = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().toLocaleLowerCase('pt-BR')
-const mergeImportedContacts = (list: Customer[], contacts: Record<string, string>) => list.map(customer => {
-  const contact = contacts[normalizeCustomerName(customer.name)]
-  return contact ? { ...customer, contact } : customer
-})
 
 export default function App() {
   const tabs: Tab[] = ['dashboard', 'vendas', 'produtos', 'relatorios', 'clientes', 'financeiro', 'audit']
@@ -47,7 +41,7 @@ export default function App() {
   const sidebarRef = useRef<HTMLElement>(null)
   const remoteHydrated = useRef(false)
   const skipNextPush = useRef(false)
-  const pendingContactImport = useRef<Record<string, string> | null>(null)
+  const importingContacts = useRef(false)
 
   useEffect(() => {
     let active = true
@@ -93,20 +87,20 @@ export default function App() {
       const remote = await syncPull()
       if (!active) return
       if (remote) {
-        skipNextPush.current = !pendingContactImport.current
+        skipNextPush.current = true
         setProducts(remote.products)
         setSales(remote.sales)
-        setCustomers(pendingContactImport.current ? mergeImportedContacts(remote.customers, pendingContactImport.current) : remote.customers)
+        setCustomers(remote.customers)
       }
       if (!active) return
       remoteHydrated.current = true
       setSyncState(remote ? 'synced' : 'offline')
       unsubscribeRemote = onRemoteChanges(data => {
         if (!active) return
-        skipNextPush.current = !pendingContactImport.current
+        skipNextPush.current = true
         setProducts(data.products)
         setSales(data.sales)
-        setCustomers(pendingContactImport.current ? mergeImportedContacts(data.customers, pendingContactImport.current) : data.customers)
+        setCustomers(data.customers)
         setSyncState('synced')
       }, () => setSyncState(navigator.onLine ? 'error' : 'offline'))
     })()
@@ -181,7 +175,6 @@ export default function App() {
     setSyncState('syncing')
     const timer = window.setTimeout(() => {
       void syncPush(products, sales, customers).then(ok => {
-        if (ok) pendingContactImport.current = null
         setSyncState(ok ? 'synced' : (navigator.onLine ? 'error' : 'offline'))
       })
     }, 650)
@@ -196,20 +189,19 @@ export default function App() {
 
   useEffect(() => {
     const importContacts = (event: Event) => {
+      if (importingContacts.current || load('cc_contacts_import_v2_done', false)) return
       const contacts = (event as CustomEvent<Record<string, string>>).detail
-      pendingContactImport.current = contacts
-      let changed = 0
-      setCustomers(previous => previous.map(customer => {
-        const contact = contacts[normalizeCustomerName(customer.name)]
-        if (!contact || customer.contact === contact) return customer
-        changed++
-        return { ...customer, contact }
-      }))
-      window.setTimeout(() => {
-        if (!changed) return
-        logAction('cliente', `Atualizou ${changed} telefone(s) de clientes cadastrados`)
-        pushToast(`${changed} telefone(s) importado(s)!`)
-      }, 0)
+      importingContacts.current = true
+      void importCustomerContacts(contacts).then(result => {
+        if (!result.missing.length) save('cc_contacts_import_v2_done', true)
+        if (result.updated) {
+          logAction('cliente', `Atualizou ${result.updated} telefone(s) de clientes cadastrados`)
+          pushToast(`${result.updated} WhatsApp(s) salvo(s) no banco.`)
+        }
+        if (result.missing.length) pushToast(`Confira os nomes cadastrados: ${result.missing.join(', ')}.`, 'error')
+      }).catch(() => {
+        pushToast('WhatsApps não foram salvos. Confira a conexão e desbloqueie novamente para tentar.', 'error')
+      }).finally(() => { importingContacts.current = false })
     }
     window.addEventListener('cookie-zookie:contact-import', importContacts)
     return () => window.removeEventListener('cookie-zookie:contact-import', importContacts)

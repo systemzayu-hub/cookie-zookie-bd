@@ -112,6 +112,7 @@ export function CobrancaView({ sales, setSales, customers, pushToast }: Cobranca
 
   // Toggle individual item paid status
   const toggleItemPaid = (saleId: string, itemIdx: number) => {
+    const before = sales.find(s => s.id === saleId)
     guard('Marcar item como pago', () => {
       setSales(prev => prev.map(s => {
         if (s.id !== saleId) return s
@@ -123,7 +124,7 @@ export function CobrancaView({ sales, setSales, customers, pushToast }: Cobranca
         const allPaid = paidAmount >= s.total || items.every(i => i.paid)
         return { ...s, items, paidAmount: allPaid ? s.total : paidAmount, status: allPaid ? 'Pago' as const : 'Pendente' as const }
       }))
-      logAction('cobranca', `Atualizou um item da venda ${saleId.slice(0, 8)}`)
+      logAction('cobranca', `Atualizou um item da venda ${saleId.slice(0, 8)}`, before ? () => setSales(prev => prev.map(s => s.id === before.id ? before : s)) : undefined)
       pushToast('Item atualizado!', 'success')
     })
   }
@@ -147,18 +148,19 @@ export function CobrancaView({ sales, setSales, customers, pushToast }: Cobranca
         }
       }))
       setPartialAmounts(prev => ({ ...prev, [saleId]: '' }))
-      logAction('cobranca', `Registrou pagamento parcial de ${fmtBRL(amount)} na venda ${saleId.slice(0, 8)}`)
+      logAction('cobranca', `Registrou pagamento parcial de ${fmtBRL(amount)} na venda ${saleId.slice(0, 8)}`, () => setSales(prev => prev.map(s => s.id === sale.id ? sale : s)))
       pushToast(`${fmtBRL(amount)} descontado!`, 'success')
     })
   }
 
   // Mark all items of a sale as paid
   const markAllPaid = (saleIds: string[]) => {
+    const before = sales.filter(s => saleIds.includes(s.id))
     guard('Marcar tudo como pago', () => {
       setSales(prev => prev.map(s =>
         saleIds.includes(s.id) ? { ...s, items: s.items.map(i => ({ ...i, paid: true })), paidAmount: s.total, status: 'Pago' as const } : s
       ))
-      logAction('cobranca', `Quitou ${saleIds.length} venda(s)`)
+      logAction('cobranca', `Quitou ${saleIds.length} venda(s)`, () => setSales(prev => prev.map(s => before.find(old => old.id === s.id) || s)))
       pushToast(saleIds.length > 1 ? 'Pendências do cliente quitadas!' : 'Venda quitada!', 'success')
     })
   }

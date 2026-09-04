@@ -1,5 +1,6 @@
 import { createContext, useContext, useState, useRef, useEffect, type ReactNode } from 'react'
 import { Eye, EyeOff } from 'lucide-react'
+import { useAuth } from '../auth'
 
 export interface MaskedMoneyProps {
   value: number
@@ -15,6 +16,7 @@ export function MoneyVisibilityProvider({ children }: { children: ReactNode }) {
 
 export function MaskedMoney({ value, className = '' }: MaskedMoneyProps) {
   const inheritedVisibility = useContext(MoneyVisibility)
+  const generalAccess = useAuth('financial')
   const [revealed, setRevealed] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -26,7 +28,7 @@ export function MaskedMoney({ value, className = '' }: MaskedMoneyProps) {
 
   useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
 
-  if (inheritedVisibility) {
+  if (inheritedVisibility || generalAccess) {
     return <span className={`font-mono tabular-nums ${className}`}>{fmt.format(value)}</span>
   }
 

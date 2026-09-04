@@ -26,7 +26,7 @@ export function PasswordProvider({ children }: { children: ReactNode }) {
     setError('')
     try {
       if (!await verifyAccessPassword('admin', password)) {
-        setError('Senha administrativa incorreta.')
+        setError('Senha de acesso incorreta.')
         return
       }
       grant('admin')
@@ -36,7 +36,7 @@ export function PasswordProvider({ children }: { children: ReactNode }) {
       setPassword('')
       action()
     } catch {
-      setError('Não foi possível validar a senha administrativa.')
+      setError('Não foi possível validar a senha de acesso.')
     } finally {
       setBusy(false)
     }
@@ -51,10 +51,10 @@ export function PasswordProvider({ children }: { children: ReactNode }) {
             <ShieldCheck size={34} aria-hidden="true" style={{ color: 'var(--cz-500)' }} />
             <h3 id="confirm-title" style={{ margin: '8px 0 4px' }}>Confirmar alteração</h3>
             <p className="pw-action">{pending.label}</p>
-            <p style={{ color: 'var(--tx-2)', fontSize: '0.88rem', margin: 0 }}>Digite a senha administrativa para continuar.</p>
+            <p style={{ color: 'var(--tx-2)', fontSize: '0.88rem', margin: 0 }}>Digite a senha geral para continuar. Ela valerá no site inteiro até o F5.</p>
             <form onSubmit={event => { event.preventDefault(); void confirm() }}>
-              <label className="sr-only" htmlFor="admin-password">Senha administrativa</label>
-              <input id="admin-password" className="pw-input" type="password" value={password} maxLength={128} autoComplete="current-password" autoFocus placeholder="Senha administrativa" onChange={event => setPassword(event.target.value)} />
+              <label className="sr-only" htmlFor="admin-password">Senha geral</label>
+              <input id="admin-password" className="pw-input" type="password" value={password} maxLength={128} autoComplete="current-password" autoFocus placeholder="Senha geral" onChange={event => setPassword(event.target.value)} />
             </form>
             {error && <div className="pw-error-msg" role="alert">{error}</div>}
             <div className="pw-buttons">

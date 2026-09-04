@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react'
-import { Lock, ShieldCheck, X, RefreshCw, ChevronDown, ChevronRight, Users, Tag, Calendar, Filter, Download } from 'lucide-react'
+import { Lock, ShieldCheck, X, RefreshCw, ChevronDown, ChevronRight, Users, Tag, Calendar, Filter, Download, Undo2 } from 'lucide-react'
 import { useAuth, grant, revoke, verifyAccessPassword } from '../auth'
-import { loadAuditRemote, type AuditEntry } from '../audit'
+import { canUndoAction, loadAuditRemote, undoAuditAction, type AuditEntry } from '../audit'
 import { onAuditChanges } from '../sync'
 import { startSessionLock } from '../useSessionLock'
 
@@ -137,6 +137,12 @@ export function AuditView() {
     a.click()
     document.body.removeChild(a)
     window.setTimeout(() => URL.revokeObjectURL(url), 1_000)
+  }
+
+  const undoEntry = (entry: AuditEntry) => {
+    const undoLog = undoAuditAction(entry)
+    if (!undoLog) return
+    setEntries(prev => [undoLog, ...prev])
   }
 
   const filterEntries = useCallback((list: AuditEntry[]) => {
@@ -441,6 +447,11 @@ export function AuditView() {
                       </div>
                     </div>
                     <div className="audit-detail">{e.detail}</div>
+                    {canUndoAction(e.id) && (
+                      <button className="btn btn-secondary btn-sm audit-undo" onClick={() => undoEntry(e)}>
+                        <Undo2 size={14} /> Desfazer
+                      </button>
+                    )}
                   </div>
                 </article>
               ))}

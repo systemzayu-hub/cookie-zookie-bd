@@ -9,6 +9,7 @@ export type AuditEntry = AuditEntryDB
 
 let actor: string | null = null
 let actorEmail: string | null = null
+const undoHandlers = new Map<string, () => void>()
 
 /** Define quem está agindo (chamado pelo App quando o login Google muda). */
 export function setAuditActor(name: string | null, email: string | null) {
@@ -42,7 +43,7 @@ export async function loadAuditRemote(): Promise<AuditEntry[]> {
 }
 
 /** Registra uma ação — grava no Firestore (para toda a equipe) e em cache local. */
-export function logAction(action: string, detail: string): AuditEntry {
+export function logAction(action: string, detail: string, undo?: () => void): AuditEntry {
   const entry: AuditEntry = {
     id: Math.random().toString(36).slice(2) + Date.now().toString(36),
     ts: Date.now(),
@@ -51,9 +52,20 @@ export function logAction(action: string, detail: string): AuditEntry {
     detail,
   }
   if (actorEmail) entry.email = actorEmail
+  if (undo) undoHandlers.set(entry.id, undo)
   // cache local imediato
   saveAudit([entry, ...loadAudit()].slice(0, 2000))
   // grava no Firestore (fire-and-forget, não bloqueia a UI)
   auditPushDB(entry)
   return entry
+}
+
+export function canUndoAction(id: string) { return undoHandlers.has(id) }
+
+export function undoAuditAction(entry: AuditEntry): AuditEntry | null {
+  const undo = undoHandlers.get(entry.id)
+  if (!undo) return null
+  undoHandlers.delete(entry.id)
+  undo()
+  return logAction('auditoria', `Desfez a ação: ${entry.detail}`)
 }

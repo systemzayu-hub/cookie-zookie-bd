@@ -37,7 +37,7 @@ export function SensitiveData({ children, label, level = 'financial' }: { childr
         <div className="sensitive-lock-icon"><Lock size={24} aria-hidden="true" /></div>
         <div>
           <strong>{label || 'Dados financeiros protegidos'}</strong>
-          <p>O conteúdo não é renderizado enquanto estiver bloqueado. A liberação expira após 5 minutos sem atividade.</p>
+          <p>Ao desbloquear, os valores ficam visíveis no site inteiro até atualizar a página (F5).</p>
         </div>
         <form onSubmit={event => { event.preventDefault(); void unlock() }} className="sensitive-unlock-form">
           <label className="sr-only" htmlFor={`sensitive-password-${level}`}>Senha de acesso</label>

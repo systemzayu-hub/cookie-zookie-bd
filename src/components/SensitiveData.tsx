@@ -2,6 +2,7 @@ import { useCallback, useState, type ReactNode } from 'react'
 import { Eye, Lock, ShieldCheck } from 'lucide-react'
 import { grant, useAuth, verifyAccessPassword, type Level } from '../auth'
 import { startSessionLock } from '../useSessionLock'
+import { MoneyVisibilityProvider } from './MaskedMoney'
 
 export function SensitiveData({ children, label, level = 'financial' }: { children: ReactNode; label?: string; level?: Level }) {
   const unlocked = useAuth(level)
@@ -28,7 +29,7 @@ export function SensitiveData({ children, label, level = 'financial' }: { childr
     }
   }, [busy, level, password])
 
-  if (unlocked) return <>{children}</>
+  if (unlocked) return <MoneyVisibilityProvider>{children}</MoneyVisibilityProvider>
 
   return (
     <section className="sensitive-locked" aria-label={label || 'Dados protegidos'}>

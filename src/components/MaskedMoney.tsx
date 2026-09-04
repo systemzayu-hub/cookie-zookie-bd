@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react'
+import { createContext, useContext, useState, useRef, useEffect, type ReactNode } from 'react'
 import { Eye, EyeOff } from 'lucide-react'
 
 export interface MaskedMoneyProps {
@@ -7,8 +7,14 @@ export interface MaskedMoneyProps {
 }
 
 const fmt = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' })
+const MoneyVisibility = createContext(false)
+
+export function MoneyVisibilityProvider({ children }: { children: ReactNode }) {
+  return <MoneyVisibility.Provider value>{children}</MoneyVisibility.Provider>
+}
 
 export function MaskedMoney({ value, className = '' }: MaskedMoneyProps) {
+  const inheritedVisibility = useContext(MoneyVisibility)
   const [revealed, setRevealed] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -19,6 +25,10 @@ export function MaskedMoney({ value, className = '' }: MaskedMoneyProps) {
   }
 
   useEffect(() => () => { if (timerRef.current) clearTimeout(timerRef.current) }, [])
+
+  if (inheritedVisibility) {
+    return <span className={`font-mono tabular-nums ${className}`}>{fmt.format(value)}</span>
+  }
 
   return (
     <span className={`masked-value ${className}`}>

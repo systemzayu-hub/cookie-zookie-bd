@@ -794,6 +794,20 @@ table.table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
   body { font-size: var(--fs-sm); }
 }
 
+@media (max-width: 640px) {
+  .customers-table-wrap { overflow: visible; border: 0; box-shadow: none; background: transparent; }
+  .customers-table { min-width: 0; display: block; }
+  .customers-table thead { display: none; }
+  .customers-table tbody { display: grid; gap: var(--sp-3); }
+  .customers-table tr { display: grid; gap: var(--sp-2); padding: var(--sp-4); border: 1px solid var(--border); border-radius: var(--r-lg); background: var(--card); box-shadow: var(--sh-xs); }
+  .customers-table td { display: flex; align-items: center; justify-content: space-between; gap: var(--sp-3); padding: 0; border: 0; text-align: right; min-width: 0; }
+  .customers-table td::before { content: attr(data-label); color: var(--tx-3); font-size: var(--fs-xs); font-weight: 600; text-align: left; }
+  .customers-table .customer-phone { padding: var(--sp-3); border-radius: var(--r-md); background: var(--bg-soft); color: var(--cz-700); font-size: 1.05rem; font-weight: 700; }
+  .customers-table .customer-actions { justify-content: flex-end; padding-top: var(--sp-2); border-top: 1px solid var(--border); }
+  .customers-table .customer-actions::before { margin-right: auto; }
+  .billing-phone { width: 100%; font-size: 0.95rem; font-weight: 700; color: var(--cz-700); }
+}
+
 /* === Cobrança — responsivo mobile (cards não estouram, botões empilham) === */
 @media (max-width: 480px) {
   /* Grid dos cards: coluna única (sem mínimo grande) */

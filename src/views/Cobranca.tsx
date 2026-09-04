@@ -37,11 +37,13 @@ export function CobrancaView({ sales, setSales, customers, pushToast }: Cobranca
   const groups = useMemo(() => {
     const map = new Map<string, CustomerGroup>()
     pendentes.forEach(sale => {
-      const cid = sale.customerId || '__sem_cliente__'
+      const customer = customers.find(c => c.id === sale.customerId)
+      if (!customer) return
+      const cid = customer.id
       if (!map.has(cid)) {
         map.set(cid, {
           customerId: cid,
-          customer: customers.find(c => c.id === sale.customerId),
+          customer,
           sales: [],
           totalPending: 0,
           totalQty: 0,
@@ -294,7 +296,7 @@ export function CobrancaView({ sales, setSales, customers, pushToast }: Cobranca
 
                 {/* Info */}
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--tx-1)' }}>{g.customer?.name || 'Sem cliente'}</div>
+                  <div style={{ fontWeight: 700, fontSize: '1rem', color: 'var(--tx-1)' }}>{g.customer?.name}</div>
                   <div style={{ display: 'flex', gap: 'var(--sp-3)', fontSize: '0.82rem', color: 'var(--tx-3)', marginTop: 2, flexWrap: 'wrap' }}>
                     <span>{g.sales.length} {g.sales.length === 1 ? 'compra' : 'compras'} pendente{g.sales.length !== 1 ? 's' : ''}</span>
                     <span>•</span>
@@ -302,7 +304,7 @@ export function CobrancaView({ sales, setSales, customers, pushToast }: Cobranca
                     {g.customer?.contact && (
                                           <>
                                             <span>•</span>
-                                            <span><MaskedPII value={g.customer.contact} type="phone" /></span>
+                                            <span className="billing-phone"><MaskedPII value={g.customer.contact} type="phone" /></span>
                                           </>
                                         )}
                   </div>

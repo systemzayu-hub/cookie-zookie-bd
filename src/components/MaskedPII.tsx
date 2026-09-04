@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, MouseEvent } from 'react'
+import { useAuth } from '../auth'
 
 export type PIIType = 'cpf' | 'phone'
 
@@ -48,6 +49,7 @@ function formatRawPhone(v: string) {
 }
 
 export function MaskedPII({ value, type, className = '' }: MaskedPIIProps) {
+  const generalAccess = useAuth('financial')
   const [revealed, setRevealed] = useState(false)
   const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -62,6 +64,9 @@ export function MaskedPII({ value, type, className = '' }: MaskedPIIProps) {
   const masked = type === 'cpf' ? maskCPF(value) : maskPhone(value)
   const raw = type === 'cpf' ? unmaskCPF(value) : unmaskPhone(value)
   const formattedRaw = type === 'cpf' ? formatRawCPF(raw) : formatRawPhone(raw)
+
+  if (!raw) return <span className={className}>Não informado</span>
+  if (generalAccess) return <span className={`font-mono tabular-nums ${className}`}>{formattedRaw}</span>
 
   return (
     <span className={`inline-flex items-center gap-1 ${className}`}>

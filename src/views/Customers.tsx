@@ -50,6 +50,14 @@ export function CustomersView({ customers, setCustomers, sales, pushToast }: {
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null)
   const { guard } = usePasswordGuard()
 
+  const formatPhone = (value: string) => {
+    const digits = value.replace(/\D/g, '').slice(0, 11)
+    if (digits.length <= 2) return digits ? `(${digits}` : ''
+    if (digits.length <= 6) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`
+    if (digits.length <= 10) return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7)}`
+  }
+
   const openNew = () => { setEditing(null); setForm({ name: '', contact: '' }); setShowModal(true) }
   const openEdit = (c: Customer) => { setEditing(c); setForm({ name: c.name, contact: c.contact }); setShowModal(true) }
 
@@ -57,6 +65,7 @@ export function CustomersView({ customers, setCustomers, sales, pushToast }: {
     const name = form.name.trim()
     const contact = form.contact.trim()
     if (!name) { pushToast('Informe o nome.', 'error'); return }
+    if (!/^\(\d{2}\) \d{4,5}-\d{4}$/.test(contact)) { pushToast('Informe um telefone válido com DDD.', 'error'); return }
     if (name.length > 120 || contact.length > 120) { pushToast('Nome e contato devem ter até 120 caracteres.', 'error'); return }
     if (customers.some(customer => customer.id !== editing?.id && customer.name.toLocaleLowerCase('pt-BR') === name.toLocaleLowerCase('pt-BR'))) { pushToast('Já existe um cliente com esse nome.', 'error'); return }
     if (editing) {
@@ -185,18 +194,18 @@ export function CustomersView({ customers, setCustomers, sales, pushToast }: {
         {customers.length === 0 ? (
           <div className="empty-state"><Users className="icon" size={40} /><p>Nenhum cliente cadastrado.</p></div>
         ) : (
-          <div className="table-wrap">
-            <table className="table">
+          <div className="table-wrap customers-table-wrap">
+            <table className="table customers-table">
               <thead><tr><th>Nome</th><th>Contato</th><th>Cadastro</th><th>Compras</th><th className="text-right">Total gasto</th><th className="text-right">Ações</th></tr></thead>
               <tbody>
                 {customers.map(c => (
                   <tr key={c.id}>
-                    <td style={{ fontWeight: 600 }}>{c.name}</td>
-                                        <td><MaskedPII value={c.contact || ''} type="phone" /></td>
-                                        <td>{c.createdAt}</td>
-                                        <td><span className="badge badge-brand">{countOf(c.id)}</span></td>
-                                        <td className="text-right" style={{ fontWeight: 700 }}><MaskedMoney value={spendOf(c.id)} /></td>
-                    <td className="text-right">
+                    <td data-label="Cliente" style={{ fontWeight: 600 }}>{c.name}</td>
+                    <td data-label="Telefone" className="customer-phone"><MaskedPII value={c.contact || ''} type="phone" /></td>
+                    <td data-label="Cadastro">{c.createdAt}</td>
+                    <td data-label="Compras"><span className="badge badge-brand">{countOf(c.id)}</span></td>
+                    <td data-label="Total gasto" className="text-right" style={{ fontWeight: 700 }}><MaskedMoney value={spendOf(c.id)} /></td>
+                    <td data-label="Ações" className="text-right customer-actions">
                       <button className="btn btn-secondary btn-sm" aria-label={`Editar ${c.name}`} onClick={() => openEdit(c)}><Pencil size={14} /></button>
                       <button className="btn btn-danger btn-sm" aria-label={`Excluir ${c.name}`} onClick={() => remove(c.id)}><Trash2 size={14} /></button>
                     </td>
@@ -217,7 +226,7 @@ export function CustomersView({ customers, setCustomers, sales, pushToast }: {
                   </div>
                   <div className="form">
                     <div className="field"><label>Nome</label><input value={form.name} maxLength={120} autoComplete="name" onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Nome do cliente" /></div>
-                    <div className="field"><label>Contato (email/telefone)</label><input value={form.contact} maxLength={120} autoComplete="tel" inputMode="tel" onChange={e => setForm(f => ({ ...f, contact: e.target.value }))} placeholder="ex: (11) 99999-0000" /></div>
+                    <div className="field"><label>Telefone com DDD</label><input value={form.contact} maxLength={15} autoComplete="tel" inputMode="tel" onChange={e => setForm(f => ({ ...f, contact: formatPhone(e.target.value) }))} placeholder="(11) 99999-0000" /></div>
                     <div className="modal-actions">
                       <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancelar</button>
                       <button className="btn btn-primary" onClick={submit}>{editing ? 'Salvar' : 'Adicionar'}</button>

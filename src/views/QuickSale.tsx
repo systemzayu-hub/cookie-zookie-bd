@@ -125,7 +125,7 @@ function parseText(text: string, products: Product[], customers: Customer[]): Pa
 
     let error: string | null = null
     if (!prodMatch) error = `Produto "${rawProduct.trim()}" não encontrado`
-    else if (!custMatch) error = `Cliente "${rawCustomer.trim()}" não encontrado (será criado)`
+    else if (!custMatch) error = `Cliente "${rawCustomer.trim()}" não está cadastrado`
 
     result.push({
       lineNum: i + 1,
@@ -148,7 +148,7 @@ function parseText(text: string, products: Product[], customers: Customer[]): Pa
 }
 
 /* ========== QUICK SALE VIEW ========== */
-export function QuickSaleView({ products, customers, onSaleAdded, onCustomersAdded, pushToast }: {
+export function QuickSaleView({ products, customers, onSaleAdded, onCustomersAdded: _onCustomersAdded, pushToast }: {
   products: Product[]; customers: Customer[]
   onSaleAdded: (s: Sale) => void; onCustomersAdded: (customers: Customer[]) => void; pushToast: (m: string, t?: 'success' | 'error') => void
 }) {
@@ -166,23 +166,9 @@ export function QuickSaleView({ products, customers, onSaleAdded, onCustomersAdd
   }
 
   const doConfirm = () => {
-    const createdCustomers = new Map<string, Customer>()
-    for (const line of parsed.filter(item => item.productId && !item.customerId && item.customerNameRaw.trim())) {
-      const key = normalize(line.customerNameRaw)
-      if (!createdCustomers.has(key)) {
-        createdCustomers.set(key, {
-          id: uid(),
-          name: line.customerNameRaw.trim().slice(0, 120),
-          contact: '',
-          createdAt: new Date().toISOString(),
-        })
-      }
-    }
-    onCustomersAdded(Array.from(createdCustomers.values()))
-
     const saleDateMap = new Map<string, ParsedLine[]>()
-    parsed.filter(l => l.productId).forEach(l => {
-      const resolvedCustomerId = l.customerId || createdCustomers.get(normalize(l.customerNameRaw))?.id || ''
+    parsed.filter(l => l.productId && l.customerId).forEach(l => {
+      const resolvedCustomerId = l.customerId!
       const dateKey = l.date || new Date().toISOString().slice(0, 10)
       const key = `${dateKey}|${resolvedCustomerId}|${l.status}`
       const arr = saleDateMap.get(key) || []
@@ -224,7 +210,7 @@ export function QuickSaleView({ products, customers, onSaleAdded, onCustomersAdd
   const doReset = () => { setText(''); setParsed([]); setStep('input'); setCreatedCount(0) }
 
   const parseStats = useMemo(() => {
-    const valid = parsed.filter(l => l.productId).length
+      const valid = parsed.filter(l => l.productId && l.customerId).length
     const warnings = parsed.filter(l => l.error).length
     const total = parsed.filter(l => l.total).reduce((a, l) => a + (l.total || 0), 0)
     return { valid, warnings, total, count: parsed.length }

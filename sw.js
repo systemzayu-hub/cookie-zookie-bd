@@ -1,6 +1,6 @@
 /* Generated from the production build. Only public static assets are cached. */
-const CACHE = 'cookie-zookie-d845c81837ec892e';
-const ASSETS = ["assets/Audit-BQTwOoV0.js","assets/CustomersBilling-CZfDVS7e.js","assets/Dashboard-CSqOqrdq.js","assets/Financeiro-D8PyUsdD.js","assets/ProductsStock-CoQfqZvH.js","assets/Reports-DKL1Z1wo.js","assets/Sales-DYtX1i8v.js","assets/cookies/kinder.png","assets/cookies/meio-amargo.png","assets/cookies/nutella.png","assets/cookies/tradicional.png","assets/index-DK9ZT_gU.css","assets/index-DZSbmms-.js","assets/index.esm-Bi4eVYsj.js","assets/logo-CO3eNKz-.png","assets/pendencias-avancado-BiGClaaO.js","assets/vendor-firebase-DrLW04f7.js","assets/vendor-icons-BmwSyiP1.js","assets/vendor-react-C4LoDZJM.js","index.html","logo.png","manifest.webmanifest"].map(path => new URL(path, self.registration.scope).href);
+const CACHE = 'cookie-zookie-23185f8f83db48ca';
+const ASSETS = ["assets/Audit-CR1-E_Us.js","assets/CustomersBilling-CsOkE5X5.js","assets/Dashboard-dPdDaKVE.js","assets/Financeiro-jVEUfcTm.js","assets/ProductsStock-CqL2wFlu.js","assets/Reports-NJV88BJC.js","assets/Sales-DTDZXYJw.js","assets/cookies/kinder.png","assets/cookies/meio-amargo.png","assets/cookies/nutella.png","assets/cookies/tradicional.png","assets/index-B1Iz_9q-.js","assets/index-DK9ZT_gU.css","assets/index.esm-Bi4eVYsj.js","assets/logo-CO3eNKz-.png","assets/pendencias-avancado-BiGClaaO.js","assets/vendor-firebase-DrLW04f7.js","assets/vendor-icons-BmwSyiP1.js","assets/vendor-react-C4LoDZJM.js","index.html","logo.png","manifest.webmanifest"].map(path => new URL(path, self.registration.scope).href);
 self.addEventListener('install', event => {
   event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(ASSETS)));
 });

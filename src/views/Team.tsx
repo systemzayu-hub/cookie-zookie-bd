@@ -28,8 +28,8 @@ export function TeamView() {
     <div className="table-wrap card"><table className="table"><caption className="card-title">Permissões por cargo</caption><thead><tr><th>Ação</th><th>Funcionário</th><th>Administrador</th><th>Dono</th></tr></thead><tbody>
       <tr><td>Consultar catálogo e registrar venda paga ou pendente</td><td>Sim</td><td>Sim</td><td>Sim</td></tr>
       <tr><td>Editar estoque, preços, clientes e pagamentos</td><td>Não</td><td>Sim</td><td>Sim</td></tr>
-      <tr><td>Financeiro, relatórios, backup e reversões</td><td>Não</td><td>Sim</td><td>Sim</td></tr>
-      <tr><td>Convidar, bloquear e alterar cargos</td><td>Não</td><td>Não</td><td>Sim</td></tr>
+      <tr><td>Financeiro, relatórios e backup</td><td>Não</td><td>Sim</td><td>Sim</td></tr>
+      <tr><td>Auditoria e reversões</td><td>Não</td><td>Não</td><td>Sim</td></tr><tr><td>Convidar, bloquear e alterar cargos</td><td>Não</td><td>Não</td><td>Sim</td></tr>
       <tr><td>Alterar o dono ou o próprio cargo</td><td>Não</td><td>Não</td><td>Não</td></tr>
     </tbody></table></div>
     <details className="card"><summary>Adicionar por e-mail</summary><form className="checkout-fields" onSubmit={e => { e.preventDefault(); setPending({ email: email.trim().toLowerCase(), role: nextRole }) }}>

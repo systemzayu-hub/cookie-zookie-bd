@@ -3,7 +3,7 @@ export type Permission = 'operate' | 'manage' | 'audit' | 'team' | 'backup'
 export const ROLE_LABEL: Record<Role, string> = { owner: 'Dono', admin: 'Administrador', employee: 'Funcionário', viewer: 'Sem cargo · somente leitura', blocked: 'Bloqueado' }
 export function can(role: Role | null, permission: Permission): boolean {
   if (!role || !['owner', 'admin', 'employee'].includes(role)) return false
-  if (permission === 'team') return role === 'owner'
+  if (permission === 'team' || permission === 'audit') return role === 'owner'
   if (permission === 'operate') return true
   return role === 'owner' || role === 'admin'
 }

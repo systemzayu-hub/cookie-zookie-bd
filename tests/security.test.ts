@@ -19,7 +19,7 @@ test('permission matrix denies unknown roles and limits team management to owner
   const perms: Permission[] = ['operate', 'manage', 'audit', 'team', 'backup']
   for (const role of [null, 'blocked', 'forged'] as (Role | null)[]) assert.deepEqual(perms.map(p => can(role, p)), [false,false,false,false,false])
   assert.deepEqual(perms.map(p => can('employee', p)), [true,false,false,false,false])
-  assert.deepEqual(perms.map(p => can('admin', p)), [true,true,true,false,true])
+  assert.deepEqual(perms.map(p => can('admin', p)), [true,true,false,false,true])
   assert.ok(perms.every(p => can('owner', p)))
   assert.equal(canChangeRole('owner', 'employee', 'admin', false), true)
   assert.equal(canChangeRole('admin', 'employee', 'admin', false), false)
@@ -84,10 +84,10 @@ test('sale and audit commit together; reversal is atomic and cannot be replayed'
   const entry = fixture.list('audit/')[0]
   assert.equal(entry.actorUid, 'employee')
   await assert.rejects(() => (undoAction as any)(request('employee', { id: entry.id })))
-  await (undoAction as any)(request('admin', { id: entry.id }))
+  await (undoAction as any)(request('owner', { id: entry.id }))
   assert.equal(fixture.get('loja/dados').products[0].stock, 10)
   assert.equal(fixture.get('loja/dados').sales.length, 0)
-  await assert.rejects(() => (undoAction as any)(request('admin', { id: entry.id })))
+  await assert.rejects(() => (undoAction as any)(request('owner', { id: entry.id })))
   assert.equal(fixture.get('loja/dados').products[0].stock, 10)
 })
 test('failed sale leaves no stock mutation or audit and competing sales cannot oversell', async () => {
@@ -104,7 +104,7 @@ test('retry after an undo does not recreate a sale or consume stock again', asyn
   setup()
   await (createSale as any)(request('employee', { sale }))
   const entry = fixture.list('audit/')[0]
-  await (undoAction as any)(request('admin', { id: entry.id }))
+  await (undoAction as any)(request('owner', { id: entry.id }))
   const result = await (createSale as any)(request('employee', { sale }))
   assert.equal(result.repeated, true)
   assert.equal(fixture.get('loja/dados').sales.length, 0)

@@ -11,6 +11,7 @@ import { setAuditActor, logAction } from './audit'
 import { setRole, useRole } from './auth'
 import { can, ROLE_LABEL } from './roles'
 import { watchAccess } from './sync'
+import { OwnerAuditGate } from './components/OwnerAuditGate'
 import { VisitorDashboard } from './views/VisitorDashboard'
 import { EmployeeSales } from './views/EmployeeSales'
 import { configureUndoStore, setUndoOwner } from './undo'
@@ -327,7 +328,7 @@ export default function App() {
           </div>
         </div>
         <nav className="sidebar-nav">
-                  {nav.map(n => (
+                  {nav.filter(n => n.id !== 'audit' || can(role, 'audit')).map(n => (
                     <button key={n.id} className={`nav-item ${tab === n.id ? 'active' : ''}`} aria-current={tab === n.id ? 'page' : undefined} onClick={() => navigate(n.id)}>
                       {n.icon} {n.label}
                     </button>
@@ -408,7 +409,7 @@ export default function App() {
           {tab === 'relatorios' && <ReportsView sales={sales} />}
           {tab === 'clientes' && <CustomersBillingView customers={customers} setCustomers={setCustomers} sales={sales} setSales={setSales} pushToast={pushToast} />}
           {tab === 'financeiro' && <FinanceiroView />}
-          {tab === 'audit' && <AuditView />}
+          {tab === 'audit' && <OwnerAuditGate key={user.email}><AuditView /></OwnerAuditGate>}
         </Suspense>
         </ErrorBoundary>}
       </main>

@@ -126,7 +126,7 @@ service cloud.firestore {
       allow update, delete: if false;
     }
     match /auditV2/{id} {
-      allow read: if manager();
+      allow read: if owner();
       allow create: if auditHeader(id, request.resource.data)
         && (request.resource.data.action == 'equipe' ? owner()
           && request.resource.data.keys().hasOnly(['id','actorUid','actor','email','createdAt','action','detail','hasUndo','undoOf','targetEmail','beforeRole','afterRole'])
@@ -137,7 +137,7 @@ service cloud.firestore {
           && request.resource.data.beforeRole == (exists(/databases/$(database)/documents/teamAccess/$(request.resource.data.targetEmail)) ? get(/databases/$(database)/documents/teamAccess/$(request.resource.data.targetEmail)).data.role : 'blocked')
         : tiedToStore(id) && request.resource.data.keys().hasOnly(['id','actorUid','actor','email','createdAt','action','detail','hasUndo','undoOf','saleId','sale','beforeProducts','afterProducts'])
           && (request.resource.data.action != 'venda' || (request.resource.data.beforeProducts == oldShop().products && request.resource.data.afterProducts == newShop().products && request.resource.data.sale == ticket(request.resource.data.saleId).sale))
-          && (request.resource.data.action == 'desfazer' ? manager() && request.resource.data.hasUndo == false
+          && (request.resource.data.action == 'desfazer' ? owner() && request.resource.data.hasUndo == false
             && getAfter(/databases/$(database)/documents/auditReversals/$(request.resource.data.undoOf)).data.auditId == id
             : request.resource.data.action in ['venda','alteracao'] && request.resource.data.hasUndo == true && request.resource.data.undoOf == ''));
       allow update, delete: if false;
@@ -152,8 +152,8 @@ service cloud.firestore {
       allow update, delete: if false;
     }
     match /auditReversals/{id} {
-      allow read: if manager();
-      allow create: if manager() && request.resource.data.keys().hasOnly(['auditId','actorUid','createdAt'])
+      allow read: if owner();
+      allow create: if owner() && request.resource.data.keys().hasOnly(['auditId','actorUid','createdAt'])
         && request.resource.data.actorUid == request.auth.uid && request.resource.data.createdAt == request.time
         && get(/databases/$(database)/documents/auditV2/$(id)).data.hasUndo == true
         && event(request.resource.data.auditId).undoOf == id && event(request.resource.data.auditId).action == 'desfazer'
@@ -195,7 +195,7 @@ service cloud.firestore {
           }]));
       allow delete: if false;
     }
-    match /audit/{id} { allow read: if manager(); allow write: if false; }
+    match /audit/{id} { allow read: if owner(); allow write: if false; }
     match /{document=**} { allow read, write: if false; }
   }
 }

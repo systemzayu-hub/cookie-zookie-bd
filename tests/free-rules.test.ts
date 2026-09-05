@@ -94,10 +94,11 @@ test('reversal restores stock, preserves later sale, and cannot be replayed', as
   const entry = (await audits())[0]
   await api('employee').createSale({sale:sale('later')})
   await assert.rejects(()=>api('employee').undoAction({id:entry.id}))
-  await api('admin').undoAction({id:entry.id})
+  await assert.rejects(()=>api('admin').undoAction({id:entry.id}))
+  await api('owner').undoAction({id:entry.id})
   const store=await readStore()
   assert.equal(store.products[0].stock,8); assert.deepEqual(store.sales.map(s=>s.id),['later'])
-  await assert.rejects(()=>api('admin').undoAction({id:entry.id}))
+  await assert.rejects(()=>api('owner').undoAction({id:entry.id}))
   assert.equal((await api('employee').createSale({sale:first})).repeated,true)
   assert.equal((await readStore()).products[0].stock,8)
 })

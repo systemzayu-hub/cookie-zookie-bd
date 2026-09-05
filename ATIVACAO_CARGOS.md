@@ -38,3 +38,6 @@ Publicar o build de `dist/` no GitHub Pages na mesma janela. Clientes antigos pr
 - Cargos são corrigidos escolhendo outro cargo pela equipe; não há transferência do dono pela interface.
 - O Firestore possui cotas gratuitas e limite de tamanho por documento. O modelo mantém no máximo 500 produtos, 2.000 clientes e 5.000 vendas, sujeito ao tamanho real dos dados. Atingir um limite exige manutenção; não ativa cobrança automaticamente.
 - Snapshots e auditoria ocupam armazenamento. A interface carrega os 500 registros mais recentes por fonte; dados mais antigos continuam no banco.
+
+## Chave do dono — 05/09/2026
+Auditoria e reversões agora são exclusivas do dono, inclusive nas regras do banco. A interface exige adicionalmente a antiga chave de administrador da auditoria e tranca ao sair da aba ou da conta. A chave é uma trava local da interface, não concede cargos e não substitui a autorização Google/Firestore. A matriz histórica acima fica corrigida: administrador mantém operação, financeiro e backup, sem auditoria/reversões.

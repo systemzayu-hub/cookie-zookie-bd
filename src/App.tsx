@@ -11,6 +11,7 @@ import { setAuditActor, logAction } from './audit'
 import { setRole, useRole } from './auth'
 import { can, ROLE_LABEL } from './roles'
 import { watchAccess } from './sync'
+import { OwnerKeyLogin } from './components/OwnerKeyLogin'
 import { OwnerAuditGate } from './components/OwnerAuditGate'
 import { VisitorDashboard } from './views/VisitorDashboard'
 import { EmployeeSales } from './views/EmployeeSales'
@@ -296,6 +297,7 @@ export default function App() {
             </svg>
             {loginBusy ? 'Conectando…' : 'Entrar com Google'}
           </button>
+          <OwnerKeyLogin/>
           {loginError && <p className="login-error" role="alert">{loginError}</p>}
         </div>
       </div>
@@ -306,7 +308,7 @@ export default function App() {
     <h1>{role === 'blocked' ? 'Acesso não autorizado' : 'Verificando acesso'}</h1>
     <p role="status">{role === 'blocked' ? 'Esta conta não tem acesso à loja. O dono pode liberar seu cargo pela equipe.' : accessError || 'Aguardando confirmação do servidor…'}</p>
     <button className="btn btn-secondary" onClick={() => window.location.reload()}>Tentar novamente</button>
-    <button className="btn btn-ghost" onClick={doLogout}>Sair da conta</button>
+    <button className="btn btn-ghost" onClick={doLogout}>Sair da conta</button><OwnerKeyLogin/>
   </div></div>
   if (role === 'viewer') return <VisitorDashboard name={user.name || user.email || ''} onLogout={doLogout}/>
   if (role === 'employee') return <EmployeeSales name={user.name || user.email || 'Funcionário'} onLogout={doLogout}/>
@@ -328,7 +330,7 @@ export default function App() {
           </div>
         </div>
         <nav className="sidebar-nav">
-                  {nav.filter(n => n.id !== 'audit' || can(role, 'audit')).map(n => (
+                  {nav.map(n => (
                     <button key={n.id} className={`nav-item ${tab === n.id ? 'active' : ''}`} aria-current={tab === n.id ? 'page' : undefined} onClick={() => navigate(n.id)}>
                       {n.icon} {n.label}
                     </button>

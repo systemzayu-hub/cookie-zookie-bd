@@ -1,3 +1,4 @@
+import { OwnerKeyLogin } from '../components/OwnerKeyLogin'
 import { FREE_MAX_FLAVORS } from '../free-store'
 import { useEffect, useRef, useState } from 'react'
 import { callBackend } from '../sync'
@@ -50,7 +51,7 @@ export function EmployeeSales({ name, onLogout }: { name: string; onLogout: () =
     } finally { sending.current = false; setBusy(false) }
   }
   return <main className="employee-workspace">
-    <header className="page-row"><div className="page-title"><h1>Atendimento</h1><p>{name} · Funcionário</p></div><button className="btn btn-secondary" onClick={onLogout}>Sair</button></header>
+    <header className="page-row"><div className="page-title"><h1>Atendimento</h1><p>{name} · Funcionário</p></div><button className="btn btn-secondary" onClick={onLogout}>Sair</button></header><OwnerKeyLogin/>
     {message && <p className="card" role={failed ? 'alert' : 'status'}>{message}</p>}
     {!catalog ? <button className="btn btn-secondary" onClick={() => void reload().catch(() => setMessage('Não foi possível atualizar.'))}>Carregar catálogo</button> : <form onSubmit={e => { e.preventDefault(); void submit() }}>
       <fieldset disabled={busy || !!pendingSale.current} style={{ border: 0, padding: 0 }}>

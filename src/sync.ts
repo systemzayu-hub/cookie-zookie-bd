@@ -1,8 +1,9 @@
 import { initializeApp, getApps, type FirebaseApp } from 'firebase/app'
 import { getFirestore, doc, onSnapshot, collection, query, orderBy, limit, getDocs, type Firestore } from 'firebase/firestore'
-import { getAuth, signInWithPopup, reauthenticateWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut, type Auth, type User } from 'firebase/auth'
+import { getAuth, setPersistence, browserLocalPersistence, inMemoryPersistence, signInWithEmailAndPassword, signInWithPopup, reauthenticateWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut, type Auth, type User } from 'firebase/auth'
 import { FIREBASE_APP_CHECK_SITE_KEY, FIREBASE_CONFIG } from './firebase-config'
 import { validateStoreData, type StoreData } from './validation'
+import { OWNER_KEY_EMAIL } from './owner-access'
 import { createFreeStore } from './free-store'
 import type { Role } from './roles'
 import type { UndoPatch } from './undo-model'
@@ -51,6 +52,7 @@ export async function authLoginGoogle(): Promise<User | null> {
   await firebaseReady()
   if (!auth) return null
   try {
+    await setPersistence(auth, browserLocalPersistence)
     const provider = new GoogleAuthProvider()
     provider.setCustomParameters({ prompt: 'select_account' })
     const result = await signInWithPopup(auth, provider)
@@ -84,6 +86,12 @@ export function authOnChange(cb: (user: User | null) => void): () => void {
 }
 
 /** Faz logout do usuário atual. */
+export async function authLoginOwnerKey(key: string) {
+  await firebaseReady()
+  if (!auth || !key || key.length > 128) throw new Error('Informe a chave de acesso.')
+  await setPersistence(auth, inMemoryPersistence)
+  await signInWithEmailAndPassword(auth, OWNER_KEY_EMAIL, key)
+}
 export async function authLogout(): Promise<void> {
   if (!auth) return
   try {

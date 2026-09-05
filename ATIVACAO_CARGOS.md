@@ -41,3 +41,8 @@ Publicar o build de `dist/` no GitHub Pages na mesma janela. Clientes antigos pr
 
 ## Chave do dono — 05/09/2026
 Auditoria e reversões agora são exclusivas do dono, inclusive nas regras do banco. A interface exige adicionalmente a antiga chave de administrador da auditoria e tranca ao sair da aba ou da conta. A chave é uma trava local da interface, não concede cargos e não substitui a autorização Google/Firestore. A matriz histórica acima fica corrigida: administrador mantém operação, financeiro e backup, sem auditoria/reversões.
+
+## Múltiplos donos e entrada pela chave — 05/09/2026
+Dono agora pode promover outras contas a Dono em Equipe. Contas que já são donas entram direto na Auditoria sem chave. Donos existentes continuam protegidos contra rebaixamento/exclusão pela interface.
+A opção Entrar com chave do dono autentica uma identidade reservada no Firebase Authentication, com verificação da chave no servidor e sessão em memória neste navegador. A chave anterior foi importada usando seu verificador legado; nenhum texto de senha é necessário no código. Regras exigem UID reservado, claim administrativa ownerKey e provedor password para essa identidade sem e-mail Google verificado. Usar a chave abre uma sessão com permissões de dono; não muda permanentemente o cargo da conta Google anterior. Ações dessa sessão são identificadas como Acesso pela chave do dono. A identidade reservada não deve ser confundida com uma conta pessoal.
+A configuração nativa de e-mail/senha foi habilitada, mantendo Google e faturamento desativado. A importação foi validada com uma credencial aleatória temporária no servidor; a conta de teste foi excluída. 24 testes de regras passaram, incluindo promoção a dono e rejeição de identidade/claim/provedor forjados.

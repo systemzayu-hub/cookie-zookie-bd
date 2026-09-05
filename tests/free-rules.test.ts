@@ -167,3 +167,23 @@ test('visitor enters read-only and appears in owner list without gaining write p
   await api('owner').changeTeamAccess({email:'visitor@example.test',role:'blocked'})
   await assertFails(getDocFromServer(doc(db,'dashboard','public')))
 })
+
+test('owner can promote another signed-in account and new owner can administer team',async()=>{
+  await api('new').getMyAccess()
+  await api('owner').changeTeamAccess({email:'new@example.test',role:'owner'})
+  assert.equal((await api('new').getMyAccess()).role,'owner')
+  await api('new').changeTeamAccess({email:'employee@example.test',role:'admin'})
+  await assert.rejects(()=>api('admin').changeTeamAccess({email:'visitor@example.test',role:'owner'}))
+  await assertFails(updateDoc(doc(client('new'),'teamAccess','owner@example.test'),{role:'blocked'}))
+})
+test('key identity requires server-issued claim and password provider',async()=>{
+  await env.withSecurityRulesDisabled(async ctx=>{
+    await setDoc(doc(ctx.firestore() as any,'teamAccess','owner-key@sitezayuo.invalid'),{email:'owner-key@sitezayuo.invalid',role:'owner'})
+  })
+  const claims={email:'owner-key@sitezayuo.invalid',email_verified:false,ownerKey:true,firebase:{sign_in_provider:'password'}}
+  const granted=env.authenticatedContext('cookie-zookie-owner-key',claims).firestore() as any
+  await assertSucceeds(getDocs(collection(granted,'auditV2')))
+  for(const [uid,token] of [['other',claims],['cookie-zookie-owner-key',{...claims,ownerKey:false}],['cookie-zookie-owner-key',{...claims,firebase:{sign_in_provider:'custom'}}]] as any){
+    await assertFails(getDocs(collection(env.authenticatedContext(uid,token).firestore() as any,'auditV2')))
+  }
+})

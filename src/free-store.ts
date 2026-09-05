@@ -1,3 +1,4 @@
+import { OWNER_KEY_UID } from './owner-access'
 import { arrayUnion, doc, getDocFromServer, setDoc, runTransaction, serverTimestamp, type Firestore, type Transaction } from 'firebase/firestore'
 import type { User } from 'firebase/auth'
 import { mergeStore, sameData } from './store-merge'
@@ -16,7 +17,7 @@ const accessKey = (email: string) => email.trim().toLowerCase()
 export function createFreeStore(db: Firestore, currentUser: () => User | null) {
   const identity = () => {
     const user = currentUser()
-    if (!user?.email || !user.emailVerified) throw new Error('Entre com uma conta Google verificada.')
+    if (!user?.email || (!user.emailVerified && user.uid !== OWNER_KEY_UID)) throw new Error('Entre com uma conta Google verificada.')
     return user
   }
   const core = (raw: unknown) => {
@@ -135,7 +136,7 @@ export function createFreeStore(db: Firestore, currentUser: () => User | null) {
     },
     async changeTeamAccess({ email, role }: { email: string; role: Role }) {
       const user = identity(), target = accessKey(email), id = auditId()
-      if (!/^[^\s@/]+@[^\s@/]+\.[^\s@/]+$/.test(target) || target.length > 254 || !['admin', 'employee', 'viewer', 'blocked'].includes(role)) throw new Error('E-mail ou cargo inválido.')
+      if (!/^[^\s@/]+@[^\s@/]+\.[^\s@/]+$/.test(target) || target.length > 254 || !['owner', 'admin', 'employee', 'viewer', 'blocked'].includes(role)) throw new Error('E-mail ou cargo inválido.')
       return runTransaction(db, async tx => {
         const ref = doc(db, 'teamAccess', target)
         const [previous, own] = await Promise.all([tx.get(ref), tx.get(doc(db, 'teamAccess', accessKey(user.email!)))])

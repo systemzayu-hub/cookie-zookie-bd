@@ -1,3 +1,4 @@
+import { OwnerKeyLogin } from '../components/OwnerKeyLogin'
 import { useEffect, useState } from 'react'
 import { doc, onSnapshot } from 'firebase/firestore'
 import { getDb } from '../sync'
@@ -19,7 +20,7 @@ export function VisitorDashboard({ name, onLogout }: { name: string; onLogout: (
     return { label: date.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',timeZone:'America/Sao_Paulo'}), value:(sales || []).filter(s => dayKey(s.date) === dayKey(date) && s.status !== 'Presente').length }
   })
   return <main className="employee-workspace">
-    <header className="page-row"><div className="page-title"><h1>Dashboard</h1><p>{name} · Somente leitura</p></div><button className="btn btn-secondary" onClick={onLogout}>Sair</button></header>
+    <header className="page-row"><div className="page-title"><h1>Dashboard</h1><p>{name} · Somente leitura</p></div><button className="btn btn-secondary" onClick={onLogout}>Sair</button></header><OwnerKeyLogin/>
     {error ? <p role="alert">{error}</p> : sales === null ? <p role="status">Carregando…</p> : <>
       <section className="daily-overview" aria-label="Resumo de hoje">
         <div className="card daily-count"><span className="eyebrow">HOJE NA COOKIE ZOOKIE</span><strong>{units} <span>cookies vendidos</span></strong><small>{today.length} vendas</small></div>

@@ -24,7 +24,7 @@ test('permission matrix denies unknown roles and limits team management to owner
   assert.equal(canChangeRole('owner', 'employee', 'admin', false), true)
   assert.equal(canChangeRole('admin', 'employee', 'admin', false), false)
   assert.equal(canChangeRole('owner', 'owner', 'blocked', false), false)
-  assert.equal(canChangeRole('owner', 'employee', 'owner', false), false)
+  assert.equal(canChangeRole('owner', 'employee', 'owner', false), true)
   assert.equal(canChangeRole('owner', 'admin', 'blocked', true), false)
 })
 test('reversal compensates stock without erasing later sales and rejects used registrations', () => {

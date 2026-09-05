@@ -8,5 +8,5 @@ export function can(role: Role | null, permission: Permission): boolean {
   return role === 'owner' || role === 'admin'
 }
 export function canChangeRole(actor: Role, target: Role, next: Role, self: boolean): boolean {
-  return actor === 'owner' && !self && target !== 'owner' && ['admin', 'employee', 'viewer', 'blocked'].includes(next)
+  return actor === 'owner' && !self && target !== 'owner' && ['owner', 'admin', 'employee', 'viewer', 'blocked'].includes(next)
 }

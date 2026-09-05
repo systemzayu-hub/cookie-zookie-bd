@@ -18,12 +18,12 @@
     "firebase": "^12.18.0",
     "lucide-react": "^0.453.0",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^19.2.8"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.2",
     "@types/react": "^18.2.0",
-    "@types/react-dom": "^18.2.0",
+    "@types/react-dom": "^19.2.5",
     "@vitejs/plugin-react": "^5.2.0",
     "esbuild": "^0.28.2",
     "react-test-renderer": "^18.2.0",

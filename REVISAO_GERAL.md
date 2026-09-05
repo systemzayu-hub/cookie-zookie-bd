@@ -1,5 +1,15 @@
 # Revisão geral — Cookie Zookie
 
+## Atualização de cargos e dashboard — 04/09/2026
+
+- Dashboard simplificada publicada: master dd53c93; gh-pages 34e11c7. Removidos planejamento automático, alertas de sabores sem estoque e textos promocionais. Mantidos resumo de hoje e vendas aguardando pagamento.
+- Cargos, tela de funcionário, gestão da equipe, remoção de senhas internas e reversões transacionais preparados no código, ainda sem ativação no Firebase.
+- Backend: 27 testes passaram, incluindo permissões, transações, estoque, conflitos e repetição de requisições; tipos e builds passaram. Testes de servidor usam adaptador em memória. SDKs reais carregaram os seis endpoints com sucesso.
+- Dependências do backend: auditoria npm com zero vulnerabilidades após atualização dos SDKs e overrides de uuid/qs.
+- Bloqueio externo: única conta Firebase conectada sem permissões IAM no projeto sitezayuo. Regras e billing responderam 403. Não houve mudança das regras publicadas.
+- Ativação e limites: [ATIVACAO_CARGOS.md](ATIVACAO_CARGOS.md). A versão abaixo descreve a entrega anterior; o planejamento e as senhas foram substituídos nesta implementação, mas as senhas continuam na publicação até a ativação dos cargos.
+
+
 ## Entrega de 4 de setembro de 2026
 
 ### Experiência e operação

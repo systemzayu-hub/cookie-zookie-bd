@@ -18,8 +18,12 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
+      - run: npm ci
+        working-directory: functions
       - run: npm run verify
       - run: npm audit --audit-level=high
+      - run: npm audit --audit-level=high
+        working-directory: functions
       - uses: actions/upload-artifact@v4
         with:
           name: verified-site

@@ -1,3 +1,4 @@
+import { useTrackedState } from '../useTrackedState'
 import { useState, useEffect, useMemo } from 'react'
 import { Edit2, Package, TrendingUp, Calculator } from 'lucide-react'
 import { CUSTOS_PRODUCAO } from '../pendencias-avancado'
@@ -16,7 +17,7 @@ export interface CustoProducao {
 }
 
 export function CustosView() {
-  const [custos, setCustos] = useState<CustoProducao[]>(() =>
+  const [custos, setCustos] = useTrackedState<CustoProducao>("custos", () =>
     load('cc_custos', CUSTOS_PRODUCAO as unknown as CustoProducao[]) as CustoProducao[]
   )
   const [editingId, setEditingId] = useState<string | null>(null)

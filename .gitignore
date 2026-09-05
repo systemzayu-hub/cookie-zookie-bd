@@ -18,3 +18,5 @@ render.tsx
 render.cjs
 render-out.html
 vite.render.config.mjs
+
+functions/lib/

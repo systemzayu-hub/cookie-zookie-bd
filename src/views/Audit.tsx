@@ -1,469 +1,74 @@
-import { useState, useMemo, useEffect, useCallback } from 'react'
-import { Lock, ShieldCheck, X, RefreshCw, ChevronDown, ChevronRight, Users, Tag, Calendar, Filter, Download, Undo2 } from 'lucide-react'
-import { useAuth, grant, revoke, verifyAccessPassword } from '../auth'
-import { canUndoAction, loadAuditRemote, undoAuditAction, type AuditEntry } from '../audit'
-import { onAuditChanges } from '../sync'
-import { startSessionLock } from '../useSessionLock'
-
-const ACTION_ICON: Record<string, string> = {
-  venda: '🛒', produto: '📦', estoque: '📊', perda: '⚠️',
-  custo: '💰', cliente: '👤', cobranca: '💳', login: '🔐',
-}
-
-const ACTION_LABEL: Record<string, string> = {
-  venda: 'Venda', produto: 'Produto', estoque: 'Estoque', perda: 'Perda',
-  custo: 'Custo', cliente: 'Cliente', cobranca: 'Cobrança', login: 'Login',
-}
-
-const ACTION_COLOR: Record<string, string> = {
-  venda: '#E8923F',      // caramelo
-  produto: '#8E6747',    // chocolate
-  estoque: '#3B82F6',    // azul
-  perda: '#E11D48',      // vermelho
-  custo: '#22C55E',      // verde
-  cliente: '#A855F7',    // roxo
-  cobranca: '#F59E0B',   // âmbar
-  login: '#06B6D4',      // cyan
-}
-
-type PeriodOption = 'hoje' | '7d' | 'tudo'
-type FilterState = { member: string; action: string; period: PeriodOption; date: string }
-
+import { ConfirmDialog } from '../components/ConfirmDialog'
+import { useEffect, useState } from 'react'
+import { Undo2 } from 'lucide-react'
+import { useRole } from '../auth'
+import { can } from '../roles'
+import { canUndoAction, loadAudit, loadAuditRemote, undoAuditAction, type AuditEntry } from '../audit'
+import { callBackend, onAuditChanges } from '../sync'
+import { previewUndo, undoStatus } from '../undo'
+import { TeamView } from './Team'
+const names: Record<string, string> = { products: 'produtos', sales: 'vendas', customers: 'clientes', custos: 'custos', perdas: 'perdas' }
 export function AuditView() {
-  // Em memória via auth compartilhado — mesmina senha de auditoria desbloqueia Financial views também
-  const unlocked = useAuth('audit')
-  const [unlocking, setUnlocking] = useState(false)
-  const [err, setErr] = useState('')
-  const [password, setPassword] = useState('')
+  const role = useRole()
+  const [tab, setTab] = useState('history')
   const [entries, setEntries] = useState<AuditEntry[]>([])
-  const [loading, setLoading] = useState(false)
-
-  // Filtros
-  const [filters, setFilters] = useState<FilterState>({
-    member: 'todos',
-    action: 'todos',
-    period: 'tudo',
-    date: '',
-  })
-  // Expansão por pessoa / por tipo
-  const [expandedMembers, setExpandedMembers] = useState<Set<string>>(new Set())
-  const [expandedActions, setExpandedActions] = useState<Set<string>>(new Set())
-
-  const refresh = useCallback(async () => {
-    setLoading(true)
-    try { setEntries(await loadAuditRemote()) } finally { setLoading(false) }
-  }, [])
-
+  const [search, setSearch] = useState('')
+  const [action, setAction] = useState('')
+  const [days, setDays] = useState(0)
+  const [error, setError] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [pending, setPending] = useState<AuditEntry | null>(null)
+  const [preview, setPreview] = useState('')
   useEffect(() => {
-    if (!unlocked) return
-    refresh()
-    const unsub = onAuditChanges((remote) => {
-      setEntries(prev => {
-        const byId = new Map<string, AuditEntry>()
-        for (const e of remote) byId.set(e.id, e)
-        for (const e of prev) if (!byId.has(e.id)) byId.set(e.id, e)
-        return Array.from(byId.values()).sort((a, b) => (b.ts || 0) - (a.ts || 0))
-      })
-    })
-    return () => unsub()
-  }, [unlocked, refresh])
-
-  const doUnlock = async () => {
-    if (unlocking) return
-    setUnlocking(true)
-    setErr('')
+    if (!can(role, 'audit')) return
+    let active = true
+    void loadAuditRemote().then(data => { if (active) setEntries(data) }).catch(() => { if (active) setError('Não foi possível carregar o histórico.') })
+    const stop = onAuditChanges(remote => {
+      if (!active) return
+      setEntries(previous => [...new Map([...previous, ...remote, ...loadAudit()].map(entry => [entry.id, entry])).values()].sort((a,b) => b.ts - a.ts))
+    }, () => { if (active) setError('A conexão com a auditoria foi interrompida.') })
+    return () => { active = false; stop() }
+  }, [role])
+  if (!can(role, 'audit')) return <p>Seu cargo não permite acessar a auditoria.</p>
+  const undone = new Set(entries.map(e => e.undoOf).filter(Boolean))
+  const select = (entry: AuditEntry) => {
+    setError('')
     try {
-      if (!await verifyAccessPassword('audit', password)) {
-        setErr('Senha administrativa incorreta.')
-        return
-      }
-      grant('audit')
-      startSessionLock('audit')
-      setPassword('')
-    } catch {
-      setErr('Não foi possível validar a senha administrativa.')
-    } finally {
-      setUnlocking(false)
-    }
+      const counts = entry.local ? previewUndo(entry.id) : Object.keys(names).map(source => ({ source, count: entry.undo?.filter(p => p.source === source).length || 0 })).filter(p => p.count)
+      setPreview(counts.map(p => `${p.count} ${names[p.source]}`).join(' · '))
+      setPending(entry)
+    } catch (e) { setError((e as Error).message) }
   }
-
-  // --- Helpers ---
-  const getInitials = (name: string) => name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2)
-  const hashColor = (str: string) => {
-    let h = 0
-    for (let i = 0; i < str.length; i++) h = ((h << 5) - h) + str.charCodeAt(i)
-    h |= 0
-    return `hsl(${Math.abs(h) % 360}, 52%, 45%)`
+  const confirm = async () => {
+    if (!pending || busy) return
+    setBusy(true); setError('')
+    try {
+      if (pending.local) await undoAuditAction(pending)
+      else await callBackend('undoAction', { id: pending.id })
+      setPending(null); setEntries(await loadAuditRemote())
+    } catch (e) { setError((e as Error).message) }
+    finally { setBusy(false) }
   }
-  const formatRelative = (ts: number) => {
-    const diff = Date.now() - ts
-    const sec = Math.floor(diff / 1000)
-    if (sec < 60) return 'agora mesmo'
-    const min = Math.floor(sec / 60)
-    if (min < 60) return `${min}m atrás`
-    const hr = Math.floor(min / 60)
-    if (hr < 24) return `${hr}h atrás`
-    const day = Math.floor(hr / 24)
-    if (day < 7) return `${day}d atrás`
-    return new Date(ts).toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', year: '2-digit' })
+  const filtered = entries.filter(e => (!action || e.action === action) && (!days || e.ts >= Date.now() - days * 86400000) && `${e.actor} ${e.email || ''} ${e.detail}`.toLocaleLowerCase('pt-BR').includes(search.toLocaleLowerCase('pt-BR')))
+  const exportCsv = () => {
+    if (!can(role, 'audit')) return
+    const cell = (value: string) => '"' + (/^[=+@\-\t\r]/.test(value) ? "'" + value : value).replace(/"/g, '""') + '"'
+    const csv = [['Data', 'Pessoa', 'Ação', 'Detalhes'], ...filtered.map(e => [new Date(e.ts).toISOString(), e.actor, e.action, e.detail])].map(row => row.map(cell).join(';')).join('\r\n')
+    const url = URL.createObjectURL(new Blob(['\uFEFF', csv], { type: 'text/csv;charset=utf-8' }))
+    const link = document.createElement('a'); link.href = url; link.download = 'auditoria.csv'; link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
-  const formatFull = (ts: number) => new Date(ts).toLocaleString('pt-BR', {
-    day: '2-digit', month: '2-digit', year: 'numeric',
-    hour: '2-digit', minute: '2-digit'
-  })
-
-  const exportCSV = () => {
-    // Escapa campos para CSV (vírgulas, aspas, quebras de linha)
-    const csvEsc = (s: string) => {
-      const value = s ?? ''
-      const safe = /^[=+\-@]/.test(value.trimStart()) ? `'${value}` : value
-      return `"${safe.replace(/"/g, '""')}"`
-    }
-    const head = ['Data/Hora', 'Pessoa', 'Email', 'Tipo', 'Detalhe']
-    const rows = filtered.map(e => [
-      formatFull(e.ts),
-      e.actor === 'desconhecido' ? 'Desconhecido' : e.actor,
-      e.email || '',
-      e.action,
-      e.detail || '',
-    ].map(csvEsc).join(';'))
-    const csv = '\uFEFF' + [head.join(';'), ...rows].join('\r\n')
-    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
-    const url = URL.createObjectURL(blob)
-    const a = document.createElement('a')
-    a.href = url
-    a.download = `auditoria-cookie-zookie-${new Date().toISOString().slice(0, 10)}.csv`
-    document.body.appendChild(a)
-    a.click()
-    document.body.removeChild(a)
-    window.setTimeout(() => URL.revokeObjectURL(url), 1_000)
-  }
-
-  const undoEntry = (entry: AuditEntry) => {
-    const undoLog = undoAuditAction(entry)
-    if (!undoLog) return
-    setEntries(prev => [undoLog, ...prev])
-  }
-
-  const filterEntries = useCallback((list: AuditEntry[]) => {
-    let out = list
-    if (filters.member !== 'todos') out = out.filter(e => e.actor === filters.member)
-    if (filters.action !== 'todos') out = out.filter(e => e.action === filters.action)
-    if (filters.period !== 'tudo') {
-      const now = Date.now()
-      const cutoff = filters.period === 'hoje' ? now - 24*60*60*1000 : now - 7*24*60*60*1000
-      out = out.filter(e => e.ts >= cutoff)
-    }
-    if (filters.date) {
-      const dayStart = new Date(`${filters.date}T00:00:00`).getTime()
-      const dayEnd = dayStart + 24*60*60*1000 - 1
-      out = out.filter(e => e.ts >= dayStart && e.ts <= dayEnd)
-    }
-    return out
-  }, [filters])
-
-  // --- Memos ---
-  const filtered = useMemo(() => filterEntries(entries), [entries, filters])
-
-  const members = useMemo(() => {
-    const m = new Map<string, { n: number; email?: string }>()
-    filtered.forEach(e => {
-      const cur = m.get(e.actor) || { n: 0, email: e.email }
-      cur.n += 1
-      if (e.email) cur.email = e.email
-      m.set(e.actor, cur)
-    })
-    return Array.from(m.entries()).map(([name, v]) => ({ name, ...v })).sort((a, b) => b.n - a.n)
-  }, [filtered])
-
-  const actionTypes = useMemo(() => {
-    const m = new Map<string, number>()
-    filtered.forEach(e => m.set(e.action, (m.get(e.action) || 0) + 1))
-    return Array.from(m.entries()).map(([action, count]) => ({ action, count })).sort((a, b) => b.count - a.count)
-  }, [filtered])
-
-  // Para contadores do header
-  const allMembersCount = useMemo(() => new Set(entries.map(e => e.actor)).size, [entries])
-  const periodLabel = useMemo(() => {
-    if (filters.period === 'hoje') return 'Últimas 24h'
-    if (filters.period === '7d') return 'Últimos 7 dias'
-    return 'Todo o histórico'
-  }, [filters.period])
-
-  if (!unlocked) {
-    return (
-      <div className="card" style={{ maxWidth: 460, margin: '0 auto' }}>
-        <div style={{ textAlign: 'center', padding: 'var(--sp-8) 0' }}>
-          <ShieldCheck size={44} style={{ color: 'var(--cz-500)' }} />
-          <h2 style={{ margin: 'var(--sp-3) 0' }}>Auditoria da equipe</h2>
-          <p style={{ color: 'var(--tx-2)', marginBottom: 'var(--sp-6)' }}>
-            Área sensível. Digite a senha administrativa para ver o histórico da equipe.
-          </p>
-          {err && <div className="pw-error-msg" role="alert">{err}</div>}
-          <form onSubmit={event => { event.preventDefault(); void doUnlock() }} className="audit-unlock-form">
-            <label className="sr-only" htmlFor="audit-password">Senha administrativa</label>
-            <input id="audit-password" className="pw-input" type="password" value={password} maxLength={128} autoComplete="current-password" autoFocus placeholder="Senha administrativa" onChange={event => setPassword(event.target.value)} />
-            <button className="btn btn-cz" disabled={unlocking || !password} type="submit"><ShieldCheck size={16} /> {unlocking ? 'Validando…' : 'Abrir auditoria'}</button>
-          </form>
-        </div>
-      </div>
-    )
-  }
-
-  return (
-    <div className="audit-view">
-      {/* Header */}
-      <div className="page-row">
-        <div className="page-title">
-          <h2>Auditoria da equipe</h2>
-          <p>Linha do tempo de ações • agrupada por pessoa e por tipo</p>
-        </div>
-        <div style={{ display: 'flex', gap: 'var(--sp-3)', alignItems: 'center', flexWrap: 'wrap' }}>
-          {loading && <span style={{ color: 'var(--tx-3)', fontSize: '0.85rem' }}>sincronizando…</span>}
-          <button className="btn btn-secondary" onClick={exportCSV}><Download size={16} /> Exportar CSV</button>
-          <button className="btn btn-secondary" onClick={refresh}><RefreshCw size={16} /> Atualizar</button>
-          <button className="btn btn-secondary" onClick={() => revoke('audit')}><Lock size={16} /> Travar</button>
-        </div>
-      </div>
-
-      {/* Contadores + Filtros */}
-      <div className="audit-header-bar">
-        <div className="audit-counters">
-          <div className="audit-counter">
-            <span className="audit-counter-value">{filtered.length}</span>
-            <span className="audit-counter-label">ações</span>
-          </div>
-          <div className="audit-counter">
-            <span className="audit-counter-value">{members.length}</span>
-            <span className="audit-counter-label">membros ativos</span>
-          </div>
-          <div className="audit-counter">
-            <span className="audit-counter-value" style={{ fontSize: '0.85rem' }}>{periodLabel}</span>
-            <span className="audit-counter-label">janela</span>
-          </div>
-        </div>
-
-        <div className="audit-filters">
-          <div className="audit-filter-group">
-            <label htmlFor="filter-member" style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', fontSize: '0.78rem', color: 'var(--tx-2)', marginBottom: 'var(--sp-1)' }}>
-              <Users size={14} /> Membro
-            </label>
-            <select
-              id="filter-member"
-              className="audit-filter-select"
-              value={filters.member}
-              onChange={e => setFilters(f => ({ ...f, member: e.target.value }))}
-            >
-              <option value="todos">Todos os membros</option>
-              {members.map(m => (
-                <option key={m.name} value={m.name}>{m.name} ({m.n})</option>
-              ))}
-            </select>
-          </div>
-          <div className="audit-filter-group">
-            <label htmlFor="filter-action" style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', fontSize: '0.78rem', color: 'var(--tx-2)', marginBottom: 'var(--sp-1)' }}>
-              <Tag size={14} /> Tipo
-            </label>
-            <select
-              id="filter-action"
-              className="audit-filter-select"
-              value={filters.action}
-              onChange={e => setFilters(f => ({ ...f, action: e.target.value }))}
-            >
-              <option value="todos">Todos os tipos</option>
-              {actionTypes.map(a => (
-                <option key={a.action} value={a.action}>{ACTION_ICON[a.action] || '•'} {ACTION_LABEL[a.action] || a.action} ({a.count})</option>
-              ))}
-            </select>
-          </div>
-          <div className="audit-filter-group">
-            <label htmlFor="filter-period" style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', fontSize: '0.78rem', color: 'var(--tx-2)', marginBottom: 'var(--sp-1)' }}>
-              <Calendar size={14} /> Período
-            </label>
-            <select
-              id="filter-period"
-              className="audit-filter-select"
-              value={filters.period}
-              onChange={e => setFilters(f => ({ ...f, period: e.target.value as PeriodOption }))}
-            >
-              <option value="hoje">Hoje</option>
-              <option value="7d">Últimos 7 dias</option>
-              <option value="tudo">Todo o histórico</option>
-            </select>
-          </div>
-          <div className="audit-filter-group">
-            <label htmlFor="filter-date" style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', fontSize: '0.78rem', color: 'var(--tx-2)', marginBottom: 'var(--sp-1)' }}>
-              <Calendar size={14} /> Data
-            </label>
-            <input
-              id="filter-date"
-              type="date"
-              className="audit-filter-select"
-              value={filters.date}
-              onChange={e => setFilters(f => ({ ...f, date: e.target.value }))}
-            />
-          </div>
-          {(filters.member !== 'todos' || filters.action !== 'todos' || filters.period !== 'tudo' || filters.date) && (
-            <button className="btn btn-ghost btn-sm audit-clear-filters" onClick={() => setFilters({ member: 'todos', action: 'todos', period: 'tudo', date: '' })}>
-              <X size={14} /> Limpar filtros
-            </button>
-          )}
-        </div>
-      </div>
-
-      {/* Grid: Por pessoa + Por tipo + Timeline */}
-      <div className="audit-grid">
-        {/* Por pessoa */}
-        <section className="audit-group-card card" aria-label="Por pessoa">
-          <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
-            <Users size={18} /> Por pessoa <span className="badge badge-brand">{members.length}</span>
-          </h3>
-          {members.length === 0 ? (
-            <div className="empty-state" style={{ padding: 'var(--sp-6)' }}><p>Sem registros no período.</p></div>
-          ) : (
-            <div className="audit-group-list">
-              {members.map(m => (
-                <div key={m.name} className="audit-group-item">
-                  <button
-                    className="audit-group-toggle"
-                    onClick={() => setExpandedMembers(prev => {
-                      const next = new Set(prev)
-                      next.has(m.name) ? next.delete(m.name) : next.add(m.name)
-                      return next
-                    })}
-                    aria-expanded={expandedMembers.has(m.name)}
-                    aria-controls={`member-${m.name}`}
-                  >
-                    <ChevronDown size={16} className={expandedMembers.has(m.name) ? 'expanded' : ''} />
-                    <div className="audit-group-avatar" style={{ background: hashColor(m.name === 'desconhecido' ? 'Desconhecido' : m.name) }}>
-                      {getInitials(m.name === 'desconhecido' ? 'Desconhecido' : m.name)}
-                    </div>
-                    <div className="audit-group-info">
-                      <strong style={{ color: 'var(--cz-600)' }}>{m.name === 'desconhecido' ? 'Desconhecido' : m.name}</strong>
-                      {m.email && <span style={{ fontSize: '0.75rem', color: 'var(--tx-3)' }}>{m.email}</span>}
-                    </div>
-                    <span className="badge badge-neutral">{m.n} ações</span>
-                  </button>
-                  <div id={`member-${m.name}`} className="audit-group-content" style={{ display: expandedMembers.has(m.name) ? 'block' : 'none' }}>
-                    {filtered.filter(e => e.actor === m.name).map(e => (
-                      <div key={e.id} className="audit-row audit-row-compact">
-                        <div className="audit-icon" style={{ background: ACTION_COLOR[e.action] }}>{ACTION_ICON[e.action] || '•'}</div>
-                        <div className="audit-row-main">
-                          <div className="audit-row-header">
-                            <span className="audit-action-badge" style={{ background: ACTION_COLOR[e.action] + '20', color: ACTION_COLOR[e.action], borderColor: ACTION_COLOR[e.action] + '60' }}>
-                              {ACTION_LABEL[e.action] || e.action}
-                            </span>
-                            <time className="audit-time" dateTime={new Date(e.ts).toISOString()}>{formatRelative(e.ts)}</time>
-                          </div>
-                          <div className="audit-detail">{e.detail}</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-
-        {/* Por tipo */}
-        <section className="audit-group-card card" aria-label="Por tipo">
-          <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
-            <Tag size={18} /> Por tipo <span className="badge badge-brand">{actionTypes.length}</span>
-          </h3>
-          {actionTypes.length === 0 ? (
-            <div className="empty-state" style={{ padding: 'var(--sp-6)' }}><p>Sem ações no período.</p></div>
-          ) : (
-            <div className="audit-group-list">
-              {actionTypes.map(a => (
-                <div key={a.action} className="audit-group-item">
-                  <button
-                    className="audit-group-toggle"
-                    onClick={() => setExpandedActions(prev => {
-                      const next = new Set(prev)
-                      next.has(a.action) ? next.delete(a.action) : next.add(a.action)
-                      return next
-                    })}
-                    aria-expanded={expandedActions.has(a.action)}
-                    aria-controls={`action-${a.action}`}
-                  >
-                    <ChevronDown size={16} className={expandedActions.has(a.action) ? 'expanded' : ''} />
-                    <div className="audit-group-icon" style={{ background: ACTION_COLOR[a.action] }}>{ACTION_ICON[a.action] || '•'}</div>
-                    <div className="audit-group-info">
-                      <strong style={{ color: ACTION_COLOR[a.action] }}>{ACTION_LABEL[a.action] || a.action}</strong>
-                    </div>
-                    <span className="badge badge-neutral">{a.count} ações</span>
-                  </button>
-                  <div id={`action-${a.action}`} className="audit-group-content" style={{ display: expandedActions.has(a.action) ? 'block' : 'none' }}>
-                    {filtered.filter(e => e.action === a.action).map(e => (
-                      <div key={e.id} className="audit-row audit-row-compact">
-                        <div className="audit-icon" style={{ background: ACTION_COLOR[e.action] }}>{ACTION_ICON[e.action] || '•'}</div>
-                        <div className="audit-row-main">
-                          <div className="audit-row-header">
-                            <span className="audit-actor" style={{ color: ACTION_COLOR[e.action] }}>{e.actor === 'desconhecido' ? 'Desconhecido' : e.actor}</span>
-                            <time className="audit-time" dateTime={new Date(e.ts).toISOString()}>{formatRelative(e.ts)}</time>
-                          </div>
-                          <div className="audit-detail">{e.detail}</div>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </section>
-
-        {/* Timeline principal */}
-        <section className="audit-timeline card">
-          <h3 className="card-title" style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
-            <ShieldCheck size={18} /> Linha do tempo <span className="badge badge-brand">{filtered.length}</span>
-          </h3>
-          {filtered.length === 0 ? (
-            <div className="empty-state"><p>Nenhuma ação registrada com os filtros atuais.</p></div>
-          ) : (
-            <div className="audit-log" role="list" aria-label="Log de auditoria">
-              {filtered.slice(0, 500).map(e => (
-                <article key={e.id} className="audit-row" role="listitem">
-                  <div className="audit-icon" style={{ background: ACTION_COLOR[e.action] }} title={ACTION_LABEL[e.action] || e.action}>
-                    {ACTION_ICON[e.action] || '•'}
-                  </div>
-                  <div className="audit-row-main">
-                    <div className="audit-row-header">
-                      <div className="audit-actor-wrap">
-                        <div className="audit-avatar" style={{ background: ACTION_COLOR[e.action] }}>
-                          {getInitials(e.actor === 'desconhecido' ? 'Desconhecido' : e.actor)}
-                        </div>
-                        <strong className="audit-actor">{e.actor === 'desconhecido' ? 'Desconhecido' : e.actor}</strong>
-                        {e.email && <span className="audit-actor-email">{e.email}</span>}
-                      </div>
-                      <div className="audit-meta">
-                        <span className="audit-action-badge" style={{ background: ACTION_COLOR[e.action] + '20', color: ACTION_COLOR[e.action], borderColor: ACTION_COLOR[e.action] + '60' }}>
-                          {ACTION_ICON[e.action] || ''} {ACTION_LABEL[e.action] || e.action}
-                        </span>
-                        <time className="audit-time" dateTime={new Date(e.ts).toISOString()} title={formatFull(e.ts)}>
-                          {formatRelative(e.ts)}
-                        </time>
-                      </div>
-                    </div>
-                    <div className="audit-detail">{e.detail}</div>
-                    {canUndoAction(e.id) && (
-                      <button className="btn btn-secondary btn-sm audit-undo" onClick={() => undoEntry(e)}>
-                        <Undo2 size={14} /> Desfazer
-                      </button>
-                    )}
-                  </div>
-                </article>
-              ))}
-              {filtered.length > 500 && (
-                <div className="audit-more-notice">
-                  Mostrando 500 de {filtered.length} registros. Refine os filtros para ver mais.
-                </div>
-              )}
-            </div>
-          )}
-        </section>
-      </div>
-    </div>
-  )
+  return <>
+    <div className="page-row"><div className="page-title"><h1>Auditoria</h1></div><div className="audit-tabs"><button className="btn btn-secondary" onClick={exportCsv}>Exportar histórico</button><button className={`btn ${tab === 'history' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTab('history')}>Histórico</button>{can(role, 'team') && <button className={`btn ${tab === 'team' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTab('team')}>Equipe e acessos</button>}</div></div>
+    {tab === 'team' && can(role, 'team') ? <TeamView/> : <>
+      <div className="card checkout-fields"><label>Buscar<input className="input" placeholder="Pessoa ou ação" value={search} onChange={e => setSearch(e.target.value)}/></label><label>Tipo<select className="input" value={action} onChange={e => setAction(e.target.value)}><option value="">Todos</option>{[...new Set(entries.map(e => e.action))].sort().map(a => <option key={a}>{a}</option>)}</select></label><label>Período<select className="input" value={days} onChange={e => setDays(Number(e.target.value))}><option value={0}>Todo o histórico carregado</option><option value={1}>Últimas 24 horas</option><option value={7}>Últimos 7 dias</option><option value={30}>Últimos 30 dias</option></select></label></div>
+      {error && <p role="alert" className="card">{error}</p>}
+      <div className="card audit-history">{!filtered.length && <p>Nenhuma ação encontrada.</p>}{filtered.map(entry => {
+        const reversed = undone.has(entry.id) || entry.local && undoStatus(entry.id) === 'undone'
+        const available = !reversed && (entry.local ? canUndoAction(entry.id) : !!entry.undo?.length)
+        return <article className="audit-event" key={entry.id}><div><div className="audit-event-meta"><strong>{entry.actor}</strong><time dateTime={new Date(entry.ts).toISOString()}>{new Date(entry.ts).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}</time><span className="badge badge-neutral">{entry.local ? 'Neste aparelho' : entry.action}</span></div><p>{entry.detail}</p></div>{available ? <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => select(entry)}><Undo2 size={15}/> Desfazer</button> : <small>{reversed ? 'Desfeita' : entry.action === 'equipe' ? 'Gerencie pela equipe' : 'Sem reversão disponível'}</small>}</article>
+      })}</div>
+    </>}
+    {pending && <ConfirmDialog titleId="undo-confirm" busy={busy} onCancel={() => setPending(null)}><h2 id="undo-confirm">Desfazer esta ação?</h2><p>{pending.detail}</p><p>{preview}</p><p>Alterações posteriores serão preservadas. Se houver conflito, a reversão será recusada.</p>{error && <p role="alert">{error}</p>}<div className="pw-buttons"><button autoFocus className="btn btn-secondary" disabled={busy} onClick={() => setPending(null)}>Cancelar</button><button className="btn btn-primary" disabled={busy} onClick={() => void confirm()}>{busy ? 'Desfazendo…' : 'Confirmar reversão'}</button></div></ConfirmDialog>}
+  </>
 }

@@ -1,76 +1,34 @@
-/* ================= AUDITORIA / LOG DE AÇÕES =================
- * Registra o que cada pessoa (conta Google logada) fez no sistema.
- * Fonte de verdade: Firestore (coleção 'audit'), com localStorage como cache local.
- * Acesso visual à auditoria exige reautenticação recente pela conta Google.
- */
-import { auditPushDB, auditPullDB, type AuditEntryDB } from './sync'
-
+import { auditPullDB, type AuditEntryDB } from './sync'
+import { captureUndo, performUndo, undoStatus } from './undo'
+import { isUnlocked } from './auth'
 export type AuditEntry = AuditEntryDB
-
-let actor: string | null = null
-let actorEmail: string | null = null
-const undoHandlers = new Map<string, () => void>()
-
-/** Define quem está agindo (chamado pelo App quando o login Google muda). */
-export function setAuditActor(name: string | null, email: string | null) {
-  if (actorEmail !== email) undoHandlers.clear()
-  actor = name || email || null
-  actorEmail = email || null
-}
+let actor: string | null = null, actorEmail: string | null = null
+export function setAuditActor(name: string | null, email: string | null) { actor = name || email; actorEmail = email }
 export function getAuditActor() { return actor }
-
-const KEY = 'cc_audit'
+const key = () => 'cc_local_audit:' + encodeURIComponent(actorEmail || '')
 export function loadAudit(): AuditEntry[] {
-  try {
-    const data: unknown = JSON.parse(localStorage.getItem(KEY) || '[]')
-    if (!Array.isArray(data)) return []
-    return data.filter((entry): entry is AuditEntry => entry && typeof entry.id === 'string' && typeof entry.ts === 'number' && Number.isFinite(entry.ts) && typeof entry.actor === 'string' && typeof entry.action === 'string' && typeof entry.detail === 'string').slice(0, 2000)
-  } catch { return [] }
+  if (!isUnlocked('audit')) return []
+  try { const rows = JSON.parse(localStorage.getItem(key()) || '[]'); return Array.isArray(rows) ? rows.filter(e => e && typeof e.id === 'string' && typeof e.detail === 'string' && Number.isFinite(e.ts)).slice(0, 500) : [] } catch { return [] }
 }
-function saveAudit(list: AuditEntry[]) {
-  try { localStorage.setItem(KEY, JSON.stringify(list)) } catch { /* ignore */ }
-}
-
-/**
- * Carrega a auditoria mesclando o cache local com o Firestore.
- * O Firestore é a fonte de verdade; o local cobre quando está offline.
- */
 export async function loadAuditRemote(): Promise<AuditEntry[]> {
-  const local = loadAudit()
-  const remote = await auditPullDB(2000)
-  // Mescla por id (sem duplicar) e ordena por ts decrescente
-  const byId = new Map<string, AuditEntry>()
-  for (const e of remote) byId.set(e.id, e)
-  for (const e of local) if (!byId.has(e.id)) byId.set(e.id, e)
-  const all = Array.from(byId.values()).sort((a, b) => (b.ts || 0) - (a.ts || 0))
-  saveAudit(all.slice(0, 2000))
-  return all
+  return [...await auditPullDB(), ...loadAudit()].sort((a,b) => b.ts - a.ts)
 }
-
-/** Registra uma ação — grava no Firestore (para toda a equipe) e em cache local. */
-export function logAction(action: string, detail: string, undo?: () => void): AuditEntry {
-  const entry: AuditEntry = {
-    id: Math.random().toString(36).slice(2) + Date.now().toString(36),
-    ts: Date.now(),
-    actor: actor || 'desconhecido',
-    action,
-    detail,
+export function logAction(action: string, detail: string, _legacyUndo?: () => void): AuditEntry {
+  const entry: AuditEntry = { id: crypto.randomUUID(), ts: Date.now(), actor: actor || 'Conta local', action, detail, local: true, ...(actorEmail ? { email: actorEmail } : {}) }
+  // Shared changes are journaled inside the server transaction. Local financial
+  // records remain clearly identified as device-only history.
+  if (['custo', 'perda'].includes(action) && isUnlocked('audit')) {
+    captureUndo(entry.id, entry.ts)
+    try { localStorage.setItem(key(), JSON.stringify([entry, ...loadAudit()].slice(0, 500))) } catch { /* storage error is handled by data persistence */ }
   }
-  if (actorEmail) entry.email = actorEmail
-  if (undo) undoHandlers.set(entry.id, undo)
-  // cache local imediato
-  saveAudit([entry, ...loadAudit()].slice(0, 2000))
-  // grava no Firestore (fire-and-forget, não bloqueia a UI)
-  auditPushDB(entry)
   return entry
 }
-
-export function canUndoAction(id: string) { return undoHandlers.has(id) }
-
-export function undoAuditAction(entry: AuditEntry): AuditEntry | null {
-  const undo = undoHandlers.get(entry.id)
-  if (!undo) return null
-  undoHandlers.delete(entry.id)
-  undo()
-  return logAction('auditoria', `Desfez a ação: ${entry.detail}`)
+export function canUndoAction(id: string) { return isUnlocked('audit') && undoStatus(id) === 'available' }
+export async function undoAuditAction(entry: AuditEntry) {
+  if (!isUnlocked('audit')) throw new Error('Seu cargo não permite desfazer ações.')
+  if (!navigator.locks) throw new Error('Use um navegador atualizado para desfazer registros locais.')
+  await navigator.locks.request('cookie-zookie-local-undo', () => {
+    if (!isUnlocked('audit')) throw new Error('Seu acesso mudou.')
+    performUndo(entry.id)
+  })
 }

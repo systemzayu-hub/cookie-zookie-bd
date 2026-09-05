@@ -1,85 +1,15 @@
-import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
-import { ShieldCheck } from 'lucide-react'
-import { grant, isUnlocked, verifyAccessPassword, type Level } from '../auth'
-import { startSessionLock } from '../useSessionLock'
-
+import { createContext, useContext, useState, type ReactNode } from 'react'
+import { isUnlocked, type Level } from '../auth'
 interface GuardContext { guard: (label: string, action: () => void, level?: Level) => void }
-const Guard = createContext<GuardContext>({ guard: (_, action) => action() })
-
+const Guard = createContext<GuardContext>({ guard: () => { throw new Error('Controle de acesso indisponível.') } })
 export function usePasswordGuard() { return useContext(Guard) }
-
 export function PasswordProvider({ children }: { children: ReactNode }) {
-  const [pending, setPending] = useState<{ label: string; action: () => void; level: Level } | null>(null)
-  const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-  const [password, setPassword] = useState('')
-  const dialog = useRef<HTMLDivElement>(null)
-  useEffect(() => {
-    if (!pending) return
-    const previous = document.activeElement as HTMLElement | null
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !busy) { setPending(null); setPassword(''); return }
-      if (event.key !== 'Tab') return
-      const items = Array.from(dialog.current?.querySelectorAll<HTMLElement>('input:not(:disabled), button:not(:disabled)') || [])
-      const first = items[0], last = items[items.length - 1]
-      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
-      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
-    }
-    document.addEventListener('keydown', onKey)
-    return () => { document.removeEventListener('keydown', onKey); previous?.focus() }
-  }, [pending, busy])
-
-  const guard = useCallback((label: string, action: () => void, level: Level = 'admin') => {
-    if (isUnlocked(level)) { action(); return }
-    setError('')
-    setPassword('')
-    setPending({ label, action, level })
-  }, [])
-
-  const confirm = async () => {
-    if (!pending || busy) return
-    setBusy(true)
-    setError('')
-    try {
-      if (!await verifyAccessPassword(pending.level, password)) {
-        setError(pending.level === 'audit' ? 'Senha administrativa incorreta.' : 'Senha de acesso incorreta.')
-        return
-      }
-      grant(pending.level)
-      startSessionLock(pending.level)
-      const action = pending.action
-      setPending(null)
-      setPassword('')
-      action()
-    } catch {
-      setError('Não foi possível validar a senha de acesso.')
-    } finally {
-      setBusy(false)
-    }
-  }
-
-  return (
-    <Guard.Provider value={{ guard }}>
-      {children}
-      {pending && (
-        <div className="pw-overlay" role="presentation" onClick={() => !busy && setPending(null)}>
-          <div ref={dialog} className="pw-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title" onClick={event => event.stopPropagation()}>
-            <ShieldCheck size={34} aria-hidden="true" style={{ color: 'var(--cz-500)' }} />
-            <h3 id="confirm-title" style={{ margin: '8px 0 4px' }}>Confirmar alteração</h3>
-            <p className="pw-action">{pending.label}</p>
-            <p style={{ color: 'var(--tx-2)', fontSize: '0.88rem', margin: 0 }}>{pending.level === 'audit' ? 'Digite a senha administrativa para esta ação.' : 'Digite a senha geral para continuar. Ela valerá no site inteiro até o F5.'}</p>
-            <form onSubmit={event => { event.preventDefault(); void confirm() }}>
-              <label className="sr-only" htmlFor="admin-password">{pending.level === 'audit' ? 'Senha administrativa' : 'Senha geral'}</label>
-              <input id="admin-password" className="pw-input" type="password" value={password} maxLength={128} autoComplete="current-password" autoFocus placeholder={pending.level === 'audit' ? 'Senha administrativa' : 'Senha geral'} onChange={event => setPassword(event.target.value)} />
-            </form>
-            {error && <div className="pw-error-msg" role="alert">{error}</div>}
-            <div className="pw-buttons">
-              <button className="btn btn-ghost" disabled={busy} onClick={() => { setPending(null); setPassword('') }}>Cancelar</button>
-              <button className="btn btn-cz" disabled={busy || !password} onClick={() => void confirm()}>{busy ? 'Validando…' : 'Confirmar alteração'}</button>
-            </div>
-          </div>
-        </div>
-      )}
-    </Guard.Provider>
-  )
+  return <Guard.Provider value={{ guard: (_, action, level = 'admin') => {
+    if (!isUnlocked(level)) { setError('Seu cargo não permite esta ação.'); return }
+    action()
+  } }}>
+    {children}
+    {error && <div className="toast-container"><div className="toast toast-error" role="alert">{error}<button onClick={() => setError('')} aria-label="Fechar aviso">×</button></div></div>}
+  </Guard.Provider>
 }

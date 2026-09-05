@@ -1,3 +1,4 @@
+import './security.test'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { useState } from 'react'

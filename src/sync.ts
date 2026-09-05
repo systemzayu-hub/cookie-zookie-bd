@@ -1,9 +1,11 @@
 import { initializeApp, getApps, type FirebaseApp } from 'firebase/app'
-import { getFirestore, doc, setDoc, runTransaction, onSnapshot, collection, query, orderBy, limit, getDocs, serverTimestamp, type Firestore } from 'firebase/firestore'
+import { getFirestore, doc, onSnapshot, collection, query, orderBy, limit, getDocs, type Firestore } from 'firebase/firestore'
 import { getAuth, signInWithPopup, reauthenticateWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut, type Auth, type User } from 'firebase/auth'
 import { FIREBASE_APP_CHECK_SITE_KEY, FIREBASE_CONFIG } from './firebase-config'
 import { validateStoreData, type StoreData } from './validation'
-import { mergeStore } from './store-merge'
+import { SyncConflict } from './store-merge'
+import type { Role } from './roles'
+import type { UndoPatch } from './undo-model'
 
 let app: FirebaseApp | null = null
 let db: Firestore | null = null
@@ -91,55 +93,37 @@ export async function authLogout(): Promise<void> {
   }
 }
 
-/** Atomically merge against the version actually edited by this device. */
-export async function syncCommit(base: StoreData, local: StoreData): Promise<StoreData> {
-  await firebaseReady()
-  const user = auth?.currentUser
-  if (!db || !user) throw new Error('Entre com Google para sincronizar.')
-  const reference = doc(db, 'loja', 'dados')
-  return runTransaction(db, async transaction => {
-    const snapshot = await transaction.get(reference)
-    const remote = snapshot.exists() ? validateStoreData(snapshot.data()) : base
-    if (!remote) throw new Error('Os dados da equipe precisam ser verificados.')
-    const merged = validateStoreData(mergeStore(base, local, remote))
-    if (!merged) throw new Error('Dados inválidos. Revise as alterações.')
-    transaction.set(reference, {
-      ...merged, schemaVersion: 2, updatedAt: serverTimestamp(),
-      updatedBy: user.uid, updatedByEmail: user.email || '',
-    }, { merge: true })
-    return merged
-  })
-}
 
-/** Read the latest customers and update only contacts, with conflict retries. */
-export async function importCustomerContacts(contacts: Record<string, string>) {
+export async function callBackend<T>(name: string, data: unknown = {}): Promise<T> {
   await firebaseReady()
-  const user = auth?.currentUser
-  if (!db || !user) throw new Error('Entre com Google para importar os contatos.')
-  const reference = doc(db, 'loja', 'dados')
-  return runTransaction(db, async transaction => {
-    const snapshot = await transaction.get(reference)
-    const data = snapshot.exists() ? validateStoreData(snapshot.data()) : null
-    if (!data) throw new Error('Não foi possível ler os clientes cadastrados.')
-    const normalize = (name: string) => name.normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[°º]/g, '').replace(/\s+/g, ' ').trim().toLocaleLowerCase('pt-BR')
-    const remaining = Object.keys(contacts)
-    let updated = 0
-    const customers = data.customers.map(customer => {
-      const key = remaining.find(name => normalize(name) === normalize(customer.name))
-      if (!key) return customer
-      // Ambiguous names must be reviewed rather than assigned a phone silently.
-      if (data.customers.filter(item => normalize(item.name) === normalize(key)).length !== 1) return customer
-      remaining.splice(remaining.indexOf(key), 1)
-      if (customer.contact === contacts[key]) return customer
-      updated++
-      return { ...customer, contact: contacts[key] }
-    })
-    if (updated) transaction.update(reference, {
-      customers, schemaVersion: 2, updatedAt: serverTimestamp(),
-      updatedBy: user.uid, updatedByEmail: user.email || '',
-    })
-    return { updated, missing: remaining, customers }
-  })
+  if (!app || !auth?.currentUser) throw new Error('Entre com Google para continuar.')
+  const { getFunctions, httpsCallable } = await import('firebase/functions')
+  const response = await httpsCallable<unknown, T>(getFunctions(app, 'southamerica-east1'), name)(data)
+  return response.data
+}
+export async function syncCommit(base: StoreData, local: StoreData): Promise<StoreData> {
+  try { return await callBackend<StoreData>('commitStore', { base, local }) }
+  catch (error) {
+    if ((error as { code?: string }).code === 'functions/aborted') throw new SyncConflict()
+    throw error
+  }
+}
+export async function watchAccess(uid: string, callback: (role: Role | null) => void, failure: () => void) {
+  await callBackend('getMyAccess')
+  if (!db) throw new Error('Acesso indisponível.')
+  return onSnapshot(doc(db, 'team', uid), { includeMetadataChanges: true }, snapshot => {
+    if (snapshot.metadata.fromCache) { callback(null); return }
+    const role = snapshot.data()?.role
+    callback(['owner', 'admin', 'employee'].includes(role) ? role : 'blocked')
+  }, failure)
+}
+export type TeamMember = { uid?: string; email: string; role: Role; name?: string; invited?: boolean }
+export function watchTeam(callback: (members: TeamMember[]) => void, failure: () => void) {
+  if (!db) return () => {}
+  let members: TeamMember[] = [], invites: TeamMember[] = []
+  const a = onSnapshot(collection(db, 'team'), snap => { members = snap.docs.map(d => d.data() as TeamMember); callback([...members, ...invites]) }, failure)
+  const b = onSnapshot(collection(db, 'invitations'), snap => { invites = snap.docs.map(d => ({ ...d.data(), invited: true }) as TeamMember); callback([...members, ...invites]) }, failure)
+  return () => { a(); b() }
 }
 
 /** Observa mudanças remotas no doc 'dados'. Retorna função de unsubscribe. */
@@ -168,17 +152,9 @@ export type AuditEntryDB = {
   email?: string
   action: string
   detail: string
-}
-
-/** Grava UMA entrada de auditoria no Firestore (fire-and-forget). */
-export async function auditPushDB(entry: AuditEntryDB): Promise<void> {
-  const ready = await firebaseReady()
-  if (!ready || !db) return
-  try {
-    await setDoc(doc(db, 'audit', entry.id), entry)
-  } catch (e) {
-    console.error('[audit] falha ao gravar no Firestore', e)
-  }
+  undo?: UndoPatch[]
+  undoOf?: string
+  local?: boolean
 }
 
 /** Puxa as auditorias do Firestore (mais recentes primeiro). */
@@ -195,14 +171,14 @@ export async function auditPullDB(max = 2000): Promise<AuditEntryDB[]> {
 }
 
 /** Observa novas entradas de auditoria em tempo real. Retorna unsubscribe. */
-export function onAuditChanges(cb: (entries: AuditEntryDB[]) => void): () => void {
+export function onAuditChanges(cb: (entries: AuditEntryDB[]) => void, failure?: () => void): () => void {
   if (!db) return () => {}
   const unsub = onSnapshot(
     query(collection(db, 'audit'), orderBy('ts', 'desc'), limit(500)),
     (snap) => {
       cb(snap.docs.map(d => d.data() as AuditEntryDB))
     },
-    (err) => console.error('[audit] falha no snapshot', err)
+    () => failure?.()
   )
   return unsub
 }

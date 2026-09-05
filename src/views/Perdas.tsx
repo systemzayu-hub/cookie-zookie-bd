@@ -1,3 +1,4 @@
+import { useTrackedState } from '../useTrackedState'
 import { useState, useEffect, useMemo } from 'react'
 import { Plus, Trash2, AlertTriangle, Package, X } from 'lucide-react'
 import { SEED_PERDAS, CUSTOS_PRODUCAO } from '../pendencias-avancado'
@@ -54,7 +55,7 @@ export interface Perda {
 }
 
 export function PerdasView() {
-  const [perdas, setPerdas] = useState<Perda[]>(() => load('cc_perdas', [] as Perda[]) as Perda[])
+  const [perdas, setPerdas] = useTrackedState<Perda>("perdas", () => load('cc_perdas', [] as Perda[]) as Perda[])
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ date: '', produto: '', qtd: '', motivo: '', custoUnit: '' })
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null)

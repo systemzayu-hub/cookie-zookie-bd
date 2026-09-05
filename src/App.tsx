@@ -1,14 +1,18 @@
 import { useEffect, useRef, useState, Suspense, lazy } from 'react'
-import { LayoutDashboard, ShoppingCart, Package, BarChart3, Users, Sun, Moon, Download, Upload, LogIn, LogOut, Lock, Percent, ShieldCheck, Menu, X, Cloud, CloudOff, RefreshCw } from 'lucide-react'
+import { LayoutDashboard, ShoppingCart, Package, BarChart3, Users, Sun, Moon, Download, Upload, LogIn, LogOut, Percent, ShieldCheck, Menu, X, Cloud, CloudOff, RefreshCw } from 'lucide-react'
 import { Product, Sale, Customer, Tab, Pendencia, fmtBRL } from './types'
 import { seedProducts, seedCustomers, seedSales, load, save, STORAGE_ERROR_EVENT } from './data'
 import { baixarBackup, aplicarBackup } from './db'
-import { authLoginGoogle, authLogout, authOnChange, authReauthenticateGoogle, firebaseReady, importCustomerContacts } from './sync'
+import { authLoginGoogle, authLogout, authOnChange, authReauthenticateGoogle, firebaseReady } from './sync'
 import { PasswordProvider } from './components/PasswordGate'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { SensitiveData } from './components/SensitiveData'
 import { setAuditActor, logAction } from './audit'
-import { lockAll } from './useSessionLock'
+import { setRole, useRole } from './auth'
+import { can, ROLE_LABEL } from './roles'
+import { watchAccess } from './sync'
+import { EmployeeSales } from './views/EmployeeSales'
+import { configureUndoStore, setUndoOwner } from './undo'
 import { useStoreSync } from './useStoreSync'
 import { recordSale } from './record-sale'
 import { validateCustomers, validateProducts, validateSales, validateStoreData } from './validation'
@@ -41,10 +45,11 @@ export default function App() {
   const fileRef = useRef<HTMLInputElement>(null)
   const menuButtonRef = useRef<HTMLButtonElement>(null)
   const sidebarRef = useRef<HTMLElement>(null)
-  const importingContacts = useRef(false)
+  const role = useRole()
+  const [accessError, setAccessError] = useState('')
   const saleState = useRef({ products, sales, customers })
   saleState.current = { products, sales, customers }
-  const { status: syncState, ready: storeReady, retry: retrySync, discardPending } = useStoreSync(user?.email ?? null, { products, sales, customers }, data => {
+  const { status: syncState, ready: storeReady, retry: retrySync, discardPending } = useStoreSync(can(role, 'manage') ? user?.email ?? null : null, { products, sales, customers }, data => {
     setProducts(data.products); setSales(data.sales); setCustomers(data.customers)
   }, online)
   const [loginBusy, setLoginBusy] = useState(false)
@@ -53,21 +58,39 @@ export default function App() {
   useEffect(() => {
     let active = true
     let unsub = () => {}
+    let stopAccess = () => {}
+    let generation = 0
     void firebaseReady().then(on => {
       if (!active) return
       setFirebaseOn(on)
       if (!on) { setLoginError('Falha ao conectar. Verifique sua rede e recarregue a página.'); setAuthLoading(false); return }
       unsub = authOnChange(u => {
+        const session = ++generation
+        stopAccess(); stopAccess = () => {}
+        setRole(null); setAccessError('')
+        setUndoOwner(u?.email || null)
         setUser(u ? { email: u.email, name: u.displayName } : null)
         setAuditActor(u?.displayName || u?.email || null, u?.email || null)
         setAuthLoading(false)
         if (u) {
+          void watchAccess(u.uid, next => {
+            if (active && session === generation) {
+              setRole(next)
+              if (next === 'blocked') {
+                setProducts([]); setSales([]); setCustomers([])
+              }
+            }
+          }, () => { if (active && session === generation) { setRole(null); setAccessError('Não foi possível verificar seu acesso.') } }).then(stop => {
+            if (!active || session !== generation) stop()
+            else stopAccess = stop
+          }).catch(() => { if (active && session === generation) setAccessError('Não foi possível verificar seu acesso. Tente novamente.') })
+
           try { logAction('login', `${u.displayName || u.email || 'alguém'} entrou no sistema`) }
           catch { /* auditoria é best-effort */ }
         }
       })
     })
-    return () => { active = false; unsub() }
+    return () => { active = false; generation++; stopAccess(); unsub(); setRole(null) }
   }, [])
 
   useEffect(() => {
@@ -118,7 +141,7 @@ export default function App() {
 
   const doLogout = async () => {
     logAction('login', `${user?.name || user?.email || 'alguém'} saiu do sistema`)
-    lockAll()
+    setRole(null)
     await authLogout()
     pushToast('Você saiu da conta.')
   }
@@ -170,23 +193,8 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    const importContacts = (event: Event) => {
-      if (importingContacts.current || load('cc_contacts_import_v2_done', false)) return
-      const contacts = (event as CustomEvent<Record<string, string>>).detail
-      importingContacts.current = true
-      void importCustomerContacts(contacts).then(result => {
-        if (!result.missing.length) save('cc_contacts_import_v2_done', true)
-        if (result.updated) {
-          logAction('cliente', `Atualizou ${result.updated} telefone(s) de clientes cadastrados`)
-          pushToast(`${result.updated} WhatsApp(s) salvo(s) no banco.`)
-        }
-        if (result.missing.length) pushToast(`Confira os nomes cadastrados: ${result.missing.join(', ')}.`, 'error')
-      }).catch(() => {
-        pushToast('WhatsApps não foram salvos. Confira a conexão e desbloqueie novamente para tentar.', 'error')
-      }).finally(() => { importingContacts.current = false })
-    }
-    window.addEventListener('cookie-zookie:contact-import', importContacts)
-    return () => window.removeEventListener('cookie-zookie:contact-import', importContacts)
+    configureUndoStore({ read: () => saleState.current, write: data => { setProducts(data.products); setSales(data.sales); setCustomers(data.customers) } })
+    return () => configureUndoStore(null)
   }, [])
 
   const pushToast = (msg: string, type: 'success' | 'error' = 'success') => {
@@ -217,6 +225,7 @@ export default function App() {
   }
 
   const onImport = async (file: File) => {
+    if (!can(role, 'backup')) return
     try {
       await authReauthenticateGoogle()
       await aplicarBackup(file, (data) => {
@@ -232,6 +241,7 @@ export default function App() {
   }
 
   const exportBackup = async () => {
+    if (!can(role, 'backup')) return
     try {
       await authReauthenticateGoogle()
       baixarBackup(products, sales, customers)
@@ -290,6 +300,14 @@ export default function App() {
     )
   }
 
+  if (!role || role === 'blocked') return <div className="login-gate"><div className="login-gate-card">
+    <h1>{role === 'blocked' ? 'Acesso não autorizado' : 'Verificando acesso'}</h1>
+    <p role="status">{role === 'blocked' ? 'Esta conta não tem acesso à loja. O dono pode liberar seu cargo pela equipe.' : accessError || 'Aguardando confirmação do servidor…'}</p>
+    <button className="btn btn-secondary" onClick={() => window.location.reload()}>Tentar novamente</button>
+    <button className="btn btn-ghost" onClick={doLogout}>Sair da conta</button>
+  </div></div>
+  if (role === 'employee') return <EmployeeSales name={user.name || user.email || 'Funcionário'} onLogout={doLogout}/>
+
   return (
       <PasswordProvider>
       <div className="app">
@@ -318,7 +336,7 @@ export default function App() {
             {user ? (
               <>
                 <div className="auth-user" title={user.email ?? ''}>
-                  <span className="auth-dot" /> {user.name ?? user.email}
+                  <span className="auth-dot" /> {user.name ?? user.email} · {ROLE_LABEL[role]}
                 </div>
                 <button className="theme-toggle" onClick={doLogout}>
                   <LogOut size={16} /> Sair
@@ -342,9 +360,6 @@ export default function App() {
           <button className="theme-toggle" onClick={() => setDark(d => !d)}>
             {dark ? <Sun size={18} /> : <Moon size={18} />}
             {dark ? 'Tema claro' : 'Tema escuro'}
-          </button>
-          <button className="theme-toggle" onClick={() => { lockAll(); pushToast('Áreas sensíveis bloqueadas.') }}>
-            <Lock size={16} /> Bloquear áreas sensíveis
           </button>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)', marginTop: 'var(--sp-2)' }}>
             <button className="theme-toggle" onClick={() => void exportBackup()}>

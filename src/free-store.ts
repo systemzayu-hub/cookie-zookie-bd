@@ -1,4 +1,4 @@
-import { arrayUnion, doc, getDocFromServer, runTransaction, serverTimestamp, type Firestore, type Transaction } from 'firebase/firestore'
+import { arrayUnion, doc, getDocFromServer, setDoc, runTransaction, serverTimestamp, type Firestore, type Transaction } from 'firebase/firestore'
 import type { User } from 'firebase/auth'
 import { mergeStore, sameData } from './store-merge'
 import { validateStoreData, type StoreData } from './validation'
@@ -8,6 +8,7 @@ import { diffRows, reversePatches } from './undo-model'
 import { can, type Role } from './roles'
 import type { Sale } from './types'
 
+export const dashboardSale = ({ id, date, items, status }: Sale) => ({ id, date, items, status: status || 'Pago' })
 export const FREE_MAX_FLAVORS = 5
 export const catalogCustomers = (data: StoreData) => data.customers.map(({ id, name }, index) => ({ id, name, index }))
 const auditId = () => 'v2-' + crypto.randomUUID()
@@ -35,6 +36,7 @@ export function createFreeStore(db: Firestore, currentUser: () => User | null) {
   const writeStore = (tx: Transaction, user: User, id: string, before: StoreData, after: StoreData, action: string, detail: string, undoOf = '') => {
     tx.update(shop, { ...after, schemaVersion: 2, auditId: id, updatedAt: serverTimestamp(), updatedBy: user.uid, updatedByEmail: accessKey(user.email!) })
     tx.set(doc(db, 'saleRegistry', 'ids'), { ids: arrayUnion(...after.sales.map(sale => sale.id)), revision: id }, { merge: true })
+    tx.set(doc(db, 'dashboard', 'public'), { sales: after.sales.map(dashboardSale), revision: id })
     tx.set(doc(db, 'catalog', 'products'), { products: after.products, revision: id })
     tx.set(doc(db, 'catalog', 'customers'), { customers: catalogCustomers(after), revision: id })
     tx.set(doc(db, 'auditV2', id), header(user, id, action, detail, !undoOf, undoOf))
@@ -44,7 +46,8 @@ export function createFreeStore(db: Firestore, currentUser: () => User | null) {
     async getMyAccess() {
       const user = identity()
       const snap = await getDocFromServer(doc(db, 'teamAccess', accessKey(user.email!)))
-      return { role: snap.data()?.role || 'blocked' }
+      await setDoc(doc(db, 'loginProfiles', accessKey(user.email!)), { uid: user.uid, email: accessKey(user.email!), name: (user.displayName || user.email!).slice(0,120), lastSeen: serverTimestamp() })
+      return { role: snap.data()?.role || 'viewer' }
     },
     async getOperations() {
       identity()
@@ -87,6 +90,7 @@ export function createFreeStore(db: Firestore, currentUser: () => User | null) {
         const customerIndex = sale.customerId ? customers.find((c: { id: string }) => c.id === sale.customerId)?.index ?? -1 : -1
         tx.set(requestRef, { sale, indices, customerIndex, fingerprint, auditId: id, createdAt: serverTimestamp() })
         tx.update(shop, { products: after.products, sales: arrayUnion(sale), schemaVersion: 2, auditId: id, updatedAt: serverTimestamp(), updatedBy: user.uid, updatedByEmail: accessKey(user.email!) })
+        tx.update(doc(db, 'dashboard', 'public'), { sales: arrayUnion(dashboardSale(sale)), revision: id })
         tx.update(doc(db, 'saleRegistry', 'ids'), { ids: arrayUnion(sale.id), revision: id })
         tx.set(doc(db, 'catalog', 'products'), { products: after.products, revision: id })
         tx.set(doc(db, 'auditV2', id), { ...header(user, id, 'venda', 'Venda registrada'), saleId: sale.id, sale, beforeProducts: products, afterProducts: after.products })
@@ -131,7 +135,7 @@ export function createFreeStore(db: Firestore, currentUser: () => User | null) {
     },
     async changeTeamAccess({ email, role }: { email: string; role: Role }) {
       const user = identity(), target = accessKey(email), id = auditId()
-      if (!/^[^\s@/]+@[^\s@/]+\.[^\s@/]+$/.test(target) || target.length > 254 || !['admin', 'employee', 'blocked'].includes(role)) throw new Error('E-mail ou cargo inválido.')
+      if (!/^[^\s@/]+@[^\s@/]+\.[^\s@/]+$/.test(target) || target.length > 254 || !['admin', 'employee', 'viewer', 'blocked'].includes(role)) throw new Error('E-mail ou cargo inválido.')
       return runTransaction(db, async tx => {
         const ref = doc(db, 'teamAccess', target)
         const [previous, own] = await Promise.all([tx.get(ref), tx.get(doc(db, 'teamAccess', accessKey(user.email!)))])

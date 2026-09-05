@@ -7,6 +7,7 @@ service cloud.firestore {
     function staff() { return verified() && role() in ['owner', 'admin', 'employee']; }
     function manager() { return verified() && role() in ['owner', 'admin']; }
     function owner() { return verified() && role() == 'owner'; }
+    function visitor() { return verified() && (!exists(/databases/$(database)/documents/teamAccess/$(email())) || role() != 'blocked'); }
     function oldShop() { return get(/databases/$(database)/documents/loja/dados).data; }
     function newShop() { return getAfter(/databases/$(database)/documents/loja/dados).data; }
     function event(id) { return getAfter(/databases/$(database)/documents/auditV2/$(id)).data; }
@@ -23,7 +24,8 @@ service cloud.firestore {
         && (e.action == 'venda' || (existsAfter(/databases/$(database)/documents/auditSnapshots/$(s.auditId)/versions/before)
         && existsAfter(/databases/$(database)/documents/auditSnapshots/$(s.auditId)/versions/after)))
         && getAfter(/databases/$(database)/documents/catalog/products).data == { 'products': s.products, 'revision': s.auditId }
-        && getAfter(/databases/$(database)/documents/saleRegistry/ids).data.revision == s.auditId;
+        && getAfter(/databases/$(database)/documents/saleRegistry/ids).data.revision == s.auditId
+        && getAfter(/databases/$(database)/documents/dashboard/public).data.revision == s.auditId;
     }
     function baseStoreValid(s) {
       return s.products is list && s.products.size() <= 500 && s.sales is list && s.sales.size() <= 5000
@@ -95,7 +97,7 @@ service cloud.firestore {
       allow create, delete: if false;
     }
     match /catalog/products {
-      allow read: if staff();
+      allow read: if visitor();
       allow create, update: if tiedToStore(request.resource.data.revision)
         && request.resource.data == { 'products': newShop().products, 'revision': newShop().auditId };
       allow delete: if false;
@@ -163,10 +165,34 @@ service cloud.firestore {
       allow list: if owner();
       allow create, update: if owner() && address != email() && request.resource.data.email == address
         && (!exists(/databases/$(database)/documents/teamAccess/$(address)) || resource.data.role != 'owner')
-        && request.resource.data.role in ['admin','employee','blocked']
+        && request.resource.data.role in ['admin','employee','viewer','blocked']
         && request.resource.data.keys().hasOnly(['email','role','auditId','updatedAt']) && request.resource.data.updatedAt == request.time
         && event(request.resource.data.auditId).action == 'equipe' && event(request.resource.data.auditId).targetEmail == address
         && event(request.resource.data.auditId).actorUid == request.auth.uid && event(request.resource.data.auditId).createdAt == request.time;
+      allow delete: if false;
+    }
+    match /loginProfiles/{address} {
+      allow get: if verified() && (email() == address || owner());
+      allow list: if owner();
+      allow create, update: if verified() && address == email()
+        && request.resource.data.keys().hasOnly(['uid','email','name','lastSeen'])
+        && request.resource.data.uid == request.auth.uid && request.resource.data.email == email()
+        && request.resource.data.name is string && request.resource.data.name.size() <= 120
+        && request.resource.data.lastSeen == request.time;
+      allow delete: if false;
+    }
+    match /dashboard/public {
+      allow read: if visitor();
+      allow create, update: if tiedToStore(request.resource.data.revision)
+        && request.resource.data.keys().hasOnly(['sales','revision'])
+        && request.resource.data.sales is list
+        && (event(request.resource.data.revision).action != 'venda' ? manager() :
+          request.resource.data.sales == resource.data.sales.concat([{
+            'id': ticket(event(request.resource.data.revision).saleId).sale.id,
+            'date': ticket(event(request.resource.data.revision).saleId).sale.date,
+            'items': ticket(event(request.resource.data.revision).saleId).sale.items,
+            'status': ticket(event(request.resource.data.revision).saleId).sale.status
+          }]));
       allow delete: if false;
     }
     match /audit/{id} { allow read: if manager(); allow write: if false; }

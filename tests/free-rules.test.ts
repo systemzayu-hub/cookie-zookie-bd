@@ -3,7 +3,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebase/rules-unit-testing'
 import { doc, getDocFromServer, getDocs, collection, setDoc, updateDoc, deleteDoc, runTransaction, serverTimestamp, arrayUnion, setLogLevel } from 'firebase/firestore'
-import { createFreeStore, catalogCustomers } from '../src/free-store'
+import { createFreeStore, catalogCustomers, dashboardSale } from '../src/free-store'
 import { validateStoreData } from '../src/validation'
 setLogLevel('silent')
 let env: Awaited<ReturnType<typeof initializeTestEnvironment>>
@@ -27,6 +27,7 @@ beforeEach(async () => {
       setDoc(doc(db, 'loja', 'dados'), { ...base, schemaVersion: 2, auditId: 'bootstrap' }),
       setDoc(doc(db, 'catalog', 'products'), { products: base.products, revision: 'bootstrap' }),
       setDoc(doc(db, 'catalog', 'customers'), { customers: catalogCustomers(base), revision: 'bootstrap' }),
+      setDoc(doc(db, 'dashboard', 'public'), { sales:[], revision:'bootstrap' }),
       setDoc(doc(db, 'saleRegistry', 'ids'), { ids: [], revision: 'bootstrap' }),
       ...['owner','admin','employee','blocked'].map(role => setDoc(doc(db, 'teamAccess', role + '@example.test'), { email: role + '@example.test', role })),
     ])
@@ -35,11 +36,11 @@ beforeEach(async () => {
 after(async () => { await env?.cleanup() })
 
 test('anonymous, unverified and uninvited accounts cannot read the catalog or store', async () => {
-  for (const db of [env.unauthenticatedContext().firestore(), client('employee', false), client('missing'), client('blocked')]) {
+  for (const db of [env.unauthenticatedContext().firestore(), client('employee', false), client('blocked')]) {
     await assertFails(getDocFromServer(doc(db as any, 'catalog', 'products')))
     await assertFails(getDocFromServer(doc(db as any, 'loja', 'dados')))
   }
-  assert.equal((await api('missing').getMyAccess()).role, 'blocked')
+  assert.equal((await api('missing').getMyAccess()).role, 'viewer')
 })
 test('employee sees operational catalog but cannot read finance, audit, snapshots or other access records', async () => {
   const data = await api('employee').getOperations()
@@ -125,6 +126,7 @@ async function forgedSale(kind: string) {
     tx.set(doc(db,'saleRequests',who.uid,'items',s.id),{sale:s,indices:[0],customerIndex:-1,fingerprint:'forged',auditId:id,createdAt:serverTimestamp()})
     tx.update(doc(db,'loja','dados'),{ products,sales:arrayUnion(s),schemaVersion:2,auditId:id,updatedAt:serverTimestamp(),updatedBy:who.uid,updatedByEmail:who.email,...(kind==='delete-history'?{sales:[s]}:{}) })
     tx.set(doc(db,'catalog','products'),{products,revision:id})
+    tx.update(doc(db,'dashboard','public'),{sales:arrayUnion(dashboardSale(s)),revision:id})
     tx.update(doc(db,'saleRegistry','ids'),{ids:arrayUnion(s.id),revision:id})
     tx.set(doc(db,'auditV2',id),head)
   })
@@ -143,3 +145,24 @@ test('employee cannot erase existing sales through a direct update',async()=>{
 })
 
 test('valid direct employee transaction is accepted as a control for attack tests',async()=>{await assertSucceeds(forgedSale('valid'));assert.equal((await readStore()).products[0].stock,8)})
+
+test('visitor enters read-only and appears in owner list without gaining write privileges',async()=>{
+  assert.equal((await api('visitor').getMyAccess()).role,'viewer')
+  const db=client('visitor')
+  await assertSucceeds(getDocFromServer(doc(db,'dashboard','public')))
+  await assertFails(getDocFromServer(doc(db,'loja','dados')))
+  await assertFails(getDocs(collection(db,'loginProfiles')))
+  await assertFails(updateDoc(doc(db,'dashboard','public'),{sales:[]}))
+  await assertFails(setDoc(doc(db,'teamAccess','visitor@example.test'),{email:'visitor@example.test',role:'owner'}))
+  await assertFails(setDoc(doc(db,'loginProfiles','owner@example.test'),{uid:'visitor',email:'owner@example.test',name:'fake',lastSeen:serverTimestamp()}))
+  await assert.rejects(()=>api('visitor').createSale({sale:sale()}))
+  assert.ok((await getDocs(collection(client('owner'),'loginProfiles'))).docs.some(d=>d.data().email==='visitor@example.test'))
+  await api('owner').changeTeamAccess({email:'visitor@example.test',role:'employee'})
+  await api('visitor').createSale({sale:sale()})
+  const summary=(await getDocFromServer(doc(client('owner'),'dashboard','public'))).data()!
+  assert.equal(summary.sales.length,1);assert.equal(summary.sales[0].customerId,undefined)
+  await api('owner').changeTeamAccess({email:'visitor@example.test',role:'viewer'})
+  await assert.rejects(()=>api('visitor').createSale({sale:sale()}))
+  await api('owner').changeTeamAccess({email:'visitor@example.test',role:'blocked'})
+  await assertFails(getDocFromServer(doc(db,'dashboard','public')))
+})

@@ -115,13 +115,21 @@ export async function watchAccess(uid: string, callback: (role: Role | null) => 
   return onSnapshot(doc(db, 'teamAccess', email), { includeMetadataChanges: true }, snapshot => {
     if (snapshot.metadata.fromCache) { callback(null); return }
     const role = snapshot.data()?.role
-    callback(['owner', 'admin', 'employee'].includes(role) ? role : 'blocked')
+    callback(!snapshot.exists() ? 'viewer' : ['owner', 'admin', 'employee', 'viewer'].includes(role) ? role : 'blocked')
   }, failure)
 }
 export type TeamMember = { uid?: string; email: string; role: Role; name?: string; invited?: boolean }
 export function watchTeam(callback: (members: TeamMember[]) => void, failure: () => void) {
   if (!db) return () => {}
-  return onSnapshot(collection(db, 'teamAccess'), snap => callback(snap.docs.map(d => d.data() as TeamMember)), failure)
+  let access: TeamMember[] = [], profiles: TeamMember[] = []
+  const emit = () => {
+    const merged = new Map(profiles.map(p => [p.email, { ...p, role: 'viewer' as Role }]))
+    access.forEach(a => merged.set(a.email, { ...merged.get(a.email), ...a }))
+    callback([...merged.values()].sort((a,b) => (a.name || a.email).localeCompare(b.name || b.email)))
+  }
+  const a = onSnapshot(collection(db, 'teamAccess'), snap => { access = snap.docs.map(d => d.data() as TeamMember); emit() }, failure)
+  const b = onSnapshot(collection(db, 'loginProfiles'), snap => { profiles = snap.docs.map(d => d.data() as TeamMember); emit() }, failure)
+  return () => { a(); b() }
 }
 
 /** Observa mudanças remotas no doc 'dados'. Retorna função de unsubscribe. */

@@ -10,7 +10,7 @@ A implementação usa Firebase Authentication com Google, transações do Firest
 | Adicionar, bloquear e alterar cargos | Não | Não | Sim |
 | Alterar o próprio cargo ou o dono | Não | Não | Não |
 
-Sem cadastro autorizado = sem acesso. O dono autoriza a conta Google em **Auditoria → Equipe e acessos**. Não há senhas internas nem promoção automática no primeiro login.
+Sem cargo = dashboard em modo de leitura após login Google. Bloqueio explícito continua impedindo acesso. Pessoas que fazem login aparecem automaticamente na equipe, com busca por nome ou e-mail. O dono autoriza a conta Google em **Auditoria → Equipe e acessos**. Não há senhas internas nem promoção automática no primeiro login.
 
 ## Validação
 

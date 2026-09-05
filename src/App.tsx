@@ -11,6 +11,7 @@ import { setAuditActor, logAction } from './audit'
 import { setRole, useRole } from './auth'
 import { can, ROLE_LABEL } from './roles'
 import { watchAccess } from './sync'
+import { VisitorDashboard } from './views/VisitorDashboard'
 import { EmployeeSales } from './views/EmployeeSales'
 import { configureUndoStore, setUndoOwner } from './undo'
 import { useStoreSync } from './useStoreSync'
@@ -306,6 +307,7 @@ export default function App() {
     <button className="btn btn-secondary" onClick={() => window.location.reload()}>Tentar novamente</button>
     <button className="btn btn-ghost" onClick={doLogout}>Sair da conta</button>
   </div></div>
+  if (role === 'viewer') return <VisitorDashboard name={user.name || user.email || ''} onLogout={doLogout}/>
   if (role === 'employee') return <EmployeeSales name={user.name || user.email || 'Funcionário'} onLogout={doLogout}/>
 
   return (

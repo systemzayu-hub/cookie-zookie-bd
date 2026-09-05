@@ -1,9 +1,9 @@
 import { initializeApp, getApps, type FirebaseApp } from 'firebase/app'
-import { getFirestore, doc, getDoc, setDoc, runTransaction, onSnapshot, collection, query, orderBy, limit, getDocs, serverTimestamp, type Firestore } from 'firebase/firestore'
+import { getFirestore, doc, setDoc, runTransaction, onSnapshot, collection, query, orderBy, limit, getDocs, serverTimestamp, type Firestore } from 'firebase/firestore'
 import { getAuth, signInWithPopup, reauthenticateWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut, type Auth, type User } from 'firebase/auth'
 import { FIREBASE_APP_CHECK_SITE_KEY, FIREBASE_CONFIG } from './firebase-config'
 import { validateStoreData, type StoreData } from './validation'
-import type { Customer, Product, Sale } from './types'
+import { mergeStore } from './store-merge'
 
 let app: FirebaseApp | null = null
 let db: Firestore | null = null
@@ -91,37 +91,24 @@ export async function authLogout(): Promise<void> {
   }
 }
 
-/** Puxa dados do Firestore (collection 'loja', doc 'dados'). */
-export async function syncPull(): Promise<StoreData | null> {
-  const ready = await firebaseReady()
-  if (!ready || !db) return null
-  try {
-    const snap = await getDoc(doc(db, 'loja', 'dados'))
-    if (!snap.exists()) return null
-    return validateStoreData(snap.data())
-  } catch {
-    return null
-  }
-}
-
-/** Empurra dados para o Firestore (collection 'loja', doc 'dados'). */
-export async function syncPush(products: Product[], sales: Sale[], customers: Customer[]): Promise<boolean> {
-  const ready = await firebaseReady()
-  if (!ready || !db || !auth?.currentUser) return false
-  try {
-    await setDoc(doc(db, 'loja', 'dados'), {
-      products,
-      sales,
-      customers,
-      schemaVersion: 2,
-      updatedAt: serverTimestamp(),
-      updatedBy: auth.currentUser.uid,
-      updatedByEmail: auth.currentUser.email || '',
+/** Atomically merge against the version actually edited by this device. */
+export async function syncCommit(base: StoreData, local: StoreData): Promise<StoreData> {
+  await firebaseReady()
+  const user = auth?.currentUser
+  if (!db || !user) throw new Error('Entre com Google para sincronizar.')
+  const reference = doc(db, 'loja', 'dados')
+  return runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(reference)
+    const remote = snapshot.exists() ? validateStoreData(snapshot.data()) : base
+    if (!remote) throw new Error('Os dados da equipe precisam ser verificados.')
+    const merged = validateStoreData(mergeStore(base, local, remote))
+    if (!merged) throw new Error('Dados inválidos. Revise as alterações.')
+    transaction.set(reference, {
+      ...merged, schemaVersion: 2, updatedAt: serverTimestamp(),
+      updatedBy: user.uid, updatedByEmail: user.email || '',
     }, { merge: true })
-    return true
-  } catch {
-    return false
-  }
+    return merged
+  })
 }
 
 /** Read the latest customers and update only contacts, with conflict retries. */
@@ -158,8 +145,9 @@ export async function importCustomerContacts(contacts: Record<string, string>) {
 /** Observa mudanças remotas no doc 'dados'. Retorna função de unsubscribe. */
 export function onRemoteChanges(cb: (data: StoreData) => void, onError?: () => void): () => void {
   if (!db) return () => {}
-  const unsub = onSnapshot(doc(db, 'loja', 'dados'), (snap) => {
-    if (!snap.exists()) return
+  const unsub = onSnapshot(doc(db, 'loja', 'dados'), { includeMetadataChanges: true }, (snap) => {
+    if (snap.metadata.fromCache || snap.metadata.hasPendingWrites) return
+    if (!snap.exists()) { cb({ products: [], sales: [], customers: [] }); return }
     const data = validateStoreData(snap.data())
     if (data) cb(data)
     else onError?.()

@@ -1,14 +1,17 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Plus, X, CheckCircle2, Trash2, ClipboardPaste, ShoppingCart } from 'lucide-react'
 import { Product, Customer, Sale, SaleItem, LOW_STOCK_THRESHOLD, CHANNELS, PAYMENTS, fmtBRL, uid } from '../types'
 import { StatusBadge } from './Dashboard'
+import { usePasswordGuard } from '../components/PasswordGate'
 import { QuickSaleView } from './QuickSale'
 
 export function SalesView({ products, customers, sales, onSaleAdded, onCustomersAdded, pushToast }: {
-  products: Product[]; customers: Customer[]; sales: Sale[]; onSaleAdded: (s: Sale) => void; onCustomersAdded: (customers: Customer[]) => void; pushToast: (m: string, t?: 'success' | 'error') => void
+  products: Product[]; customers: Customer[]; sales: Sale[]; onSaleAdded: (s: Sale) => boolean; onCustomersAdded: (customers: Customer[]) => void; pushToast: (m: string, t?: 'success' | 'error') => void
 }) {
+  const { guard } = usePasswordGuard()
   const [mode, setMode] = useState<'manual' | 'paste'>('manual')
   const [lines, setLines] = useState<SaleItem[]>(() => products.length ? [{ productId: products[0].id, qty: 1 }] : [])
+  useEffect(() => { if (!lines.length && products.length) setLines([{ productId: products[0].id, qty: 1 }]) }, [products, lines.length])
   const [payment, setPayment] = useState<Sale['payment']>('pix')
   const [channel, setChannel] = useState<Sale['channel']>('loja')
   const [customerId, setCustomerId] = useState<string>('')
@@ -34,18 +37,18 @@ export function SalesView({ products, customers, sales, onSaleAdded, onCustomers
   }, new Map<string, Sale['items'][number]>()).values())
   const total = finalItems.reduce((a, i) => a + i.unitPrice * i.qty, 0)
 
-  const submit = () => {
-    if (finalItems.length === 0 || finalItems.some(i => !i.productId || i.qty <= 0)) { setError('Selecione produto e quantidade válida.'); return }
+  const submit = () => guard('Registrar venda', () => {
+    if (finalItems.length === 0 || finalItems.some(i => !i.productId || !Number.isSafeInteger(i.qty) || i.qty <= 0)) { setError('Selecione produto e quantidade válida.'); return }
     if (status === 'Pendente' && !customerId) { setError('Selecione um cliente para uma venda pendente.'); return }
     for (const it of finalItems) {
       const p = products.find(x => x.id === it.productId)
       if (p && it.qty > p.stock) { setError(`Estoque insuficiente para ${p.name} (restam ${p.stock}).`); return }
     }
     const sale: Sale = { id: uid(), date: new Date().toISOString(), items: finalItems, payment, channel, total, customerId: customerId || undefined, status, paidAmount: status === 'Pago' ? total : 0 }
-    onSaleAdded(sale)
+    if (!onSaleAdded(sale)) return
     setLines(products.length ? [{ productId: products[0].id, qty: 1 }] : [])
     setError('')
-  }
+  })
 
   return (
     <>
@@ -87,19 +90,19 @@ export function SalesView({ products, customers, sales, onSaleAdded, onCustomers
             return (
               <div key={idx} className="sale-item-row">
                 <div className="field">
-                  <label>Produto</label>
-                  <select value={line.productId} onChange={e => updateLine(idx, { productId: e.target.value })}>
+                  <label htmlFor={`sale-product-${idx}`}>Produto</label>
+                  <select id={`sale-product-${idx}`} value={line.productId} onChange={e => updateLine(idx, { productId: e.target.value })}>
                     {products.map(p => <option key={p.id} value={p.id}>{p.emoji} {p.name} — {fmtBRL(p.price)}</option>)}
                   </select>
                   {p && p.stock <= LOW_STOCK_THRESHOLD && <span className="hint" style={{ color: 'var(--warn-600)' }}>Estoque baixo: {p.stock}</span>}
                 </div>
                 <div className="field">
-                  <label>Qtd</label>
-                  <input type="number" min={1} className="num-input" value={line.qty} onChange={e => updateLine(idx, { qty: Math.max(1, Number(e.target.value)) })} />
+                  <label htmlFor={`sale-qty-${idx}`}>Qtd</label>
+                  <input id={`sale-qty-${idx}`} type="number" min={1} step={1} inputMode="numeric" className="num-input" value={line.qty} onChange={e => updateLine(idx, { qty: Math.max(1, Number(e.target.value)) })} />
                 </div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', paddingTop: 26 }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', paddingTop: 26 }}>
                   <span style={{ fontWeight: 700 }}>{fmtBRL((p?.price || 0) * line.qty)}</span>
-                  <button className="btn btn-ghost btn-sm" onClick={() => removeLine(idx)} disabled={lines.length === 1}><X size={14} /></button>
+                  <button className="btn btn-ghost btn-sm" aria-label={`Remover item ${idx + 1}`} onClick={() => removeLine(idx)} disabled={lines.length === 1}><X size={14} /></button>
                 </div>
               </div>
             )
@@ -107,7 +110,7 @@ export function SalesView({ products, customers, sales, onSaleAdded, onCustomers
 
           <button className="btn btn-secondary btn-sm" onClick={addLine}><Plus size={14} /> Adicionar item</button>
 
-          <div className="form-grid" style={{ marginTop: 'var(--space-6)' }}>
+          <div className="form-grid" style={{ marginTop: 'var(--sp-6)' }}>
             <div className="field">
               <label>Forma de pagamento</label>
               <select value={payment} onChange={e => setPayment(e.target.value as Sale['payment'])}>
@@ -138,14 +141,14 @@ export function SalesView({ products, customers, sales, onSaleAdded, onCustomers
             </div>
           </div>
 
-          {error && <p style={{ color: 'var(--danger-500)', marginTop: 'var(--space-4)', fontWeight: 600 }}>{error}</p>}
+          {error && <p style={{ color: 'var(--danger-500)', marginTop: 'var(--sp-4)', fontWeight: 600 }}>{error}</p>}
 
           <div className="sale-total">
             <span>Total</span>
             <strong>{fmtBRL(total)}</strong>
           </div>
           <div className="modal-actions">
-            <button className="btn btn-primary" onClick={submit}><CheckCircle2 size={16} /> Salvar Venda</button>
+            <button className="btn btn-primary" disabled={!finalItems.length} onClick={submit}><CheckCircle2 size={16} /> Salvar Venda</button>
           </div>
         </div>
       )}
@@ -157,7 +160,7 @@ export function SalesView({ products, customers, sales, onSaleAdded, onCustomers
 
 function SaleHistory({ sales }: { sales: Sale[] }) {
   return (
-    <div className="card" style={{ marginTop: 'var(--space-6)' }}>
+    <div className="card" style={{ marginTop: 'var(--sp-6)' }}>
       <h3 className="card-title">Histórico de Vendas</h3>
       {sales.length === 0 ? (
         <div className="empty-state"><Trash2 className="icon" size={40} /><p>Histórico vazio.</p></div>

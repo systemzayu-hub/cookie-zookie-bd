@@ -89,19 +89,21 @@ function parseSale(value: unknown): Sale | null {
   }
 }
 
-function parseList<T>(value: unknown, max: number, parser: (entry: unknown) => T | null): T[] | null {
+function parseList<T extends { id: string }>(value: unknown, max: number, parser: (entry: unknown) => T | null): T[] | null {
   if (!Array.isArray(value) || value.length > max) return null
   const parsed = value.map(parser)
-  return parsed.some(entry => entry === null) ? null : parsed as T[]
+  if (parsed.some(entry => entry === null)) return null
+  const rows = parsed as T[]
+  return new Set(rows.map(row => row.id)).size === rows.length ? rows : null
 }
 
 export type StoreData = { products: Product[]; sales: Sale[]; customers: Customer[] }
 
 export function validateStoreData(value: unknown): StoreData | null {
   if (!isObject(value)) return null
-  const products = parseList(value.products ?? [], MAX_PRODUCTS, parseProduct)
-  const sales = parseList(value.sales ?? [], MAX_SALES, parseSale)
-  const customers = parseList(value.customers ?? [], MAX_CUSTOMERS, parseCustomer)
+  const products = parseList(value.products, MAX_PRODUCTS, parseProduct)
+  const sales = parseList(value.sales, MAX_SALES, parseSale)
+  const customers = parseList(value.customers, MAX_CUSTOMERS, parseCustomer)
   return products && sales && customers ? { products, sales, customers } : null
 }
 

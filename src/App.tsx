@@ -3,12 +3,15 @@ import { LayoutDashboard, ShoppingCart, Package, BarChart3, Users, Sun, Moon, Do
 import { Product, Sale, Customer, Tab, Pendencia, fmtBRL } from './types'
 import { seedProducts, seedCustomers, seedSales, load, save, STORAGE_ERROR_EVENT } from './data'
 import { baixarBackup, aplicarBackup } from './db'
-import { authLoginGoogle, authLogout, authOnChange, authReauthenticateGoogle, firebaseReady, onRemoteChanges, syncPull, syncPush, importCustomerContacts } from './sync'
+import { authLoginGoogle, authLogout, authOnChange, authReauthenticateGoogle, firebaseReady, importCustomerContacts } from './sync'
 import { PasswordProvider } from './components/PasswordGate'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { SensitiveData } from './components/SensitiveData'
 import { setAuditActor, logAction } from './audit'
 import { lockAll } from './useSessionLock'
-import { validateCustomers, validateProducts, validateSales } from './validation'
+import { useStoreSync } from './useStoreSync'
+import { recordSale } from './record-sale'
+import { validateCustomers, validateProducts, validateSales, validateStoreData } from './validation'
 import logoUrl from './assets/logo.png'
 
 const Dashboard = lazy(() => import('./views/Dashboard').then(m => ({ default: m.Dashboard })))
@@ -25,7 +28,7 @@ export default function App() {
     const hash = window.location.hash.slice(1) as Tab
     return tabs.includes(hash) ? hash : 'dashboard'
   })
-  const [dark, setDark] = useState<boolean>(() => load('cc_theme', false))
+  const [dark, setDark] = useState<boolean>(() => load('cc_theme', window.matchMedia('(prefers-color-scheme: dark)').matches))
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [products, setProducts] = useState<Product[]>(() => validateProducts(load<unknown[]>('cc_products', seedProducts)) ?? seedProducts)
   const [sales, setSales] = useState<Sale[]>(() => validateSales(load<unknown[]>('cc_sales', seedSales)) ?? seedSales)
@@ -34,14 +37,18 @@ export default function App() {
   const [user, setUser] = useState<{ email: string | null; name: string | null } | null>(null)
   const [firebaseOn, setFirebaseOn] = useState(false)
   const [authLoading, setAuthLoading] = useState(true)
-  const [syncState, setSyncState] = useState<'offline' | 'syncing' | 'synced' | 'error'>('offline')
   const [online, setOnline] = useState(navigator.onLine)
   const fileRef = useRef<HTMLInputElement>(null)
   const menuButtonRef = useRef<HTMLButtonElement>(null)
   const sidebarRef = useRef<HTMLElement>(null)
-  const remoteHydrated = useRef(false)
-  const skipNextPush = useRef(false)
   const importingContacts = useRef(false)
+  const saleState = useRef({ products, sales, customers })
+  saleState.current = { products, sales, customers }
+  const { status: syncState, ready: storeReady, retry: retrySync, discardPending } = useStoreSync(user?.email ?? null, { products, sales, customers }, data => {
+    setProducts(data.products); setSales(data.sales); setCustomers(data.customers)
+  }, online)
+  const [loginBusy, setLoginBusy] = useState(false)
+  const [loginError, setLoginError] = useState('')
 
   useEffect(() => {
     let active = true
@@ -49,7 +56,7 @@ export default function App() {
     void firebaseReady().then(on => {
       if (!active) return
       setFirebaseOn(on)
-      if (!on) { setSyncState('error'); setAuthLoading(false); return }
+      if (!on) { setLoginError('Falha ao conectar. Verifique sua rede e recarregue a página.'); setAuthLoading(false); return }
       unsub = authOnChange(u => {
         setUser(u ? { email: u.email, name: u.displayName } : null)
         setAuditActor(u?.displayName || u?.email || null, u?.email || null)
@@ -74,40 +81,23 @@ export default function App() {
   }, [])
 
   useEffect(() => {
-    window.history.replaceState(null, '', `${window.location.pathname}${window.location.search}#${tab}`)
-  }, [tab])
+    const followHash = () => {
+      const next = (window.location.hash.slice(1) || 'dashboard') as Tab
+      if (tabs.includes(next)) { setTab(next); setIsMenuOpen(false) }
+    }
+    window.addEventListener('hashchange', followHash)
+    return () => window.removeEventListener('hashchange', followHash)
+  }, [])
 
-  // Firestore é a fonte compartilhada; o estado local continua como fallback offline.
-  useEffect(() => {
-    if (!user) { remoteHydrated.current = false; return }
-    let active = true
-    let unsubscribeRemote = () => {}
-    void (async () => {
-      setSyncState('syncing')
-      const remote = await syncPull()
-      if (!active) return
-      if (remote) {
-        skipNextPush.current = true
-        setProducts(remote.products)
-        setSales(remote.sales)
-        setCustomers(remote.customers)
-      }
-      if (!active) return
-      remoteHydrated.current = true
-      setSyncState(remote ? 'synced' : 'offline')
-      unsubscribeRemote = onRemoteChanges(data => {
-        if (!active) return
-        skipNextPush.current = true
-        setProducts(data.products)
-        setSales(data.sales)
-        setCustomers(data.customers)
-        setSyncState('synced')
-      }, () => setSyncState(navigator.onLine ? 'error' : 'offline'))
-    })()
-    return () => { active = false; remoteHydrated.current = false; unsubscribeRemote() }
-  }, [user?.email])
+  const navigate = (next: Tab) => {
+    setTab(next); setIsMenuOpen(false)
+    window.location.hash = next
+    document.getElementById('main-content')?.focus()
+  }
 
   const doLogin = async () => {
+    if (loginBusy) return
+    setLoginBusy(true); setLoginError('')
     try {
       const u = await authLoginGoogle()
       if (u) {
@@ -122,8 +112,8 @@ export default function App() {
         : code.includes('unauthorized-domain')
           ? 'Este endereço ainda não foi autorizado no Firebase.'
           : 'Não foi possível entrar com Google. Tente novamente.'
-      pushToast(message, 'error')
-    }
+      setLoginError(message)
+    } finally { setLoginBusy(false) }
   }
 
   const doLogout = async () => {
@@ -140,11 +130,15 @@ export default function App() {
   useEffect(() => {
     document.body.style.overflow = isMenuOpen ? 'hidden' : '';
     const sidebar = sidebarRef.current
-    const mobile = window.matchMedia('(max-width: 768px)').matches
-    if (sidebar && mobile && !isMenuOpen) sidebar.setAttribute('inert', '')
-    else sidebar?.removeAttribute('inert')
-    return () => { document.body.style.overflow = ''; };
-  }, [isMenuOpen]);
+    const media = window.matchMedia('(max-width: 768px)')
+    const update = () => {
+      if (sidebar && media.matches && !isMenuOpen) sidebar.setAttribute('inert', '')
+      else sidebar?.removeAttribute('inert')
+      document.body.style.overflow = media.matches && isMenuOpen ? 'hidden' : ''
+    }
+    update(); media.addEventListener('change', update)
+    return () => { document.body.style.overflow = ''; media.removeEventListener('change', update) };
+  }, [isMenuOpen, user]);
 
   useEffect(() => {
     if (!isMenuOpen || !sidebarRef.current) return
@@ -169,18 +163,6 @@ export default function App() {
   useEffect(() => { save('cc_products', products) }, [products])
   useEffect(() => { save('cc_sales', sales) }, [sales])
   useEffect(() => { save('cc_customers', customers) }, [customers])
-  useEffect(() => {
-    if (!user || !remoteHydrated.current) return
-    if (skipNextPush.current) { skipNextPush.current = false; return }
-    setSyncState('syncing')
-    const timer = window.setTimeout(() => {
-      void syncPush(products, sales, customers).then(ok => {
-        setSyncState(ok ? 'synced' : (navigator.onLine ? 'error' : 'offline'))
-      })
-    }, 650)
-    return () => window.clearTimeout(timer)
-  }, [products, sales, customers, user])
-
   useEffect(() => {
     const onStorageError = () => pushToast('Não foi possível salvar neste aparelho. Verifique o espaço do navegador.', 'error')
     window.addEventListener(STORAGE_ERROR_EVENT, onStorageError)
@@ -214,15 +196,16 @@ export default function App() {
   }
 
   const handleSaleAdded = (s: Sale) => {
-    setSales(prev => [s, ...prev])
-    setProducts(prev => prev.map(p => {
-      const quantity = s.items.filter(i => i.productId === p.id).reduce((total, item) => total + item.qty, 0)
-      return quantity ? { ...p, stock: Math.max(0, p.stock - quantity) } : p
-    }))
+    try {
+      const next = recordSale(saleState.current, s)
+      saleState.current = next
+      setSales(next.sales); setProducts(next.products)
+    } catch (error) { pushToast((error as Error).message, 'error'); return false }
     const det = s.items.map(i => `${i.qty}x ${i.name}`).join(' + ')
     const cliente = customers.find(c => c.id === s.customerId)?.name
     logAction('venda', `${det} — ${fmtBRL(s.total)} (${s.status})${cliente ? ` · ${cliente}` : ''}`)
     pushToast('Venda registrada!')
+    return true
   }
 
   const handleCustomersAdded = (newCustomers: Customer[]) => {
@@ -292,15 +275,16 @@ export default function App() {
             Este painel é privado. Entre com sua conta Google para acessar as informações
             e sincronizar os dados com a equipe.
           </p>
-          <button className="login-button" onClick={doLogin}>
+          <button className="login-button" onClick={doLogin} disabled={loginBusy}>
             <svg width="18" height="18" viewBox="0 0 24 24">
               <path fill="#4285F4" d="M23.5 12.27c0-.85-.08-1.66-.22-2.45H12v4.64h6.45a5.5 5.5 0 0 1-2.39 3.61v3h3.87c2.26-2.09 3.57-5.17 3.57-8.8z"/>
               <path fill="#34A853" d="M12 24c3.24 0 5.96-1.07 7.94-2.91l-3.87-3c-1.08.72-2.45 1.15-4.07 1.15-3.13 0-5.78-2.11-6.73-4.96H1.29v3.1A12 12 0 0 0 12 24z"/>
               <path fill="#FBBC05" d="M5.27 14.28A7.2 7.2 0 0 1 4.89 12c0-.79.14-1.56.38-2.28V6.62H1.29a12 12 0 0 0 0 10.76l3.98-3.1z"/>
               <path fill="#EA4335" d="M12 4.77c1.76 0 3.34.6 4.58 1.79L20.14 2.98A12 12 0 0 0 12 0 12 12 0 0 0 1.29 6.62l3.98 3.1C6.27 6.88 8.93 4.77 12 4.77z"/>
             </svg>
-            Entrar com Google
+            {loginBusy ? 'Conectando…' : 'Entrar com Google'}
           </button>
+          {loginError && <p className="login-error" role="alert">{loginError}</p>}
         </div>
       </div>
     )
@@ -324,7 +308,7 @@ export default function App() {
         </div>
         <nav className="sidebar-nav">
                   {nav.map(n => (
-                    <button key={n.id} className={`nav-item ${tab === n.id ? 'active' : ''}`} aria-current={tab === n.id ? 'page' : undefined} onClick={() => { setTab(n.id); setIsMenuOpen(false); }}>
+                    <button key={n.id} className={`nav-item ${tab === n.id ? 'active' : ''}`} aria-current={tab === n.id ? 'page' : undefined} onClick={() => navigate(n.id)}>
                       {n.icon} {n.label}
                     </button>
                   ))}
@@ -341,7 +325,7 @@ export default function App() {
                 </button>
               </>
             ) : (
-              <button className="theme-toggle auth-login" onClick={doLogin}>
+              <button className="theme-toggle auth-login" onClick={doLogin} disabled={loginBusy}>
                 <LogIn size={16} /> Entrar com Google
               </button>
             )}
@@ -351,7 +335,7 @@ export default function App() {
             {firebaseOn && (
               <div className={`sync-status sync-${!online ? 'offline' : syncState}`} role="status" aria-live="polite">
                 {!online || syncState === 'offline' ? <CloudOff size={14} /> : syncState === 'syncing' ? <RefreshCw size={14} className="spin" /> : <Cloud size={14} />}
-                {!online || syncState === 'offline' ? 'Offline · salvo neste aparelho' : syncState === 'syncing' ? 'Sincronizando…' : syncState === 'error' ? 'Falha na sincronização' : 'Sincronizado com a equipe'}
+                {!online || syncState === 'offline' ? 'Offline · salvo neste aparelho' : syncState === 'syncing' ? 'Sincronizando…' : syncState === 'conflict' ? 'Conflito entre aparelhos' : syncState === 'error' ? 'Falha na sincronização' : 'Sincronizado com a equipe'}
               </div>
             )}
           </div>
@@ -369,6 +353,13 @@ export default function App() {
             <button className="theme-toggle" onClick={() => fileRef.current?.click()}>
               <Upload size={16} /> Importar backup
             </button>
+            {load<{ owner?: string } | null>('cc_sync_conflict_recovery', null)?.owner === user.email && <button className="theme-toggle" onClick={async () => {
+              try {
+                await authReauthenticateGoogle()
+                const recovery = validateStoreData(load('cc_sync_conflict_recovery', null))
+                if (recovery) baixarBackup(recovery.products, recovery.sales, recovery.customers)
+              } catch { pushToast('Exportação da cópia de recuperação cancelada.', 'error') }
+            }}><Download size={16} /> Cópia do último conflito</button>}
             <input ref={fileRef} type="file" accept=".json,application/json" style={{ display: 'none' }} onChange={e => {
               const f = e.target.files?.[0]; if (f) void onImport(f); e.target.value = ''
             }} />
@@ -377,17 +368,32 @@ export default function App() {
       </aside>
 
       <main id="main-content" className="main" tabIndex={-1}>
-        <ErrorBoundary>
+        {(syncState === 'error' || syncState === 'conflict' || !online) && <div className="sync-banner" role="status">
+          <CloudOff size={20} />
+          <div><strong>{syncState === 'conflict' ? 'Vamos preservar suas alterações' : !online ? 'Você está sem conexão' : 'A sincronização precisa de atenção'}</strong>
+          <p>{syncState === 'conflict' ? 'Outro aparelho editou o mesmo registro. Salve uma cópia antes de carregar a versão da equipe.' : 'As alterações ficam neste aparelho até a confirmação do banco. Mantenha esta página aberta.'}</p></div>
+          {syncState === 'error' && <button className="btn btn-secondary btn-sm" onClick={retrySync}>Tentar novamente</button>}
+          {syncState === 'conflict' && <button className="btn btn-secondary btn-sm" onClick={async () => {
+            try {
+              await authReauthenticateGoogle()
+              if (!save('cc_sync_conflict_recovery', { owner: user.email, products, sales, customers })) throw new Error('storage')
+              baixarBackup(products, sales, customers)
+              if (discardPending()) window.location.reload()
+            }
+            catch { pushToast('Exportação cancelada. Suas alterações continuam aqui.', 'error') }
+          }}>Exportar minhas alterações e carregar equipe</button>}
+        </div>}
+        {!storeReady ? <div className="loading" role="status">Preparando os dados da equipe…</div> : <ErrorBoundary key={tab}>
         <Suspense fallback={<div className="loading" role="status">Carregando tela…</div>}>
-          {tab === 'dashboard' && <Dashboard sales={sales} products={products} customers={customers} onNewSale={() => setTab('vendas')} />}
-          {tab === 'vendas' && <SalesView products={products} customers={customers} sales={sales} onSaleAdded={handleSaleAdded} onCustomersAdded={handleCustomersAdded} pushToast={pushToast} />}
+          {tab === 'dashboard' && <Dashboard sales={sales} products={products} customers={customers} onNewSale={() => navigate('vendas')} onNavigate={navigate} />}
+          {tab === 'vendas' && <SensitiveData label="Desbloquear vendas"><SalesView products={products} customers={customers} sales={sales} onSaleAdded={handleSaleAdded} onCustomersAdded={handleCustomersAdded} pushToast={pushToast} /></SensitiveData>}
           {tab === 'produtos' && <ProductsStockView products={products} setProducts={setProducts} sales={sales} pushToast={pushToast} />}
           {tab === 'relatorios' && <ReportsView sales={sales} />}
           {tab === 'clientes' && <CustomersBillingView customers={customers} setCustomers={setCustomers} sales={sales} setSales={setSales} pushToast={pushToast} />}
           {tab === 'financeiro' && <FinanceiroView />}
           {tab === 'audit' && <AuditView />}
         </Suspense>
-        </ErrorBoundary>
+        </ErrorBoundary>}
       </main>
 
       {toasts.length > 0 && (

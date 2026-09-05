@@ -44,6 +44,9 @@ function ConfirmDeleteModal({ isOpen, onClose, onConfirm, title, message, itemNa
 export function CustomersView({ customers, setCustomers, sales, pushToast }: {
   customers: Customer[]; setCustomers: React.Dispatch<React.SetStateAction<Customer[]>>; sales: Sale[]; pushToast: (m: string, t?: 'success' | 'error') => void
 }) {
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('all')
+  const [page, setPage] = useState(0)
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing] = useState<Customer | null>(null)
   const [form, setForm] = useState({ name: '', contact: '' })
@@ -104,14 +107,19 @@ export function CustomersView({ customers, setCustomers, sales, pushToast }: {
       }, 'audit')
     }
 
-  const spendOf = (id: string) => sales.filter(s => s.customerId === id).reduce((a, s) => a + s.total, 0)
-  const countOf = (id: string) => sales.filter(s => s.customerId === id).length
-  const cookiesOf = (id: string) => sales.filter(s => s.customerId === id).reduce((total, sale) => total + sale.items.reduce((qty, item) => qty + item.qty, 0), 0)
+  const customerSales = useMemo(() => {
+    const map = new Map<string, Sale[]>()
+    sales.forEach(sale => { if (sale.customerId) { const group = map.get(sale.customerId) || []; group.push(sale); map.set(sale.customerId, group) } })
+    return map
+  }, [sales])
+  const spendOf = (id: string) => (customerSales.get(id) || []).filter(sale => sale.status !== 'Presente').reduce((sum, sale) => sum + sale.total, 0)
+  const countOf = (id: string) => (customerSales.get(id) || []).length
+  const cookiesOf = (id: string) => (customerSales.get(id) || []).reduce((sum, sale) => sum + sale.items.reduce((qty, item) => qty + item.qty, 0), 0)
 
   const clientStatus = useMemo(() => {
     const map = new Map<string, 'Pago' | 'Pendente' | 'Debitado' | 'Sem vendas'>()
     customers.forEach(c => {
-      const clientSales = sales.filter(s => s.customerId === c.id)
+      const clientSales = (customerSales.get(c.id) || [])
       if (clientSales.length === 0) {
         map.set(c.id, 'Sem vendas')
       } else if (clientSales.some(s => s.status === 'Pendente' || s.status === 'Debitado')) {
@@ -128,6 +136,11 @@ export function CustomersView({ customers, setCustomers, sales, pushToast }: {
   const debitedCount = customers.filter(c => clientStatus.get(c.id) === 'Debitado').length
   const noSalesCount = customers.filter(c => clientStatus.get(c.id) === 'Sem vendas').length
 
+  const normalizeSearch = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR')
+  const visible = customers.filter(customer => (statusFilter === 'all' || clientStatus.get(customer.id) === statusFilter) && normalizeSearch(customer.name + ' ' + customer.contact).includes(normalizeSearch(search.trim()))).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+  const pages = Math.max(1, Math.ceil(visible.length / 25))
+  const activePage = Math.min(page, pages - 1)
+
   const top = [...customers].map(c => ({
     ...c, spent: spendOf(c.id), purchases: countOf(c.id), cookies: cookiesOf(c.id)
   })).sort((a, b) => b.spent - a.spent).slice(0, 5)
@@ -139,13 +152,13 @@ export function CustomersView({ customers, setCustomers, sales, pushToast }: {
         <button className="btn btn-primary" onClick={openNew}><Plus size={16} /> Novo Cliente</button>
       </div>
 
-      <div className="grid grid-3" style={{ marginBottom: 'var(--space-6)' }}>
+      <div className="grid grid-3" style={{ marginBottom: 'var(--sp-6)' }}>
         <div className="card">
           <h3 className="card-title">Top clientes</h3>
           {top.length === 0 ? <div className="empty-state"><Users className="icon" size={40} /><p>Sem clientes ainda.</p></div> : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
               {top.map((c, i) => (
-                              <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap', minWidth: 0 }}>
+                              <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', flexWrap: 'wrap', minWidth: 0 }}>
                                 <span style={{ fontWeight: 700, color: 'var(--cz-600)', width: 20, flexShrink: 0 }}>{i + 1}º</span>
                                 <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{c.name}</span>
                                 <span className="badge badge-neutral" style={{ whiteSpace: 'nowrap' }}>{c.purchases} compras / {c.cookies} cookies</span>
@@ -158,23 +171,23 @@ export function CustomersView({ customers, setCustomers, sales, pushToast }: {
 
         <div className="card">
           <h3 className="card-title">Status dos clientes</h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)' }}>
               <CheckCircle2 size={20} color="var(--ok-500)" />
               <span style={{ flex: 1 }}>Clientes Pagos</span>
               <strong>{paidCount}</strong>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)' }}>
               <AlertCircle size={20} color="var(--warn-500)" />
               <span style={{ flex: 1 }}>Pendentes</span>
               <strong>{pendingCount}</strong>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)' }}>
               <AlertCircle size={20} color="var(--danger-500)" />
               <span style={{ flex: 1 }}>Debitados</span>
               <strong>{debitedCount}</strong>
             </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', opacity: 0.6 }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', opacity: 0.6 }}>
               <Users size={20} color="var(--tx-3)" />
               <span style={{ flex: 1 }}>Sem compras</span>
               <strong>{noSalesCount}</strong>
@@ -192,18 +205,23 @@ export function CustomersView({ customers, setCustomers, sales, pushToast }: {
       </div>
 
       <div className="card">
-        {customers.length === 0 ? (
+        <div className="report-toolbar">
+          <input aria-label="Buscar cliente por nome ou telefone" placeholder="Buscar nome ou telefone..." value={search} onChange={event => { setSearch(event.target.value); setPage(0) }} />
+          <select aria-label="Status dos clientes" value={statusFilter} onChange={event => { setStatusFilter(event.target.value); setPage(0) }}><option value="all">Todos os clientes</option>{['Pago', 'Pendente', 'Debitado', 'Sem vendas'].map(status => <option key={status}>{status}</option>)}</select>
+          <span className="badge badge-neutral">{visible.length} clientes</span>
+        </div>
+        {visible.length === 0 ? (
           <div className="empty-state"><Users className="icon" size={40} /><p>Nenhum cliente cadastrado.</p></div>
         ) : (
           <div className="table-wrap customers-table-wrap">
             <table className="table customers-table">
               <thead><tr><th>Nome</th><th>Contato</th><th>Cadastro</th><th>Compras / Cookies</th><th className="text-right">Total gasto</th><th className="text-right">Ações</th></tr></thead>
               <tbody>
-                {customers.map(c => (
+                {visible.slice(activePage * 25, (activePage + 1) * 25).map(c => (
                   <tr key={c.id}>
                     <td data-label="Cliente" style={{ fontWeight: 600 }}>{c.name}</td>
                     <td data-label="Telefone" className="customer-phone"><MaskedPII value={c.contact || ''} type="phone" /></td>
-                    <td data-label="Cadastro">{c.createdAt}</td>
+                    <td data-label="Cadastro">{new Date(c.createdAt).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}</td>
                     <td data-label="Compras / Cookies"><span className="badge badge-brand">{countOf(c.id)} / {cookiesOf(c.id)}</span></td>
                     <td data-label="Total gasto" className="text-right" style={{ fontWeight: 700 }}><MaskedMoney value={spendOf(c.id)} /></td>
                     <td data-label="Ações" className="text-right customer-actions">
@@ -218,6 +236,7 @@ export function CustomersView({ customers, setCustomers, sales, pushToast }: {
         )}
       </div>
 
+      {pages > 1 && <div className="pagination"><span>{activePage + 1} / {pages}</span><button className="btn btn-secondary btn-sm" disabled={!activePage} onClick={() => setPage(activePage - 1)}>Anterior</button><button className="btn btn-secondary btn-sm" disabled={activePage === pages - 1} onClick={() => setPage(activePage + 1)}>Próxima</button></div>}
       {showModal && (
               <div className="modal-backdrop" onClick={() => setShowModal(false)}>
                 <div className="modal" role="dialog" aria-modal="true" aria-label={editing ? 'Editar cliente' : 'Novo cliente'} onClick={e => e.stopPropagation()}>

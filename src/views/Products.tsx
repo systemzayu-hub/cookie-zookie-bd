@@ -68,7 +68,7 @@ export function ProductsView({ products, setProducts, sales, pushToast }: {
     const name = form.name.trim()
     const price = Number(form.price)
     const stock = Number(form.stock)
-    if (!name || isNaN(price) || price <= 0 || isNaN(stock) || stock < 0) { pushToast('Preencha todos os campos corretamente.', 'error'); return }
+    if (!name || !Number.isFinite(price) || price <= 0 || !Number.isSafeInteger(stock) || stock < 0) { pushToast('Preencha todos os campos corretamente.', 'error'); return }
     if (name.length > 100) { pushToast('O nome deve ter até 100 caracteres.', 'error'); return }
     if (products.some(product => product.id !== editing?.id && product.name.toLocaleLowerCase('pt-BR') === name.toLocaleLowerCase('pt-BR'))) { pushToast('Já existe um produto com esse nome.', 'error'); return }
     const data = { name, price, category: form.category, stock, emoji: form.emoji || '🍪' }

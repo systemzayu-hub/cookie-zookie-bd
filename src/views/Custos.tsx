@@ -46,8 +46,8 @@ export function CustosView() {
   }
 
   const saveEdit = (id: string) => {
-    const novoCusto = Number(editValue)
-    if (isNaN(novoCusto) || novoCusto < 0) return
+    const novoCusto = Number(editValue.replace(',', '.'))
+    if (!Number.isFinite(novoCusto) || novoCusto < 0) return
     const c = custos.find(x => x.id === id)
     guard('Alterar custo de produção', () => {
       setCustos(prev => prev.map(cc => {

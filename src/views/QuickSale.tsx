@@ -1,6 +1,8 @@
 import { useState, useMemo } from 'react'
 import { ClipboardPaste, CheckCircle2, AlertCircle, ArrowRight, Undo2, Sparkles } from 'lucide-react'
 import { Product, Customer, Sale, uid, fmtBRL } from '../types'
+import { usePasswordGuard } from '../components/PasswordGate'
+import { dayKey } from '../analytics'
 import { logAction } from '../audit'
 
 /* ========== PRODUCT NAME ALIASES ========== */
@@ -49,15 +51,11 @@ function normalize(s: string): string {
 function matchCustomer(input: string, customers: Customer[]): { id: string; name: string } | null {
   const clean = input.replace(/\d+[°º]?/g, '').trim() // strip "2°", "1°M" etc
   const norm = normalize(clean)
-  // exact
-  const exact = customers.find(c => normalize(c.name) === norm)
-  if (exact) return { id: exact.id, name: exact.name }
-  // partial
-  const partial = customers.find(c => normalize(c.name).includes(norm) || norm.includes(normalize(c.name)))
-  if (partial) return { id: partial.id, name: partial.name }
-  // starts-with
-  const starts = customers.find(c => normalize(c.name).startsWith(norm.slice(0, 4)))
-  return starts ? { id: starts.id, name: starts.name } : null
+  if (!norm) return null
+  const exact = customers.filter(c => normalize(c.name) === norm)
+  if (exact.length === 1) return { id: exact[0].id, name: exact[0].name }
+  const matches = customers.filter(c => normalize(c.name).includes(norm) || norm.includes(normalize(c.name)))
+  return matches.length === 1 ? { id: matches[0].id, name: matches[0].name } : null
 }
 
 /* ========== STATUS PARSING ========== */
@@ -150,9 +148,10 @@ function parseText(text: string, products: Product[], customers: Customer[]): Pa
 /* ========== QUICK SALE VIEW ========== */
 export function QuickSaleView({ products, customers, onSaleAdded, onCustomersAdded: _onCustomersAdded, pushToast }: {
   products: Product[]; customers: Customer[]
-  onSaleAdded: (s: Sale) => void; onCustomersAdded: (customers: Customer[]) => void; pushToast: (m: string, t?: 'success' | 'error') => void
+  onSaleAdded: (s: Sale) => boolean; onCustomersAdded: (customers: Customer[]) => void; pushToast: (m: string, t?: 'success' | 'error') => void
 }) {
   const [text, setText] = useState('')
+  const { guard } = usePasswordGuard()
   const [parsed, setParsed] = useState<ParsedLine[]>([])
   const [step, setStep] = useState<'input' | 'preview' | 'done'>('input')
   const [createdCount, setCreatedCount] = useState(0)
@@ -165,11 +164,26 @@ export function QuickSaleView({ products, customers, onSaleAdded, onCustomersAdd
     setStep('preview')
   }
 
-  const doConfirm = () => {
+  const doConfirm = () => guard('Confirmar vendas importadas', () => {
+    if (step !== 'preview') return
+    if (parsed.some(line => line.error || !line.customerId || !line.productId || !Number.isSafeInteger(line.qty) || line.qty <= 0)) {
+      pushToast('Corrija todas as linhas antes de importar.', 'error'); return
+    }
+    const quantities = new Map<string, number>()
+    for (const line of parsed) {
+      quantities.set(line.productId!, (quantities.get(line.productId!) || 0) + line.qty)
+      const date = line.date || dayKey(Date.now())
+      const timestamp = Date.parse(date + 'T12:00:00-03:00')
+      if (!Number.isFinite(timestamp) || dayKey(timestamp) !== date) { pushToast('Confira as datas das vendas.', 'error'); return }
+    }
+    for (const [id, quantity] of quantities) {
+      const product = products.find(item => item.id === id)
+      if (!product || quantity > product.stock) { pushToast(`Estoque insuficiente para ${product?.name || 'produto'}. Confira o total do lote.`, 'error'); return }
+    }
     const saleDateMap = new Map<string, ParsedLine[]>()
     parsed.filter(l => l.productId && l.customerId).forEach(l => {
       const resolvedCustomerId = l.customerId!
-      const dateKey = l.date || new Date().toISOString().slice(0, 10)
+      const dateKey = l.date || dayKey(Date.now())
       const key = `${dateKey}|${resolvedCustomerId}|${l.status}`
       const arr = saleDateMap.get(key) || []
       arr.push(l)
@@ -188,7 +202,7 @@ export function QuickSaleView({ products, customers, onSaleAdded, onCustomersAdd
       const total = items.reduce((a, i) => a + i.qty * i.unitPrice, 0)
       const sale: Sale = {
         id: uid(),
-        date: date ? new Date(date + 'T12:00:00').toISOString() : new Date().toISOString(),
+        date: date ? new Date(date + 'T12:00:00-03:00').toISOString() : new Date().toISOString(),
         items,
         payment: 'pix',
         channel: 'loja',
@@ -197,15 +211,14 @@ export function QuickSaleView({ products, customers, onSaleAdded, onCustomersAdd
         status: status as Sale['status'],
         paidAmount: status === 'Pago' ? total : 0,
       }
-      onSaleAdded(sale)
-      count++
+      if (onSaleAdded(sale)) count++
     })
 
     logAction('venda-rapida', `Importou ${count} venda(s) via cola de texto (${parsed.length} linhas)`)
     setCreatedCount(count)
     setStep('done')
     pushToast(`${count} venda(s) criada(s) com sucesso! 🎉`)
-  }
+  })
 
   const doReset = () => { setText(''); setParsed([]); setStep('input'); setCreatedCount(0) }
 
@@ -339,7 +352,7 @@ export function QuickSaleView({ products, customers, onSaleAdded, onCustomersAdd
           </div>
 
           <div style={{ display: 'flex', gap: 'var(--sp-3)' }}>
-            <button className="btn btn-cz" onClick={doConfirm} disabled={parseStats.valid === 0}>
+            <button className="btn btn-cz" onClick={doConfirm} disabled={parseStats.valid === 0 || parseStats.warnings > 0}>
               <CheckCircle2 size={16} /> Confirmar e criar {parseStats.valid} venda(s)
             </button>
             <button className="btn btn-secondary" onClick={() => setStep('input')}>

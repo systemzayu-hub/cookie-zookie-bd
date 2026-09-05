@@ -13,6 +13,7 @@ const undoHandlers = new Map<string, () => void>()
 
 /** Define quem está agindo (chamado pelo App quando o login Google muda). */
 export function setAuditActor(name: string | null, email: string | null) {
+  if (actorEmail !== email) undoHandlers.clear()
   actor = name || email || null
   actorEmail = email || null
 }
@@ -20,7 +21,11 @@ export function getAuditActor() { return actor }
 
 const KEY = 'cc_audit'
 export function loadAudit(): AuditEntry[] {
-  try { return JSON.parse(localStorage.getItem(KEY) || '[]') as AuditEntry[] } catch { return [] }
+  try {
+    const data: unknown = JSON.parse(localStorage.getItem(KEY) || '[]')
+    if (!Array.isArray(data)) return []
+    return data.filter((entry): entry is AuditEntry => entry && typeof entry.id === 'string' && typeof entry.ts === 'number' && Number.isFinite(entry.ts) && typeof entry.actor === 'string' && typeof entry.action === 'string' && typeof entry.detail === 'string').slice(0, 2000)
+  } catch { return [] }
 }
 function saveAudit(list: AuditEntry[]) {
   try { localStorage.setItem(KEY, JSON.stringify(list)) } catch { /* ignore */ }

@@ -25,10 +25,10 @@ export function StockView({ products, setProducts, pushToast }: {
       </div>
 
       {low.length > 0 && (
-        <div className="card" style={{ marginBottom: 'var(--space-6)', borderColor: 'var(--color-warning-400)', background: 'var(--color-warning-50)' }}>
-          <h3 className="card-title" style={{ color: 'var(--color-warning-600)' }}><AlertTriangle size={18} /> Alerta de estoque baixo</h3>
+        <div className="card" style={{ marginBottom: 'var(--sp-6)', borderColor: 'var(--warn-500)', background: 'var(--warn-bg)' }}>
+          <h3 className="card-title" style={{ color: 'var(--warn-600)' }}><AlertTriangle size={18} /> Alerta de estoque baixo</h3>
           {low.map(p => (
-            <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', padding: 'var(--space-2) 0' }}>
+            <div key={p.id} style={{ display: 'flex', justifyContent: 'space-between', padding: 'var(--sp-2) 0' }}>
               <span>{p.name}</span>
               <span className={`badge ${p.stock === 0 ? 'badge-danger' : 'badge-warning'}`}>{p.stock} un restantes</span>
             </div>
@@ -55,10 +55,10 @@ export function StockView({ products, setProducts, pushToast }: {
                         : <span className="badge badge-success">OK</span>}
                     </td>
                     <td className="text-right">
-                      <button className="btn btn-secondary btn-sm" onClick={() => adjust(p.id, -1)} disabled={p.stock === 0}><Minus size={14} /></button>
-                      <span style={{ padding: '0 var(--space-2)', fontWeight: 700 }}>{p.stock}</span>
-                      <button className="btn btn-secondary btn-sm" onClick={() => adjust(p.id, +1)}><Plus size={14} /></button>
-                      <button className="btn btn-primary btn-sm" style={{ marginLeft: 'var(--space-2)' }} onClick={() => adjust(p.id, +10)}>+10</button>
+                      <button className="btn btn-secondary btn-sm" aria-label={`Retirar uma unidade de ${p.name}`} onClick={() => adjust(p.id, -1)} disabled={p.stock === 0}><Minus size={14} /></button>
+                      <span style={{ padding: '0 var(--sp-2)', fontWeight: 700 }}>{p.stock}</span>
+                      <button className="btn btn-secondary btn-sm" aria-label={`Repor uma unidade de ${p.name}`} onClick={() => adjust(p.id, +1)}><Plus size={14} /></button>
+                      <button className="btn btn-primary btn-sm" style={{ marginLeft: 'var(--sp-2)' }} onClick={() => adjust(p.id, +10)}>+10</button>
                     </td>
                   </tr>
                 ))}

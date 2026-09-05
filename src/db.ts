@@ -1,17 +1,6 @@
 import { Product, Sale, Customer } from './types'
 import { load, save } from './data'
-import { firebaseReady, syncPush } from './sync'
 import { validateStoreData } from './validation'
-
-/**
- * Camada de persistência da Cookie Zookie.
- *
- * HOJE: usa localStorage (offline, 1 dispositivo, sem nuvem).
- * FUNCIONA 100% já — todos os dados ficam no navegador.
- *
- * AGORA: também sincroniza com Firebase Firestore quando disponível.
- * O localStorage continua sendo o fallback garantido.
- */
 
 export type BackupData = {
   version: number
@@ -90,37 +79,4 @@ export function aplicarBackup(file: File, cb: (data: BackupData) => void): Promi
     reader.onerror = () => reject(new Error('Erro na leitura do arquivo.'))
     reader.readAsText(file)
   })
-}
-
-let firebaseChecked = false
-let firebaseOk = false
-
-/** Persiste no localStorage E tenta sincronizar com Firebase (se disponível). */
-export async function persistir(products: Product[], sales: Sale[], customers: Customer[]) {
-  // 1) Sempre salva no localStorage (fallback garantido)
-  save('cc_products', products)
-  save('cc_sales', sales)
-  save('cc_customers', customers)
-
-  // 2) Tenta sincronizar com Firebase (não bloqueia, não quebra se falhar)
-  if (!firebaseChecked) {
-    firebaseChecked = true
-    firebaseOk = await firebaseReady()
-  }
-  if (firebaseOk) {
-    try {
-      await syncPush(products, sales, customers)
-    } catch {
-      /* ignore - localStorage já salvou */
-    }
-  }
-}
-
-/** Verifica se Firebase está disponível (para UI mostrar status). */
-export async function isFirebaseReady(): Promise<boolean> {
-  if (!firebaseChecked) {
-    firebaseChecked = true
-    firebaseOk = await firebaseReady()
-  }
-  return firebaseOk
 }

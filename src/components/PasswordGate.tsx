@@ -1,4 +1,4 @@
-import { createContext, useCallback, useContext, useState, type ReactNode } from 'react'
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
 import { ShieldCheck } from 'lucide-react'
 import { grant, isUnlocked, verifyAccessPassword, type Level } from '../auth'
 import { startSessionLock } from '../useSessionLock'
@@ -13,10 +13,26 @@ export function PasswordProvider({ children }: { children: ReactNode }) {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
   const [password, setPassword] = useState('')
+  const dialog = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!pending) return
+    const previous = document.activeElement as HTMLElement | null
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !busy) { setPending(null); setPassword(''); return }
+      if (event.key !== 'Tab') return
+      const items = Array.from(dialog.current?.querySelectorAll<HTMLElement>('input:not(:disabled), button:not(:disabled)') || [])
+      const first = items[0], last = items[items.length - 1]
+      if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus() }
+      else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus() }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => { document.removeEventListener('keydown', onKey); previous?.focus() }
+  }, [pending, busy])
 
   const guard = useCallback((label: string, action: () => void, level: Level = 'admin') => {
     if (isUnlocked(level)) { action(); return }
     setError('')
+    setPassword('')
     setPending({ label, action, level })
   }, [])
 
@@ -47,7 +63,7 @@ export function PasswordProvider({ children }: { children: ReactNode }) {
       {children}
       {pending && (
         <div className="pw-overlay" role="presentation" onClick={() => !busy && setPending(null)}>
-          <div className="pw-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title" onClick={event => event.stopPropagation()}>
+          <div ref={dialog} className="pw-modal" role="dialog" aria-modal="true" aria-labelledby="confirm-title" onClick={event => event.stopPropagation()}>
             <ShieldCheck size={34} aria-hidden="true" style={{ color: 'var(--cz-500)' }} />
             <h3 id="confirm-title" style={{ margin: '8px 0 4px' }}>Confirmar alteração</h3>
             <p className="pw-action">{pending.label}</p>

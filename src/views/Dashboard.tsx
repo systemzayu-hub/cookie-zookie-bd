@@ -4,6 +4,9 @@ import { CookieArt } from '../components/CookieArt'
 import { SensitiveData } from '../components/SensitiveData'
 import { MaskedMoney } from '../components/MaskedMoney'
 import { MetricBars } from '../components/MetricBars'
+import { Operations } from '../components/Operations'
+import { dayKey, salesSummary } from '../analytics'
+import type { Tab } from '../types'
 
 export function StatusBadge({ status }: { status?: string }) {
   const map: Record<string, string> = {
@@ -23,12 +26,13 @@ function StatCard({ icon, color, label, value, sub }: { icon: React.ReactNode; c
   )
 }
 
-export function Dashboard({ sales, products, customers, onNewSale }: {
-  sales: Sale[]; products: Product[]; customers: Customer[]; onNewSale: () => void
+export function Dashboard({ sales, products, customers, onNewSale, onNavigate }: {
+  sales: Sale[]; products: Product[]; customers: Customer[]; onNewSale: () => void; onNavigate: (tab: Tab) => void
 }) {
   const pending = sales.filter(s => s.status === 'Pendente')
-  const lowStock = products.filter(p => p.stock > 0 && p.stock <= LOW_STOCK_THRESHOLD)
-  const totalSold = sales.reduce((a, s) => a + s.items.reduce((x, i) => x + i.qty, 0), 0)
+  const lowStock = products.filter(p => p.stock <= LOW_STOCK_THRESHOLD)
+  const summary = salesSummary(sales)
+  const totalSold = summary.units
   const paidCount = sales.filter(s => s.status === 'Pago').length
 
   const byProd = new Map<string, number>()
@@ -42,10 +46,10 @@ export function Dashboard({ sales, products, customers, onNewSale }: {
   const last7: { dia: string; vendas: number; unidades: number; total: number }[] = []
   for (let i = 6; i >= 0; i--) {
     const d = new Date(Date.now() - i * 86400000)
-    const key = d.toDateString()
-    const daySales = sales.filter(s => new Date(s.date).toDateString() === key && s.status !== 'Debitado')
+    const key = dayKey(d)
+    const daySales = sales.filter(s => dayKey(s.date) === key && s.status !== 'Presente')
     last7.push({
-      dia: d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' }),
+      dia: d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit', timeZone: 'America/Sao_Paulo' }),
       vendas: daySales.length,
       unidades: daySales.reduce((a, s) => a + s.items.reduce((x, i) => x + i.qty, 0), 0),
       total: daySales.reduce((sum, sale) => sum + salePaidAmount(sale), 0),
@@ -64,6 +68,7 @@ export function Dashboard({ sales, products, customers, onNewSale }: {
 
   return (
     <>
+      <Operations products={products} sales={sales} navigate={onNavigate} />
       <div className="page-row">
         <div className="page-title">
           <h2>Dashboard</h2>
@@ -146,7 +151,7 @@ export function Dashboard({ sales, products, customers, onNewSale }: {
       {/* Faturamento financeiro — protegido por senha de auditoria */}
       <SensitiveData label="Dados financeiros" level="financial">
               <div className="grid grid-stats" style={{ marginTop: 'var(--sp-6)', marginBottom: 'var(--sp-4)' }}>
-                <StatCard icon={<DollarSign size={20} />} color="linear-gradient(135deg,#22C55E,#16A34A)" label="Faturamento total" value={<MaskedMoney value={sales.reduce((a, s) => a + s.total, 0)} />} sub={`${sales.length} vendas`} />
+                <StatCard icon={<DollarSign size={20} />} color="linear-gradient(135deg,#22C55E,#16A34A)" label="Faturamento total" value={<MaskedMoney value={summary.revenue} />} sub={`${sales.length} vendas`} />
                 <StatCard icon={<Wallet size={20} />} color="linear-gradient(135deg,#3B82F6,#2563EB)" label="Recebido" value={<MaskedMoney value={sales.reduce((a, s) => a + salePaidAmount(s), 0)} />} sub={`${paidCount} quitadas`} />
                 <StatCard icon={<Clock3 size={20} />} color="linear-gradient(135deg,#F59E0B,#D97706)" label="Pendente" value={<MaskedMoney value={pending.reduce((a, s) => a + saleOutstanding(s), 0)} />} sub={`${pending.length} a receber`} />
               </div>

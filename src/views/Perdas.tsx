@@ -54,7 +54,7 @@ export interface Perda {
 }
 
 export function PerdasView() {
-  const [perdas, setPerdas] = useState<Perda[]>(() => load('cc_perdas', SEED_PERDAS as unknown as Perda[]) as Perda[])
+  const [perdas, setPerdas] = useState<Perda[]>(() => load('cc_perdas', [] as Perda[]) as Perda[])
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ date: '', produto: '', qtd: '', motivo: '', custoUnit: '' })
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null)
@@ -74,7 +74,7 @@ export function PerdasView() {
     const qtd = Number(form.qtd)
     const motivo = form.motivo.trim()
     const custoUnit = Number(form.custoUnit)
-    if (!date || !produto || isNaN(qtd) || qtd <= 0 || !motivo || isNaN(custoUnit) || custoUnit < 0) return
+    if (!date || !produto || !Number.isSafeInteger(qtd) || qtd <= 0 || !motivo || !Number.isFinite(custoUnit) || custoUnit < 0) return
     const nova: Perda = {
       id: uid(),
       date,
@@ -94,7 +94,8 @@ export function PerdasView() {
 
   // Ao escolher um produto conhecido, preenche o custo unitário automaticamente
   const pickProduto = (name: string) => {
-    const c = CUSTOS_PRODUCAO.find(x => x.name === name)
+    const savedCosts = load<Array<{ name: string; custoUnitario: number }>>('cc_custos', [...CUSTOS_PRODUCAO])
+    const c = savedCosts.find(x => x.name === name)
     setForm(f => ({
       ...f,
       produto: name,

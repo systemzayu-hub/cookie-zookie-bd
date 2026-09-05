@@ -134,7 +134,7 @@ export function CobrancaView({ sales, setSales, customers, pushToast }: Cobranca
   // Partial payment
   const applyPartialPayment = (saleId: string) => {
     const amount = Number((partialAmounts[saleId] || '0').replace(',', '.'))
-    if (!amount || amount <= 0) { pushToast('Valor inválido', 'error'); return }
+    if (!Number.isFinite(amount) || amount <= 0) { pushToast('Valor inválido', 'error'); return }
     const sale = sales.find(s => s.id === saleId)
     if (!sale || amount > saleOutstanding(sale) + 0.001) { pushToast('O valor supera o saldo pendente.', 'error'); return }
     guard('Aplicar pagamento parcial', () => {
@@ -379,7 +379,7 @@ export function CobrancaView({ sales, setSales, customers, pushToast }: Cobranca
                       <div key={sale.id} style={{ border: '1px solid var(--border)', borderRadius: 'var(--r-md)', marginBottom: 'var(--sp-3)', overflow: 'hidden' }}>
                         {/* Sale header */}
                         <div
-                          style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', padding: 'var(--sp-3)', cursor: 'pointer', background: 'var(--bg-2)' }}
+                          style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', padding: 'var(--sp-3)', cursor: 'pointer', background: 'var(--bg-soft)' }}
                           onClick={() => toggleProductSection(sale.id)}
                         >
                           <Calendar size={14} color="var(--tx-3)" />

@@ -1,3 +1,4 @@
+import { FREE_MAX_FLAVORS } from '../free-store'
 import { useEffect, useRef, useState } from 'react'
 import { callBackend } from '../sync'
 import { CHANNELS, PAYMENTS, fmtBRL, uid, type Product, type Sale } from '../types'
@@ -42,7 +43,7 @@ export function EmployeeSales({ name, onLogout }: { name: string; onLogout: () =
       if (code === 'functions/already-exists') {
         pendingSale.current = null; setQuantities({}); setFailed(false); setMessage('Esta venda já foi registrada.'); await reload().catch(() => {})
       } else {
-        if (!['functions/unavailable', 'functions/deadline-exceeded', 'functions/internal'].includes(code || '')) pendingSale.current = null
+        if (!['functions/unavailable', 'functions/deadline-exceeded', 'functions/internal', 'unavailable', 'deadline-exceeded', 'internal'].includes(code || '')) pendingSale.current = null
         setFailed(true); setMessage((error as Error).message || 'Não foi possível registrar a venda.')
         await reload().catch(() => {})
       }
@@ -64,7 +65,8 @@ export function EmployeeSales({ name, onLogout }: { name: string; onLogout: () =
           <label>Canal<select className="input" value={channel} onChange={e => setChannel(e.target.value as Sale['channel'])}>{CHANNELS.map(c => <option key={c}>{c}</option>)}</select></label>
         </section>
       </fieldset>
-      <div className="page-row card"><strong>Total: {fmtBRL(total)}</strong><button className="btn btn-primary" disabled={busy || !items.length || status === 'Pendente' && !customer}>{busy ? 'Registrando…' : pendingSale.current ? 'Verificar e tentar novamente' : 'Registrar venda'}</button></div>
+      {items.length > FREE_MAX_FLAVORS && <p role="alert">Selecione até {FREE_MAX_FLAVORS} sabores diferentes por venda.</p>}
+      <div className="page-row card"><strong>Total: {fmtBRL(total)}</strong><button className="btn btn-primary" disabled={busy || !items.length || items.length > FREE_MAX_FLAVORS || status === 'Pendente' && !customer}>{busy ? 'Registrando…' : pendingSale.current ? 'Verificar e tentar novamente' : 'Registrar venda'}</button></div>
     </form>}
   </main>
 }

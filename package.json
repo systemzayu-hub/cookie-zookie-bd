@@ -8,10 +8,11 @@
     "typecheck": "tsc --noEmit",
     "build": "tsc && vite build && node scripts/service-worker.mjs",
     "preview": "vite preview",
-    "verify": "npm run typecheck && npm test && npm run build:backend && npm run build",
+    "verify": "npm run typecheck && npm test && npm run build",
     "audit:prod": "npm audit --omit=dev --audit-level=high",
     "test": "node scripts/test.mjs",
-    "build:backend": "tsc -p functions/tsconfig.json && node scripts/build-functions.mjs"
+    "build:backend": "tsc -p functions/tsconfig.json && node scripts/build-functions.mjs",
+    "test:rules": "node scripts/test-rules.mjs"
   },
   "dependencies": {
     "firebase": "^12.18.0",
@@ -20,6 +21,7 @@
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
+    "@firebase/rules-unit-testing": "^5.0.2",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "@vitejs/plugin-react": "^5.2.0",

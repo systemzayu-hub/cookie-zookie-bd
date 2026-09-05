@@ -1,3 +1,7 @@
+## 2026-09-05 — Versão gratuita ativada
+
+Cargos e auditoria migrados para Firestore, sem Cloud Functions ou cobrança. Regras publicadas e dono inicial configurado por identidade Google verificada. Preservados 4 produtos, 64 clientes e 162 vendas. Validação: 21 testes no Firestore Emulator e 27 testes de aplicação passaram; build aprovado. A arquitetura e os limites atuais estão em ATIVACAO_CARGOS.md. As seções abaixo são histórico das entregas anteriores.
+
 # Revisão geral — Cookie Zookie
 
 ## Atualização de cargos e dashboard — 04/09/2026

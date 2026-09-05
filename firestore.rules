@@ -2,18 +2,174 @@ rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
     function verified() { return request.auth != null && request.auth.token.email_verified == true; }
-    function role() { return get(/databases/$(database)/documents/team/$(request.auth.uid)).data.role; }
+    function email() { return request.auth.token.email.lower(); }
+    function role() { return get(/databases/$(database)/documents/teamAccess/$(email())).data.role; }
+    function staff() { return verified() && role() in ['owner', 'admin', 'employee']; }
     function manager() { return verified() && role() in ['owner', 'admin']; }
     function owner() { return verified() && role() == 'owner'; }
-    match /team/{uid} {
-      allow get: if verified() && (request.auth.uid == uid || owner());
-      allow list: if owner();
-      allow write: if false;
+    function oldShop() { return get(/databases/$(database)/documents/loja/dados).data; }
+    function newShop() { return getAfter(/databases/$(database)/documents/loja/dados).data; }
+    function event(id) { return getAfter(/databases/$(database)/documents/auditV2/$(id)).data; }
+    function ticket(id) { return getAfter(/databases/$(database)/documents/saleRequests/$(request.auth.uid)/items/$(id)).data; }
+    function core(s) { return { 'products': s.products, 'sales': s.sales, 'customers': s.customers }; }
+    function validId(id) { return id is string && id.matches('^v2-[a-f0-9-]{36}$'); }
+    function tiedToStore(id) {
+      let s = newShop();
+      return validId(id) && s.auditId == id && s.updatedAt == request.time && s.updatedBy == request.auth.uid;
     }
-    match /invitations/{id} { allow read: if owner(); allow write: if false; }
-    match /loja/{id} { allow read: if id == 'dados' && manager(); allow write: if false; }
+    function changedStore(s) {
+      let e = event(s.auditId);
+      return validId(s.auditId) && e.id == s.auditId && e.createdAt == request.time && e.actorUid == request.auth.uid
+        && (e.action == 'venda' || (existsAfter(/databases/$(database)/documents/auditSnapshots/$(s.auditId)/versions/before)
+        && existsAfter(/databases/$(database)/documents/auditSnapshots/$(s.auditId)/versions/after)))
+        && getAfter(/databases/$(database)/documents/catalog/products).data == { 'products': s.products, 'revision': s.auditId }
+        && getAfter(/databases/$(database)/documents/saleRegistry/ids).data.revision == s.auditId;
+    }
+    function baseStoreValid(s) {
+      return s.products is list && s.products.size() <= 500 && s.sales is list && s.sales.size() <= 5000
+        && s.customers is list && s.customers.size() <= 2000 && s.schemaVersion == 2
+        && s.updatedAt == request.time && s.updatedBy == request.auth.uid && s.updatedByEmail == email()
+        && s.diff(resource.data).affectedKeys().hasOnly(['products','sales','customers','schemaVersion','auditId','updatedAt','updatedBy','updatedByEmail']);
+    }
+    function selectedProducts(p, i) {
+      return i.size() == 1 ? [p[i[0]]] : i.size() == 2 ? [p[i[0]],p[i[1]]] : i.size() == 3 ? [p[i[0]],p[i[1]],p[i[2]]] : i.size() == 4 ? [p[i[0]],p[i[1]],p[i[2]],p[i[3]]] : [p[i[0]],p[i[1]],p[i[2]],p[i[3]],p[i[4]]];
+    }
+    function validItemAt(b, a, sale, indices, n) {
+      let i = indices[n];
+      let item = sale.items[n];
+      let before = b.products[i];
+      let after = a.products[i];
+      return i is int && i >= 0 && i < b.products.size()
+        && item.keys().hasOnly(['productId','name','qty','unitPrice'])
+        && item.productId == before.id && item.name == before.name && item.unitPrice == before.price
+        && item.qty is int && item.qty > 0 && item.qty <= 100000
+        && after.diff(before).affectedKeys().hasOnly(['stock'])
+        && after.stock == before.stock - item.qty && after.stock >= 0;
+    }
+    function validItem(b, a, sale, indices, n) { return n >= sale.items.size() || validItemAt(b, a, sale, indices, n); }
+    function itemTotal(s, n) { return n < s.items.size() ? s.items[n].qty * s.items[n].unitPrice : 0; }
+    function validDate(value) {
+      let parts = value.split('[-T:.Z]');
+      let at = timestamp.date(int(parts[0]), int(parts[1]), int(parts[2]))
+        + duration.value(int(parts[3]), 'h') + duration.value(int(parts[4]), 'm') + duration.value(int(parts[5]), 's');
+      return value.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}[.][0-9]{3}Z$')
+        && at >= request.time - duration.value(5, 'm') && at <= request.time + duration.value(1, 'm');
+    }
+    function validSale(b, a) {
+      let e = event(a.auditId);
+      let t = ticket(e.saleId);
+      let s = t.sale;
+      let total = itemTotal(s, 0) + itemTotal(s, 1) + itemTotal(s, 2) + itemTotal(s, 3) + itemTotal(s, 4);
+      return e.action == 'venda' && t.auditId == a.auditId && t.createdAt == request.time
+        && s.keys().hasOnly(['id','date','items','payment','total','channel','status','paidAmount','customerId'])
+        && s.id == e.saleId && s.id is string && s.id.size() > 0 && s.id.size() <= 100
+        && s.status in ['Pago','Pendente'] && s.payment in ['pix','dinheiro','cartão'] && s.channel in ['loja','delivery','encomenda']
+        && s.paidAmount == (s.status == 'Pago' ? s.total : 0) && s.total >= total - 0.01 && s.total <= total + 0.01
+        && s.total >= 0 && s.total <= 1000000 && s.date is string && validDate(s.date)
+        && s.items is list && s.items.size() >= 1 && s.items.size() <= 5
+        && t.indices is list && t.indices.size() == s.items.size() && t.indices.toSet().size() == t.indices.size()
+        && a.products.size() == b.products.size()
+        && a.products.removeAll(selectedProducts(a.products,t.indices)) == b.products.removeAll(selectedProducts(b.products,t.indices))
+        && a.customers == b.customers && a.sales == b.sales.concat([s])
+        && !(s.id in get(/databases/$(database)/documents/saleRegistry/ids).data.ids)
+        && (s.get('customerId','') == '' ? s.status == 'Pago' && t.customerIndex == -1 :
+          t.customerIndex is int && t.customerIndex >= 0 && t.customerIndex < b.customers.size() && b.customers[t.customerIndex].id == s.customerId);
+    }
+    function receiptItems(t) {
+      let b = oldShop();
+      let a = newShop();
+      return validItem(b,a,t.sale,t.indices,0) && validItem(b,a,t.sale,t.indices,1)
+        && validItem(b,a,t.sale,t.indices,2) && validItem(b,a,t.sale,t.indices,3) && validItem(b,a,t.sale,t.indices,4);
+    }
+    function auditHeader(id, e) {
+      return e.id == id && validId(id) && e.actorUid == request.auth.uid && e.email == email()
+        && e.actor is string && e.actor.size() > 0 && e.actor.size() <= 120 && e.detail is string && e.detail.size() <= 1000
+        && e.createdAt == request.time && e.hasUndo is bool && e.undoOf is string;
+    }
+    match /loja/dados {
+      allow read: if manager();
+      allow update: if staff() && baseStoreValid(request.resource.data) && changedStore(request.resource.data)
+        && (event(request.resource.data.auditId).action == 'venda' ? validSale(resource.data, request.resource.data) :
+          manager() && event(request.resource.data.auditId).action in ['alteracao','desfazer']
+          && getAfter(/databases/$(database)/documents/catalog/customers).data.revision == request.resource.data.auditId);
+      allow create, delete: if false;
+    }
+    match /catalog/products {
+      allow read: if staff();
+      allow create, update: if tiedToStore(request.resource.data.revision)
+        && request.resource.data == { 'products': newShop().products, 'revision': newShop().auditId };
+      allow delete: if false;
+    }
+    match /catalog/customers {
+      allow read: if staff();
+      allow create, update: if event(request.resource.data.revision).action != 'venda' && request.resource.data.keys().hasOnly(['customers','revision'])
+        && tiedToStore(request.resource.data.revision) && request.resource.data.customers is list
+        && request.resource.data.customers.size() == newShop().customers.size();
+      allow delete: if false;
+    }
+    match /saleRegistry/ids {
+      allow read: if manager();
+      allow update: if request.resource.data.keys().hasOnly(['ids','revision']) && tiedToStore(request.resource.data.revision)
+        && request.resource.data.ids is list && request.resource.data.ids.hasAll(resource.data.ids)
+        && (event(newShop().auditId).action != 'venda' || request.resource.data.ids == resource.data.ids.concat([event(newShop().auditId).saleId]));
+      allow create, delete: if false;
+    }
+    match /saleRequests/{uid}/items/{id} {
+      allow get: if verified() && (request.auth.uid == uid || manager());
+      allow list: if manager();
+      allow create: if uid == request.auth.uid && request.resource.data.keys().hasOnly(['sale','indices','customerIndex','fingerprint','auditId','createdAt'])
+        && request.resource.data.sale.id == id && receiptItems(request.resource.data) && tiedToStore(request.resource.data.auditId)
+        && event(request.resource.data.auditId).action == 'venda' && event(request.resource.data.auditId).saleId == id
+        && request.resource.data.createdAt == request.time && request.resource.data.fingerprint is string && request.resource.data.fingerprint.size() <= 30000;
+      allow update, delete: if false;
+    }
+    match /auditV2/{id} {
+      allow read: if manager();
+      allow create: if auditHeader(id, request.resource.data)
+        && (request.resource.data.action == 'equipe' ? owner()
+          && request.resource.data.keys().hasOnly(['id','actorUid','actor','email','createdAt','action','detail','hasUndo','undoOf','targetEmail','beforeRole','afterRole'])
+          && request.resource.data.hasUndo == false && request.resource.data.undoOf == ''
+          && getAfter(/databases/$(database)/documents/teamAccess/$(request.resource.data.targetEmail)).data.auditId == id
+          && getAfter(/databases/$(database)/documents/teamAccess/$(request.resource.data.targetEmail)).data.updatedAt == request.time
+          && request.resource.data.afterRole == getAfter(/databases/$(database)/documents/teamAccess/$(request.resource.data.targetEmail)).data.role
+          && request.resource.data.beforeRole == (exists(/databases/$(database)/documents/teamAccess/$(request.resource.data.targetEmail)) ? get(/databases/$(database)/documents/teamAccess/$(request.resource.data.targetEmail)).data.role : 'blocked')
+        : tiedToStore(id) && request.resource.data.keys().hasOnly(['id','actorUid','actor','email','createdAt','action','detail','hasUndo','undoOf','saleId','sale','beforeProducts','afterProducts'])
+          && (request.resource.data.action != 'venda' || (request.resource.data.beforeProducts == oldShop().products && request.resource.data.afterProducts == newShop().products && request.resource.data.sale == ticket(request.resource.data.saleId).sale))
+          && (request.resource.data.action == 'desfazer' ? manager() && request.resource.data.hasUndo == false
+            && getAfter(/databases/$(database)/documents/auditReversals/$(request.resource.data.undoOf)).data.auditId == id
+            : request.resource.data.action in ['venda','alteracao'] && request.resource.data.hasUndo == true && request.resource.data.undoOf == ''));
+      allow update, delete: if false;
+    }
+    match /auditSnapshots/{id}/versions/{version} {
+      allow read: if manager();
+      allow create: if tiedToStore(id) && version in ['before','after']
+        && (version == 'before' ? request.resource.data == (event(id).action == 'venda' ?
+          { 'products': oldShop().products, 'sales': [], 'customers': [] } : core(oldShop())) :
+          request.resource.data == (event(id).action == 'venda' ?
+          { 'products': newShop().products, 'sales': [ticket(event(id).saleId).sale], 'customers': [] } : core(newShop())));
+      allow update, delete: if false;
+    }
+    match /auditReversals/{id} {
+      allow read: if manager();
+      allow create: if manager() && request.resource.data.keys().hasOnly(['auditId','actorUid','createdAt'])
+        && request.resource.data.actorUid == request.auth.uid && request.resource.data.createdAt == request.time
+        && get(/databases/$(database)/documents/auditV2/$(id)).data.hasUndo == true
+        && event(request.resource.data.auditId).undoOf == id && event(request.resource.data.auditId).action == 'desfazer'
+        && tiedToStore(request.resource.data.auditId);
+      allow update, delete: if false;
+    }
+    match /teamAccess/{address} {
+      allow get: if verified() && (email() == address || owner());
+      allow list: if owner();
+      allow create, update: if owner() && address != email() && request.resource.data.email == address
+        && (!exists(/databases/$(database)/documents/teamAccess/$(address)) || resource.data.role != 'owner')
+        && request.resource.data.role in ['admin','employee','blocked']
+        && request.resource.data.keys().hasOnly(['email','role','auditId','updatedAt']) && request.resource.data.updatedAt == request.time
+        && event(request.resource.data.auditId).action == 'equipe' && event(request.resource.data.auditId).targetEmail == address
+        && event(request.resource.data.auditId).actorUid == request.auth.uid && event(request.resource.data.auditId).createdAt == request.time;
+      allow delete: if false;
+    }
     match /audit/{id} { allow read: if manager(); allow write: if false; }
-    match /auditReversals/{id} { allow read: if manager(); allow write: if false; }
     match /{document=**} { allow read, write: if false; }
   }
 }

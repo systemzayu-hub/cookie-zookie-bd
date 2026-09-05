@@ -3,7 +3,7 @@ import { getFirestore, doc, onSnapshot, collection, query, orderBy, limit, getDo
 import { getAuth, signInWithPopup, reauthenticateWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut, type Auth, type User } from 'firebase/auth'
 import { FIREBASE_APP_CHECK_SITE_KEY, FIREBASE_CONFIG } from './firebase-config'
 import { validateStoreData, type StoreData } from './validation'
-import { SyncConflict } from './store-merge'
+import { createFreeStore } from './free-store'
 import type { Role } from './roles'
 import type { UndoPatch } from './undo-model'
 
@@ -97,21 +97,22 @@ export async function authLogout(): Promise<void> {
 export async function callBackend<T>(name: string, data: unknown = {}): Promise<T> {
   await firebaseReady()
   if (!app || !auth?.currentUser) throw new Error('Entre com Google para continuar.')
-  const { getFunctions, httpsCallable } = await import('firebase/functions')
-  const response = await httpsCallable<unknown, T>(getFunctions(app, 'southamerica-east1'), name)(data)
-  return response.data
+  if (!db) throw new Error('Banco indisponível.')
+  const service = createFreeStore(db, () => auth?.currentUser || null)
+  const operation = (service as unknown as Record<string, (input: unknown) => Promise<unknown>>)[name]
+  if (!operation) throw new Error('Operação inválida.')
+  return await operation(data) as T
 }
 export async function syncCommit(base: StoreData, local: StoreData): Promise<StoreData> {
-  try { return await callBackend<StoreData>('commitStore', { base, local }) }
-  catch (error) {
-    if ((error as { code?: string }).code === 'functions/aborted') throw new SyncConflict()
-    throw error
-  }
+  return callBackend<StoreData>('commitStore', { base, local })
 }
+
 export async function watchAccess(uid: string, callback: (role: Role | null) => void, failure: () => void) {
   await callBackend('getMyAccess')
   if (!db) throw new Error('Acesso indisponível.')
-  return onSnapshot(doc(db, 'team', uid), { includeMetadataChanges: true }, snapshot => {
+  const email = auth?.currentUser?.email?.toLowerCase()
+  if (!email || auth?.currentUser?.uid !== uid) throw new Error('A conta mudou.')
+  return onSnapshot(doc(db, 'teamAccess', email), { includeMetadataChanges: true }, snapshot => {
     if (snapshot.metadata.fromCache) { callback(null); return }
     const role = snapshot.data()?.role
     callback(['owner', 'admin', 'employee'].includes(role) ? role : 'blocked')
@@ -120,10 +121,7 @@ export async function watchAccess(uid: string, callback: (role: Role | null) => 
 export type TeamMember = { uid?: string; email: string; role: Role; name?: string; invited?: boolean }
 export function watchTeam(callback: (members: TeamMember[]) => void, failure: () => void) {
   if (!db) return () => {}
-  let members: TeamMember[] = [], invites: TeamMember[] = []
-  const a = onSnapshot(collection(db, 'team'), snap => { members = snap.docs.map(d => d.data() as TeamMember); callback([...members, ...invites]) }, failure)
-  const b = onSnapshot(collection(db, 'invitations'), snap => { invites = snap.docs.map(d => ({ ...d.data(), invited: true }) as TeamMember); callback([...members, ...invites]) }, failure)
-  return () => { a(); b() }
+  return onSnapshot(collection(db, 'teamAccess'), snap => callback(snap.docs.map(d => d.data() as TeamMember)), failure)
 }
 
 /** Observa mudanças remotas no doc 'dados'. Retorna função de unsubscribe. */
@@ -153,32 +151,25 @@ export type AuditEntryDB = {
   action: string
   detail: string
   undo?: UndoPatch[]
+  hasUndo?: boolean
   undoOf?: string
   local?: boolean
 }
 
-/** Puxa as auditorias do Firestore (mais recentes primeiro). */
-export async function auditPullDB(max = 2000): Promise<AuditEntryDB[]> {
-  const ready = await firebaseReady()
-  if (!ready || !db) return []
-  try {
-    const snap = await getDocs(query(collection(db, 'audit'), orderBy('ts', 'desc'), limit(max)))
-    return snap.docs.map(d => d.data() as AuditEntryDB)
-  } catch (e) {
-    console.error('[audit] falha ao puxar do Firestore', e)
-    return []
-  }
-}
 
-/** Observa novas entradas de auditoria em tempo real. Retorna unsubscribe. */
+function readAudit(value: Record<string, any>): AuditEntryDB {
+  return { ...value, ts: value.createdAt?.toMillis?.() || value.ts || 0 } as AuditEntryDB
+}
+export async function auditPullDB(max = 1000): Promise<AuditEntryDB[]> {
+  if (!await firebaseReady() || !db) throw new Error('Auditoria indisponível.')
+  const [recent, legacy] = await Promise.all([
+    getDocs(query(collection(db, 'auditV2'), orderBy('createdAt', 'desc'), limit(max))),
+    getDocs(query(collection(db, 'audit'), orderBy('ts', 'desc'), limit(max))),
+  ])
+  return [...recent.docs.map(d => readAudit(d.data())), ...legacy.docs.map(d => ({ ...readAudit(d.data()), hasUndo: false }))]
+}
 export function onAuditChanges(cb: (entries: AuditEntryDB[]) => void, failure?: () => void): () => void {
   if (!db) return () => {}
-  const unsub = onSnapshot(
-    query(collection(db, 'audit'), orderBy('ts', 'desc'), limit(500)),
-    (snap) => {
-      cb(snap.docs.map(d => d.data() as AuditEntryDB))
-    },
-    () => failure?.()
-  )
-  return unsub
+  return onSnapshot(query(collection(db, 'auditV2'), orderBy('createdAt', 'desc'), limit(500)),
+    snap => cb(snap.docs.map(d => readAudit(d.data()))), () => failure?.())
 }

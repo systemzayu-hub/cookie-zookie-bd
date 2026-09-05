@@ -31,10 +31,10 @@ export function AuditView() {
   }, [role])
   if (!can(role, 'audit')) return <p>Seu cargo não permite acessar a auditoria.</p>
   const undone = new Set(entries.map(e => e.undoOf).filter(Boolean))
-  const select = (entry: AuditEntry) => {
+  const select = async (entry: AuditEntry) => {
     setError('')
     try {
-      const counts = entry.local ? previewUndo(entry.id) : Object.keys(names).map(source => ({ source, count: entry.undo?.filter(p => p.source === source).length || 0 })).filter(p => p.count)
+      const counts = entry.local ? previewUndo(entry.id) : await callBackend<{ source: string; count: number }[]>('previewUndo', { id: entry.id })
       setPreview(counts.map(p => `${p.count} ${names[p.source]}`).join(' · '))
       setPending(entry)
     } catch (e) { setError((e as Error).message) }
@@ -65,7 +65,7 @@ export function AuditView() {
       {error && <p role="alert" className="card">{error}</p>}
       <div className="card audit-history">{!filtered.length && <p>Nenhuma ação encontrada.</p>}{filtered.map(entry => {
         const reversed = undone.has(entry.id) || entry.local && undoStatus(entry.id) === 'undone'
-        const available = !reversed && (entry.local ? canUndoAction(entry.id) : !!entry.undo?.length)
+        const available = !reversed && (entry.local ? canUndoAction(entry.id) : !!entry.hasUndo)
         return <article className="audit-event" key={entry.id}><div><div className="audit-event-meta"><strong>{entry.actor}</strong><time dateTime={new Date(entry.ts).toISOString()}>{new Date(entry.ts).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}</time><span className="badge badge-neutral">{entry.local ? 'Neste aparelho' : entry.action}</span></div><p>{entry.detail}</p></div>{available ? <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => select(entry)}><Undo2 size={15}/> Desfazer</button> : <small>{reversed ? 'Desfeita' : entry.action === 'equipe' ? 'Gerencie pela equipe' : 'Sem reversão disponível'}</small>}</article>
       })}</div>
     </>}

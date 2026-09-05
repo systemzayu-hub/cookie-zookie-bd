@@ -85,8 +85,8 @@ test('production plan uses seven days of demand and never recommends negative st
 })
 test('zero bars render zero width and operations render empty and populated states', () => {
   assert.match(renderToStaticMarkup(<MetricBars items={[{ label: 'Zero', value: 0 }]} />), /width:0%/)
-  assert.match(renderToStaticMarkup(<Operations products={[]} sales={[]} navigate={() => {}} />), /Cadastre seus sabores/)
-  assert.match(renderToStaticMarkup(<Operations products={[{ ...product, stock: 0 }]} sales={[sale]} navigate={() => {}} />), /1 sabores sem estoque/)
+  assert.match(renderToStaticMarkup(<Operations products={[]} sales={[]} navigate={() => {}} />), /HOJE NA COOKIE ZOOKIE/)
+  assert.match(renderToStaticMarkup(<Operations products={[{ ...product, stock: 0 }]} sales={[sale]} navigate={() => {}} />), /vendas aguardando pagamento/)
 })
 
 const storage = new Map<string, string>()

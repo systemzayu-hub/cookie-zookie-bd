@@ -1272,3 +1272,37 @@ table.table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
   .audit-counters { flex-direction: column; align-items: stretch; gap: var(--sp-2); }
   .audit-counter { justify-content: space-between; }
 }
+
+.daily-overview,.dashboard-details { display:grid;grid-template-columns:1.4fr 1fr;gap:var(--sp-5);margin-bottom:var(--sp-5) }
+.daily-count { display:flex;flex-direction:column;gap:12px }
+.daily-count>strong { font-size:2.7rem;line-height:1.2;color:var(--tx-1) }
+.daily-count>strong>span { font-size:1.05rem;font-weight:500;color:var(--tx-2) }
+.daily-count>small { color:var(--tx-2) }
+.daily-pending { display:flex;align-items:center;gap:18px;text-align:left;color:var(--tx-1);cursor:pointer;font:inherit }
+.daily-pending>span { flex:1;display:flex;flex-direction:column;gap:4px }
+.daily-pending strong { font-size:2rem }
+.summary-list { margin:0 }
+.summary-list>div { display:flex;justify-content:space-between;gap:16px;padding:18px 0;border-bottom:1px solid var(--border) }
+.summary-list dd { font-weight:700;margin:0 }
+.employee-workspace { width:min(1100px,100%);margin:auto;padding:24px }
+.checkout-fields { display:flex;align-items:end;gap:16px;flex-wrap:wrap;margin-bottom:20px }
+.checkout-fields>label { display:flex;flex-direction:column;gap:7px;flex:1;min-width:160px }
+.team-section { display:grid;gap:20px }
+.team-member,.audit-event { display:flex;align-items:center;justify-content:space-between;gap:20px;padding:18px 0;border-bottom:1px solid var(--border) }
+.team-member>div { min-width:0;overflow-wrap:anywhere }
+.team-member small { display:block;color:var(--tx-2);margin-top:4px }
+.team-member select { max-width:180px }
+.audit-tabs,.audit-event-meta { display:flex;gap:12px;align-items:center;flex-wrap:wrap }
+.audit-event-meta time,.audit-event>small { color:var(--tx-2);font-size:.8rem }
+.audit-event p { margin:8px 0 0;overflow-wrap:anywhere }
+.audit-event>button { flex-shrink:0 }
+.audit-event:last-child,.summary-list>div:last-child { border-bottom:0 }
+@media(max-width:700px) {
+ .daily-overview,.dashboard-details { grid-template-columns:1fr }
+ .daily-count>strong { font-size:2.1rem }
+ .audit-event,.team-member { align-items:flex-start;flex-direction:column;gap:12px }
+ .employee-workspace { padding:16px }
+}
+
+dialog.access-dialog { color:var(--tx-1);max-height:85vh;overflow:auto;border:1px solid var(--border);margin:auto }
+dialog.access-dialog::backdrop { background:rgb(0 0 0 / .55);backdrop-filter:blur(3px) }

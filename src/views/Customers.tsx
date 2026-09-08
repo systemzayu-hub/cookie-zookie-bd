@@ -68,7 +68,7 @@ export function CustomersView({ customers, setCustomers, sales, pushToast }: {
     const name = form.name.trim()
     const contact = form.contact.trim()
     if (!name) { pushToast('Informe o nome.', 'error'); return }
-    if (!/^\(\d{2}\) \d{4,5}-\d{4}$/.test(contact)) { pushToast('Informe um telefone válido com DDD.', 'error'); return }
+    if (contact && !/^\(\d{2}\) \d{4,5}-\d{4}$/.test(contact)) { pushToast('Informe um telefone válido com DDD.', 'error'); return }
     if (name.length > 120 || contact.length > 120) { pushToast('Nome e contato devem ter até 120 caracteres.', 'error'); return }
     if (customers.some(customer => customer.id !== editing?.id && customer.name.toLocaleLowerCase('pt-BR') === name.toLocaleLowerCase('pt-BR'))) { pushToast('Já existe um cliente com esse nome.', 'error'); return }
     if (editing) {
@@ -246,7 +246,7 @@ export function CustomersView({ customers, setCustomers, sales, pushToast }: {
                   </div>
                   <div className="form">
                     <div className="field"><label>Nome</label><input value={form.name} maxLength={120} autoComplete="name" onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Nome do cliente" /></div>
-                    <div className="field"><label>Telefone com DDD</label><input value={form.contact} maxLength={15} autoComplete="tel" inputMode="tel" onChange={e => setForm(f => ({ ...f, contact: formatPhone(e.target.value) }))} placeholder="(11) 99999-0000" /></div>
+                    <div className="field"><label>Telefone com DDD (opcional)</label><input value={form.contact} maxLength={15} autoComplete="tel" inputMode="tel" onChange={e => setForm(f => ({ ...f, contact: formatPhone(e.target.value) }))} placeholder="(11) 99999-0000" /><span className="hint">Se deixar vazio, aparecerá “Não informado”.</span></div>
                     <div className="modal-actions">
                       <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancelar</button>
                       <button className="btn btn-primary" onClick={submit}>{editing ? 'Salvar' : 'Adicionar'}</button>

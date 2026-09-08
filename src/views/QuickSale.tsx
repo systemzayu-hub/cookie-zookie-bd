@@ -1,8 +1,10 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
 import { ClipboardPaste, CheckCircle2, AlertCircle, ArrowRight, Undo2, Sparkles } from 'lucide-react'
 import { Product, Customer, Sale, uid, fmtBRL } from '../types'
 import { usePasswordGuard } from '../components/PasswordGate'
 import { dayKey } from '../analytics'
+import { customerCandidates, normalizeCustomerName } from '../customer-matching'
+import { MaskedPII } from '../components/MaskedPII'
 import { logAction } from '../audit'
 
 /* ========== PRODUCT NAME ALIASES ========== */
@@ -43,21 +45,6 @@ function matchProduct(input: string, products: Product[]): Product | null {
   return starts || null
 }
 
-/* ========== CUSTOMER NAME MATCHING ========== */
-function normalize(s: string): string {
-  return s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]/g, '').trim()
-}
-
-function matchCustomer(input: string, customers: Customer[]): { id: string; name: string } | null {
-  const clean = input.replace(/\d+[°º]?/g, '').trim() // strip "2°", "1°M" etc
-  const norm = normalize(clean)
-  if (!norm) return null
-  const exact = customers.filter(c => normalize(c.name) === norm)
-  if (exact.length === 1) return { id: exact[0].id, name: exact[0].name }
-  const matches = customers.filter(c => normalize(c.name).includes(norm) || norm.includes(normalize(c.name)))
-  return matches.length === 1 ? { id: matches[0].id, name: matches[0].name } : null
-}
-
 /* ========== STATUS PARSING ========== */
 function parseStatus(code: string | undefined): Sale['status'] {
   if (!code) return 'Pendente'
@@ -69,7 +56,7 @@ function parseStatus(code: string | undefined): Sale['status'] {
 }
 
 /* ========== TEXT PARSER ========== */
-interface ParsedLine {
+export interface ParsedLine {
   lineNum: number
   date: string | null
   qty: number
@@ -79,6 +66,7 @@ interface ParsedLine {
   customerNameRaw: string
   customerNameMatched: string | null
   customerId: string | null
+  customerChoice?: string
   status: Sale['status']
   statusLabel: string
   error: string | null
@@ -90,7 +78,7 @@ const STATUS_LABEL: Record<string, string> = {
   Pago: 'Pago (C)', Pendente: 'Pendente', Debitado: 'Debitado (D)', Presente: 'Presente (--)',
 }
 
-function parseText(text: string, products: Product[], customers: Customer[]): ParsedLine[] {
+export function parseText(text: string, products: Product[], customers: Customer[]): ParsedLine[] {
   const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0)
   const currentYear = new Date().getFullYear()
   let currentDate = ''
@@ -116,14 +104,17 @@ function parseText(text: string, products: Product[], customers: Customer[]): Pa
     const [, qtyStr, rawProduct, rawCustomer, rawStatus] = saleMatch
     const qty = parseInt(qtyStr, 10)
     const prodMatch = matchProduct(rawProduct, products)
-    const custMatch = matchCustomer(rawCustomer, customers)
+    const candidates = customerCandidates(rawCustomer, customers)
+    const custMatch = candidates.length === 1 && normalizeCustomerName(candidates[0].name) === normalizeCustomerName(rawCustomer) ? candidates[0] : null
+    const customerChoice = custMatch?.id || (candidates.length ? '' : 'new')
     const status = parseStatus(rawStatus)
     const unitPrice = prodMatch?.price ?? null
     const total = unitPrice !== null ? qty * unitPrice : null
 
     let error: string | null = null
     if (!prodMatch) error = `Produto "${rawProduct.trim()}" não encontrado`
-    else if (!custMatch) error = `Cliente "${rawCustomer.trim()}" não está cadastrado`
+    else if (!Number.isSafeInteger(qty) || qty <= 0) error = 'Quantidade inválida'
+    else if (rawCustomer.trim().length > 120) error = 'Nome do cliente deve ter até 120 caracteres'
 
     result.push({
       lineNum: i + 1,
@@ -135,6 +126,7 @@ function parseText(text: string, products: Product[], customers: Customer[]): Pa
       customerNameRaw: rawCustomer.trim(),
       customerNameMatched: custMatch?.name ?? null,
       customerId: custMatch?.id ?? null,
+      customerChoice,
       status,
       statusLabel: STATUS_LABEL[status as string] ?? 'Pendente',
       error,
@@ -146,27 +138,29 @@ function parseText(text: string, products: Product[], customers: Customer[]): Pa
 }
 
 /* ========== QUICK SALE VIEW ========== */
-export function QuickSaleView({ products, customers, onSaleAdded, onCustomersAdded: _onCustomersAdded, pushToast }: {
+export function QuickSaleView({ products, customers, onSalesImported, pushToast }: {
   products: Product[]; customers: Customer[]
-  onSaleAdded: (s: Sale) => boolean; onCustomersAdded: (customers: Customer[]) => void; pushToast: (m: string, t?: 'success' | 'error') => void
+  onSalesImported: (sales: Sale[], customers: Customer[]) => boolean; pushToast: (m: string, t?: 'success' | 'error') => void
 }) {
   const [text, setText] = useState('')
   const { guard } = usePasswordGuard()
   const [parsed, setParsed] = useState<ParsedLine[]>([])
   const [step, setStep] = useState<'input' | 'preview' | 'done'>('input')
   const [createdCount, setCreatedCount] = useState(0)
+  const confirming = useRef(false)
 
   const doParse = () => {
     if (!text.trim()) { pushToast('Cole o texto das vendas.', 'error'); return }
     const lines = parseText(text, products, customers)
     if (lines.length === 0) { pushToast('Nenhuma linha encontrada.', 'error'); return }
+    confirming.current = false
     setParsed(lines)
     setStep('preview')
   }
 
   const doConfirm = () => guard('Confirmar vendas importadas', () => {
-    if (step !== 'preview') return
-    if (parsed.some(line => line.error || !line.customerId || !line.productId || !Number.isSafeInteger(line.qty) || line.qty <= 0)) {
+    if (step !== 'preview' || confirming.current) return
+    if (parsed.some(line => line.error || !line.customerChoice || !line.productId || !Number.isSafeInteger(line.qty) || line.qty <= 0)) {
       pushToast('Corrija todas as linhas antes de importar.', 'error'); return
     }
     const quantities = new Map<string, number>()
@@ -180,17 +174,20 @@ export function QuickSaleView({ products, customers, onSaleAdded, onCustomersAdd
       const product = products.find(item => item.id === id)
       if (!product || quantity > product.stock) { pushToast(`Estoque insuficiente para ${product?.name || 'produto'}. Confira o total do lote.`, 'error'); return }
     }
+    const newCustomers = new Map<string, Customer>()
+    const resolved = parsed.map(line => {
+      if (line.customerChoice !== 'new') return { ...line, customerId: line.customerChoice! }
+      const nameKey = normalizeCustomerName(line.customerNameRaw)
+      if (!newCustomers.has(nameKey)) newCustomers.set(nameKey, { id: uid(), name: line.customerNameRaw, contact: '', createdAt: new Date().toISOString() })
+      return { ...line, customerId: newCustomers.get(nameKey)!.id }
+    })
     const saleDateMap = new Map<string, ParsedLine[]>()
-    parsed.filter(l => l.productId && l.customerId).forEach(l => {
-      const resolvedCustomerId = l.customerId!
-      const dateKey = l.date || dayKey(Date.now())
-      const key = `${dateKey}|${resolvedCustomerId}|${l.status}`
-      const arr = saleDateMap.get(key) || []
-      arr.push(l)
-      saleDateMap.set(key, arr)
+    resolved.forEach(line => {
+      const key = `${line.date || dayKey(Date.now())}|${line.customerId}|${line.status}`
+      saleDateMap.set(key, [...(saleDateMap.get(key) || []), line])
     })
 
-    let count = 0
+    const sales: Sale[] = []
     saleDateMap.forEach((lines, key) => {
       const [date, customerId, status] = key.split('|')
       const items = lines.map(l => ({
@@ -211,23 +208,32 @@ export function QuickSaleView({ products, customers, onSaleAdded, onCustomersAdd
         status: status as Sale['status'],
         paidAmount: status === 'Pago' ? total : 0,
       }
-      if (onSaleAdded(sale)) count++
+      sales.push(sale)
     })
 
+    confirming.current = true
+    if (!onSalesImported(sales, [...newCustomers.values()])) { confirming.current = false; return }
+    const count = sales.length
     logAction('venda-rapida', `Importou ${count} venda(s) via cola de texto (${parsed.length} linhas)`)
     setCreatedCount(count)
     setStep('done')
     pushToast(`${count} venda(s) criada(s) com sucesso! 🎉`)
   })
 
-  const doReset = () => { setText(''); setParsed([]); setStep('input'); setCreatedCount(0) }
+  const doReset = () => { setText(''); setParsed([]); setStep('input'); setCreatedCount(0); confirming.current = false }
 
   const parseStats = useMemo(() => {
-      const valid = parsed.filter(l => l.productId && l.customerId).length
-    const warnings = parsed.filter(l => l.error).length
+    const valid = new Set(parsed.filter(l => l.productId && l.customerChoice && !l.error).map(l => `${l.date || dayKey(Date.now())}|${l.customerChoice === 'new' ? 'new:' + normalizeCustomerName(l.customerNameRaw) : l.customerChoice}|${l.status}`)).size
+    const warnings = parsed.filter(l => l.error || !l.customerChoice).length
     const total = parsed.filter(l => l.total).reduce((a, l) => a + (l.total || 0), 0)
     return { valid, warnings, total, count: parsed.length }
   }, [parsed])
+
+  const chooseCustomer = (name: string, choice: string) => {
+    setParsed(lines => lines.map(line => normalizeCustomerName(line.customerNameRaw) === normalizeCustomerName(name)
+      ? { ...line, customerChoice: choice, customerId: choice === 'new' ? null : choice, customerNameMatched: customers.find(customer => customer.id === choice)?.name || null }
+      : line))
+  }
 
   return (
     <>
@@ -317,10 +323,11 @@ export function QuickSaleView({ products, customers, onSaleAdded, onCustomersAdd
           {parseStats.warnings > 0 && (
             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', padding: 'var(--sp-4)', background: 'rgba(251,191,36,0.1)', border: '1px solid var(--warn-600)', borderRadius: 'var(--r-lg)', marginBottom: 'var(--sp-6)' }}>
               <AlertCircle size={20} style={{ color: 'var(--warn-500)' }} />
-              <span>{parseStats.warnings} linha(s) com aviso (produtos/clientes não encontrados). Vendas com produto identificado serão criadas mesmo assim.</span>
+              <span>{parseStats.warnings} linha(s) precisam de revisão. Escolha os clientes e corrija os avisos antes de confirmar.</span>
             </div>
           )}
 
+          <p style={{ marginBottom: 'var(--sp-4)' }}>Nomes novos serão cadastrados ao confirmar. Para nomes parecidos, escolha o cliente ou “Criar novo cliente”. A escolha vale para todas as linhas com o mesmo nome.</p>
           <div className="card" style={{ marginBottom: 'var(--sp-6)' }}>
             <div className="table-wrap">
               <table className="table">
@@ -338,11 +345,28 @@ export function QuickSaleView({ products, customers, onSaleAdded, onCustomersAdd
                           <span style={{ color: 'var(--danger-500)' }}>{l.productNameRaw}</span>
                         )}
                       </td>
-                      <td style={{ fontWeight: 600 }}>{l.customerNameMatched || l.customerNameRaw}</td>
+                      <td style={{ minWidth: 230 }}>
+                        <div style={{ fontWeight: 600, marginBottom: 'var(--sp-2)' }}>{l.customerNameRaw}</div>
+                        {l.productId && <fieldset style={{ border: 0, padding: 0, margin: 0 }}>
+                          <legend className="hint">Selecionar cliente</legend>
+                          {customerCandidates(l.customerNameRaw, customers).map(customer => <label key={customer.id} style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                            <input className="customer-choice" type="radio" name={`customer-${i}`} checked={l.customerChoice === customer.id} onChange={() => chooseCustomer(l.customerNameRaw, customer.id)} style={{ width: 16, height: 16, flexShrink: 0 }} />
+                            <span>{customer.name} · <MaskedPII value={customer.contact} type="phone" /> · cadastro {new Date(customer.createdAt).toLocaleDateString('pt-BR')} · cód. {customer.id.slice(-6)}</span>
+                          </label>)}
+                          <label style={{ display: 'flex', gap: 8, alignItems: 'center', marginBottom: 6 }}>
+                            <input className="customer-choice" type="radio" name={`customer-${i}`} checked={l.customerChoice === 'new'} onChange={() => chooseCustomer(l.customerNameRaw, 'new')} style={{ width: 16, height: 16, flexShrink: 0 }} />
+                            <span>Criar novo cliente: {l.customerNameRaw}</span>
+                          </label>
+                          <select className="input" aria-label={`Outro cliente para linha ${l.lineNum}`} value={l.customerChoice !== 'new' ? l.customerChoice || '' : ''} onChange={event => chooseCustomer(l.customerNameRaw, event.target.value)}>
+                            <option value="">Selecionar outro cliente...</option>
+                            {customers.map(customer => <option key={customer.id} value={customer.id}>{customer.name} · cód. {customer.id.slice(-6)}</option>)}
+                          </select>
+                        </fieldset>}
+                      </td>
                       <td><span className={`badge badge-${l.status === 'Pago' ? 'success' : l.status === 'Pendente' ? 'warning' : l.status === 'Debitado' ? 'danger' : 'neutral'}`}>{l.statusLabel}</span></td>
                       <td style={{ fontWeight: 700 }}>{l.total !== null ? fmtBRL(l.total) : '—'}</td>
                       <td style={{ fontSize: '0.8em', color: l.error ? 'var(--warn-500)' : 'var(--tx-2)' }}>
-                        {l.error || (l.productId ? '✓ OK' : '')}
+                        {l.error || (!l.customerChoice ? 'Selecione o cliente' : l.customerChoice === 'new' ? 'Novo cliente · número não informado' : '✓ OK')}
                       </td>
                     </tr>
                   ))}

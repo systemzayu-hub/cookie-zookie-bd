@@ -5,6 +5,7 @@ import { CookieArt } from '../components/CookieArt'
 import { usePasswordGuard } from '../components/PasswordGate'
 import { MaskedMoney } from '../components/MaskedMoney'
 import { MaskedPII } from '../components/MaskedPII'
+import { normalizeCustomerName } from '../customer-matching'
 import { logAction } from '../audit'
 
 interface CobrancaViewProps {
@@ -24,6 +25,7 @@ type CustomerGroup = {
 
 export function CobrancaView({ sales, setSales, customers, pushToast }: CobrancaViewProps) {
   const { guard } = usePasswordGuard()
+  const [search, setSearch] = useState('')
   const [sortBy, setSortBy] = useState<'total' | 'nome' | 'qtd' | 'data'>('data')
   const [sortDesc, setSortDesc] = useState(true)
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set())
@@ -59,7 +61,7 @@ export function CobrancaView({ sales, setSales, customers, pushToast }: Cobranca
 
   // Sort
   const sortedGroups = useMemo(() => {
-    return [...groups].sort((a, b) => {
+    return groups.filter(group => normalizeCustomerName(group.customer?.name || '').includes(normalizeCustomerName(search))).sort((a, b) => {
       let cmp = 0
       if (sortBy === 'total') cmp = a.totalPending - b.totalPending
       else if (sortBy === 'nome') cmp = (a.customer?.name || 'ZZZ').localeCompare(b.customer?.name || 'ZZZ')
@@ -71,7 +73,7 @@ export function CobrancaView({ sales, setSales, customers, pushToast }: Cobranca
       }
       return sortDesc ? -cmp : cmp
     })
-  }, [groups, sortBy, sortDesc])
+  }, [groups, sortBy, sortDesc, search])
 
   // --- Actions ---
   const normalizeWhats = (raw: string): string => {
@@ -242,6 +244,11 @@ export function CobrancaView({ sales, setSales, customers, pushToast }: Cobranca
         </div>
       </div>
 
+      <div className="field" style={{ marginBottom: 'var(--sp-4)' }}>
+        <label htmlFor="billing-search">Buscar cliente</label>
+        <input id="billing-search" type="search" placeholder="Digite o nome da pessoa..." value={search} onChange={event => setSearch(event.target.value)} />
+      </div>
+
       {/* Filtros/ordenação */}
       <div className="card" style={{ marginBottom: 'var(--sp-4)' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-4)', flexWrap: 'wrap' }}>
@@ -272,6 +279,7 @@ export function CobrancaView({ sales, setSales, customers, pushToast }: Cobranca
         </div>
       </div>
 
+      {sortedGroups.length === 0 && <div className="card empty-state" role="status"><p>Nenhum cliente encontrado para “{search}”.</p></div>}
       {/* Cards por pessoa */}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)' }}>
         {sortedGroups.map(g => {

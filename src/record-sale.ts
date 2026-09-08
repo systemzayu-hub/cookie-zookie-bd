@@ -1,5 +1,5 @@
-import type { Sale } from './types'
-import type { StoreData } from './validation'
+import type { Customer, Sale } from './types'
+import { validateStoreData, type StoreData } from './validation'
 
 export function recordSale(store: StoreData, sale: Sale): StoreData {
   if (store.sales.some(existing => existing.id === sale.id)) throw new Error('Esta venda já foi registrada.')
@@ -15,4 +15,18 @@ export function recordSale(store: StoreData, sale: Sale): StoreData {
     if (!product || quantity > product.stock) throw new Error(`Estoque insuficiente para ${product?.name || 'o produto'}. Confira a quantidade atual.`)
   }
   return { ...store, sales: [sale, ...store.sales], products: store.products.map(product => ({ ...product, stock: product.stock - (quantities.get(product.id) || 0) })) }
+}
+
+// Validate on a temporary snapshot; publish only after the entire batch succeeds.
+export function recordSalesBatch(store: StoreData, sales: Sale[], customers: Customer[]): StoreData {
+  if (!sales.length) throw new Error('Nenhuma venda para importar.')
+  const ids = new Set(store.customers.map(customer => customer.id))
+  for (const customer of customers) {
+    if (!customer.id || ids.has(customer.id) || !customer.name.trim() || customer.name.length > 120 || customer.contact.length > 120) throw new Error('Confira os novos clientes antes de importar.')
+    ids.add(customer.id)
+  }
+  if (ids.size > 2000 || store.sales.length + sales.length > 5000) throw new Error('O lote excede o limite de clientes ou vendas do sistema.')
+  const next = sales.reduce(recordSale, { ...store, customers: [...store.customers, ...customers] })
+  if (!validateStoreData(next)) throw new Error('O lote excede os limites de itens ou valores do sistema. Divida a importação.')
+  return next
 }

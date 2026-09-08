@@ -17,7 +17,7 @@ import { VisitorDashboard } from './views/VisitorDashboard'
 import { EmployeeSales } from './views/EmployeeSales'
 import { configureUndoStore, setUndoOwner } from './undo'
 import { useStoreSync } from './useStoreSync'
-import { recordSale } from './record-sale'
+import { recordSale, recordSalesBatch } from './record-sale'
 import { validateCustomers, validateProducts, validateSales, validateStoreData } from './validation'
 import logoUrl from './assets/logo.png'
 
@@ -219,12 +219,13 @@ export default function App() {
     return true
   }
 
-  const handleCustomersAdded = (newCustomers: Customer[]) => {
-    if (newCustomers.length === 0) return
-    setCustomers(previous => {
-      const existing = new Set(previous.map(customer => customer.id))
-      return [...previous, ...newCustomers.filter(customer => !existing.has(customer.id))]
-    })
+  const handleSalesImported = (sales: Sale[], customers: Customer[]) => {
+    try {
+      const next = recordSalesBatch(saleState.current, sales, customers)
+      saleState.current = next
+      setCustomers(next.customers); setSales(next.sales); setProducts(next.products)
+      return true
+    } catch (error) { pushToast((error as Error).message, 'error'); return false }
   }
 
   const onImport = async (file: File) => {
@@ -406,7 +407,7 @@ export default function App() {
         {!storeReady ? <div className="loading" role="status">Preparando os dados da equipe…</div> : <ErrorBoundary key={tab}>
         <Suspense fallback={<div className="loading" role="status">Carregando tela…</div>}>
           {tab === 'dashboard' && <Dashboard sales={sales} products={products} customers={customers} onNewSale={() => navigate('vendas')} onNavigate={navigate} />}
-          {tab === 'vendas' && <SensitiveData label="Desbloquear vendas"><SalesView products={products} customers={customers} sales={sales} onSaleAdded={handleSaleAdded} onCustomersAdded={handleCustomersAdded} pushToast={pushToast} /></SensitiveData>}
+          {tab === 'vendas' && <SensitiveData label="Desbloquear vendas"><SalesView products={products} customers={customers} sales={sales} onSaleAdded={handleSaleAdded} onSalesImported={handleSalesImported} pushToast={pushToast} /></SensitiveData>}
           {tab === 'produtos' && <ProductsStockView products={products} setProducts={setProducts} sales={sales} pushToast={pushToast} />}
           {tab === 'relatorios' && <ReportsView sales={sales} />}
           {tab === 'clientes' && <CustomersBillingView customers={customers} setCustomers={setCustomers} sales={sales} setSales={setSales} pushToast={pushToast} />}

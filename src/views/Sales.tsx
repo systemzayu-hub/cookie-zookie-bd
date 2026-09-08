@@ -5,8 +5,8 @@ import { StatusBadge } from './Dashboard'
 import { usePasswordGuard } from '../components/PasswordGate'
 import { QuickSaleView } from './QuickSale'
 
-export function SalesView({ products, customers, sales, onSaleAdded, onCustomersAdded, pushToast }: {
-  products: Product[]; customers: Customer[]; sales: Sale[]; onSaleAdded: (s: Sale) => boolean; onCustomersAdded: (customers: Customer[]) => void; pushToast: (m: string, t?: 'success' | 'error') => void
+export function SalesView({ products, customers, sales, onSaleAdded, onSalesImported, pushToast }: {
+  products: Product[]; customers: Customer[]; sales: Sale[]; onSaleAdded: (s: Sale) => boolean; onSalesImported: (sales: Sale[], customers: Customer[]) => boolean; pushToast: (m: string, t?: 'success' | 'error') => void
 }) {
   const { guard } = usePasswordGuard()
   const [mode, setMode] = useState<'manual' | 'paste'>('manual')
@@ -78,7 +78,7 @@ export function SalesView({ products, customers, sales, onSaleAdded, onCustomers
       </div>
 
       {mode === 'paste' ? (
-        <QuickSaleView products={products} customers={customers} onSaleAdded={onSaleAdded} onCustomersAdded={onCustomersAdded} pushToast={pushToast} />
+        <QuickSaleView products={products} customers={customers} onSalesImported={onSalesImported} pushToast={pushToast} />
       ) : (
         <div className="card">
           {products.length === 0 && (

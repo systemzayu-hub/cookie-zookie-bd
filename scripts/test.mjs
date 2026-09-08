@@ -9,7 +9,7 @@ try {
   const outfile = join(directory, 'suite.cjs')
   await build({
     entryPoints: ['tests/core.test.tsx'], outfile, bundle: true, platform: 'node', format: 'cjs', jsx: 'automatic',
-    define: { 'import.meta.env.BASE_URL': '"./"' },
+    define: { 'import.meta.env': '{}' },
     external: ['react', 'react/*', 'react-dom/*', 'react-test-renderer'],
     plugins: [{ name: 'mock-firestore-for-hook-tests', setup(builder) {
       builder.onResolve({ filter: /^(firebase-admin\/|firebase-functions\/)/ }, args => args.importer.endsWith('functions/src/index.ts') || args.importer.endsWith('functions\\src\\index.ts') ? { path: resolve('tests/backend-mock.ts') } : undefined)

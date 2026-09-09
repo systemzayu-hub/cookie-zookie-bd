@@ -51,10 +51,14 @@ export function parseIngredients(text: string) {
     const line = raw.trim()
     if (/^(total|subtotal|valor total|troco|dinheiro|pix|cart[aã]o|cnpj|cpf|tributos|desconto|forma de pagamento)\b/i.test(line)) { ignored.push(line); continue }
     const match = line.match(/^(.+?)\s*(?:R\$\s*)?(\d+(?:\.\d{3})*,\d{2}|\d+\.\d{2})\s*$/)
-    const name = match?.[1].replace(/[\s;:–-]+$/, '').trim()
+    let name = match?.[1].replace(/[\s;:–-]+$/, '').trim()
     if (!match || !name || !/[a-zà-ÿ]/i.test(name)) { ignored.push(line); continue }
     const total = Number(match[2].includes(',') ? match[2].replace(/\./g, '').replace(',', '.') : match[2])
-    if (total > 0 && total <= 1000000) items.push({ name, total }); else ignored.push(line)
+    const prefix = name.match(/^(\d+(?:[,.]\d+)?)\s*(?:[x×]\s*|(?:unidades?|un)\s+)(.+)$/i)
+    const quantity = prefix ? Number(prefix[1].replace(',', '.')) : 1
+    if (prefix) name = prefix[2].trim()
+    const pack = name.match(/\b(\d+(?:[,.]\d+)?)\s*(kg|g|ml|l)\b/i)
+    if (total > 0 && total <= 1000000 && quantity > 0 && quantity <= 1000000 && /[a-zà-ÿ]/i.test(name)) items.push({ name, total, quantity, ...(pack ? { packageSize: Number(pack[1].replace(',', '.')), unit: pack[2].toLowerCase() as IngredientUnit } : {}) }); else ignored.push(line)
   }
   return { items, ignored }
 }

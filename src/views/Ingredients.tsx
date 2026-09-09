@@ -1,7 +1,6 @@
-import { parsePurchaseImage } from '../purchase-scan'
 import { useEffect, useRef, useState } from 'react'
 import { get, set, update } from 'idb-keyval'
-import { IngredientPurchase, parseProductScreenshot, parseIngredients, purchaseTotal, validPurchase, purchasesSummary, purchaseDue, groupDebts, normalizeIngredient, creditorName, replacePurchase, readPurchasesBackup } from '../ingredients'
+import { IngredientPurchase, parseIngredients, purchaseTotal, validPurchase, purchasesSummary, purchaseDue, groupDebts, normalizeIngredient, creditorName, replacePurchase, readPurchasesBackup } from '../ingredients'
 import { fmtBRL, uid } from '../types'
 import { PurchaseEditor, PurchaseDraft } from './PurchaseEditor'
 import { PurchasePrices } from './PurchasePrices'
@@ -17,7 +16,7 @@ export function IngredientsView({ owner }: { owner: string }) {
   const [area, setArea] = useState('compras'), [editor, setEditor] = useState(false)
   const [from, setFrom] = useState(''), [to, setTo] = useState(''), [search, setSearch] = useState(''), [status, setStatus] = useState('all'), [archived, setArchived] = useState(false)
   const [ignored, setIgnored] = useState<string[]>([]), [draftSaved, setDraftSaved] = useState(true)
-  const alive = useRef(true), lock = useRef(false), worker = useRef<import('tesseract.js').Worker>()
+  const alive = useRef(true), lock = useRef(false)
   const queue = useRef(Promise.resolve()), draftVersion = useRef(0)
   useEffect(() => {
     let cancelled = false; alive.current = true
@@ -33,7 +32,7 @@ export function IngredientsView({ owner }: { owner: string }) {
       setReady(true)
     }).catch(() => { if (!cancelled) setMessage('Não foi possível abrir os registros. Os dados originais foram preservados.') })
     window.addEventListener('focus', reload)
-    return () => { cancelled = true; alive.current = false; window.removeEventListener('focus', reload); void worker.current?.terminate() }
+    return () => { cancelled = true; alive.current = false; window.removeEventListener('focus', reload) }
   }, [key])
   const change = (next: PurchaseDraft) => {
     setDraft(next); setDraftSaved(false); const version = ++draftVersion.current
@@ -47,38 +46,27 @@ export function IngredientsView({ owner }: { owner: string }) {
     })
     if (alive.current) setPurchases(next)
   }
-  const process = (text: string, photo = draft.photo, confidence?: number) => {
-    const parsed = photo ? parsePurchaseImage(text, draft.photoKind || 'receipt') : { ...parseIngredients(text), warning: 'Itens preparados. Confira os valores antes de salvar.' }
+  const process = (text: string) => {
+    const parsed = parseIngredients(text)
     setIgnored(parsed.ignored)
-    change({ ...draft, text, photo, items: parsed.items, scanConfirmed: false, scanConfidence: confidence,
-      expectedTotal: 'expectedTotal' in parsed ? parsed.expectedTotal : undefined,
-      date: 'date' in parsed && parsed.date ? parsed.date : draft.date,
-      shop: draft.shop || ('shop' in parsed ? parsed.shop : '') || '' })
-    setMessage(confidence !== undefined && confidence < 75 ? 'Leitura com baixa confiança. Compare cada produto, quantidade e valor com a imagem.' : parsed.warning)
+    if (!parsed.items.length) { setMessage('Nenhum produto reconhecido. Use: 2x Farinha 1kg - 12,50 (total das duas unidades). Seus itens foram mantidos.'); return }
+    change({ ...draft, text, items: parsed.items, scanConfirmed: false, scanConfidence: undefined })
+    setMessage(`${parsed.items.length} produtos preparados. Confira quantidades e totais antes de salvar.${parsed.ignored.length ? ' Há linhas não incluídas para conferir.' : ''}`)
   }
   const readPhoto = async (file: File) => {
     if (lock.current) return
-    if ((draft.text || draft.items.length) && !confirm('Ler outra nota substituirá o texto e os itens atuais. Continuar?')) return
     if (!/^image\/(jpeg|png|webp)$/.test(file.type) || file.size > 15 * 1024 * 1024) { setMessage('Escolha uma foto JPG, PNG ou WebP de até 15 MB.'); return }
     lock.current = true; setBusy(true)
     try {
       const photo = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(file) })
-      if (!alive.current) return
-      change({ ...draft, photo }); setMessage('Preparando leitura da imagem… A primeira leitura pode demorar.')
-      const { createWorker, OEM } = await import('tesseract.js')
-      const base = new URL(import.meta.env.BASE_URL + 'ocr/', document.baseURI).href
-      const w = await createWorker('por', OEM.LSTM_ONLY, { workerPath: base + 'worker.min.js', corePath: base, langPath: base, workerBlobURL: false, logger: m => { if (alive.current && m.status === 'recognizing text') setMessage(`Lendo imagem: ${Math.round(m.progress * 100)}%`) } })
-      worker.current = w
-      if (!alive.current) { await w.terminate(); return }
-      const result = await w.recognize(photo)
-      if (alive.current) process(result.data.text, photo, result.data.confidence)
-    } catch { if (alive.current) setMessage('Não consegui ler a foto. Ela ficou anexada; digite os itens ou tente uma foto mais nítida.') }
-    finally { await worker.current?.terminate(); worker.current = undefined; lock.current = false; if (alive.current) setBusy(false) }
+      if (alive.current) { change({ ...draft, photo, scanConfirmed: false, scanConfidence: undefined }); setMessage('Foto anexada para conferência. Cole a transcrição no campo de texto; a imagem não será transcrita automaticamente.') }
+    } catch { if (alive.current) setMessage('Não foi possível anexar a foto. Seu rascunho foi preservado.') }
+    finally { lock.current = false; if (alive.current) setBusy(false) }
   }
   const savePurchase = async () => {
     if (lock.current) return
     if (draft.photo && !draft.scanConfirmed) { setMessage('Confira a lista com a foto e marque a confirmação antes de salvar.'); return }
-    const { text, photoKind, editingBefore, expectedTotal, scanConfidence, scanConfirmed, ...purchase } = draft
+    const { text, quickPaid, quickDue, photoKind, editingBefore, expectedTotal, scanConfidence, scanConfirmed, ...purchase } = draft
     if (purchase.paymentStatus === 'paid') purchase.paidAmount = undefined
     if (!validPurchase(purchase)) { setMessage('Confira data, produtos, valores e quantidades. O valor devido deve estar entre zero e o total da compra.'); return }
     if (purchase.paymentStatus === 'pending' && purchaseDue(purchase) === 0) { purchase.paymentStatus = 'paid'; purchase.paidAmount = undefined; purchase.paidAt = today() }

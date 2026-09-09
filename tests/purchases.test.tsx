@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { create, act } from 'react-test-renderer'
 import { useState } from 'react'
-import { IngredientPurchase, parseProductScreenshot, purchaseTotal, purchasePaid, purchaseDue, purchasesSummary, groupDebts, normalizedPrice, priceStats, validPurchase, replacePurchase, readPurchasesBackup } from '../src/ingredients'
+import { IngredientPurchase, parseIngredients, parseProductScreenshot, purchaseTotal, purchasePaid, purchaseDue, purchasesSummary, groupDebts, normalizedPrice, priceStats, validPurchase, replacePurchase, readPurchasesBackup } from '../src/ingredients'
 import { PurchaseEditor, PurchaseDraft } from '../src/views/PurchaseEditor'
 const old: IngredientPurchase = { id: 'legacy', date: '2026-09-08', shop: 'Mercado X', items: [{ name: 'Farinha', total: 100 }], photo: 'data:image/png;base64,YQ==' }
 const pending: IngredientPurchase = { ...old, id: 'pending', paymentStatus: 'pending', paidAmount: 15, dueDate: '2026-09-20', creditor: 'Mercado X', note: 'Entregar comprovante' }
@@ -115,5 +115,26 @@ test('photo review requires confirmation and changing quantity invalidates it', 
  assert.equal(save().props.disabled,false)
  act(()=>tree.root.findAllByType('input').find(i=>i.props['aria-label'] === 'Quantidade do produto 1')!.props.onChange({target:{value:'3'}}))
  assert.equal(latest.items[0].total,30); assert.equal(save().props.disabled,true)
+ act(()=>tree.unmount())
+})
+
+test('pasted purchases extract quantities and packaging without multiplying line totals', () => {
+ const result = parseIngredients('2x Creme Bueno - 90,98\n5x Açúcar 1kg - 20,95\nManteiga 500g - 20,90\nTotal - 132,83\nlinha sem preço')
+ assert.equal(result.items.length,3)
+ assert.deepEqual(result.items.map(i=>i.quantity),[2,5,1])
+ assert.equal(result.items[1].name,'Açúcar 1kg')
+ assert.equal(result.items[1].packageSize,1)
+ assert.equal(result.items[1].unit,'kg')
+ assert.equal(purchaseTotal(result),132.83)
+ assert.equal(result.ignored.length,2)
+ assert.equal(parseIngredients('0x Farinha - 10,00').items.length,0)
+})
+
+test('quick totals register paid and pending without product details', () => {
+ let latest: PurchaseDraft = {id:'quick',date:'2026-09-08',shop:'',items:[],text:'',quickPaid:650,quickDue:2000}
+ function Quick() { const [draft,setDraft] = useState(latest); latest=draft; return <PurchaseEditor draft={draft} change={setDraft} busy={false} onSave={()=>{}} onClose={()=>{}} onPhoto={()=>{}} onProcess={()=>{}} ignored={[]} /> }
+ let tree: ReturnType<typeof create>; act(()=>{tree=create(<Quick />)})
+ act(()=>tree.root.findAllByType('button').find(b=>b.props.children==='Usar estes valores')!.props.onClick())
+ assert.equal(purchaseTotal(latest),2650); assert.equal(purchasePaid(latest),650); assert.equal(purchaseDue(latest),2000); assert.equal(validPurchase(latest),true)
  act(()=>tree.unmount())
 })

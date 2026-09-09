@@ -1,3 +1,4 @@
+import { parseIngredients, purchaseTotal, validPurchase } from '../src/ingredients'
 import { dailySales } from '../src/analytics'
 import { DailySalesChart } from '../src/components/DailySalesChart'
 import { combineCustomers } from '../src/combine-customers'
@@ -368,4 +369,18 @@ test('daily chart separates orders and cookies, fills empty days and respects Sa
   assert.ok(label(root.root).includes('Cada venda registrada conta uma vez'))
   assert.equal(root.root.findAllByType('li').length, 7)
   act(() => root.unmount())
+})
+
+test('ingredient parser excludes totals and flags unrecognized receipt lines', () => {
+ const result = parseIngredients('Farinha - 12,50\n2 caixas de leite - 11,00\nTOTAL 23,50\nCNPJ 123456\nlinha ilegível')
+ assert.equal(result.items.length, 2); assert.equal(purchaseTotal(result), 23.5); assert.equal(result.ignored.length, 3)
+ assert.equal(parseIngredients('Manteiga R$ 1.234,56').items[0].total, 1234.56)
+})
+test('ingredient backup validation rejects invalid dates, images and amounts', () => {
+ const p = { id: 'a', date: '2026-09-08', shop: '', items: [{ name: 'Leite', total: 11 }] }
+ assert.equal(validPurchase(p), true)
+ for (const date of ['2026-99-99','2026-02-30']) assert.equal(validPurchase({...p, date}), false)
+ assert.equal(validPurchase({...p, photo: 'data:text/html;base64,abc'}), false)
+ assert.equal(validPurchase({...p, items:[{name:'Leite', total:-1}]}), false)
+ assert.equal(purchaseTotal({ items:[{name:'a',total:0.1},{name:'b',total:0.2}]}),0.3)
 })

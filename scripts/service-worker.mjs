@@ -12,7 +12,7 @@ async function files(directory, prefix = '') {
   }
   return result
 }
-const assets = (await files('dist')).sort()
+const assets = (await files('dist')).filter(file => !file.startsWith('ocr/')).sort()
 const hash = createHash('sha256')
 for (const file of assets) hash.update(file).update(await readFile(join('dist', file)))
 const version = hash.digest('hex').slice(0, 16)

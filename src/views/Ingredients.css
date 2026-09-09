@@ -1,0 +1,16 @@
+.ingredients-view { display:grid; gap:20px }
+.ingredients-view .card { padding:28px }
+.ingredients-view fieldset { border:0; padding:0; min-width:0 }
+.ingredients-view label { display:grid; gap:8px; flex:1; min-width:160px }
+.ingredients-view input:not([type=checkbox]), .ingredients-view textarea { background:var(--bg-soft); color:var(--tx-1); border:1px solid var(--border, #68523a); border-radius:10px; padding:12px; width:100%; box-sizing:border-box }
+.ingredients-view textarea { margin:12px 0; resize:vertical }
+.ingredients-toolbar { display:flex; gap:16px; flex-wrap:wrap; align-items:center; margin:12px 0 }
+.ingredients-toolbar input[type=file] { max-width:280px }
+.ingredient-row { display:grid; grid-template-columns:minmax(0,1fr) 130px auto; gap:10px; margin:10px 0 }
+.receipt-photo { display:block; max-width:100%; max-height:600px; object-fit:contain; margin:16px 0 }
+.ingredients-view details { margin:16px 0; padding:12px; border:1px solid var(--border, #68523a); border-radius:12px }
+.ingredients-view summary { cursor:pointer }
+.ingredients-note { padding:14px; border-left:3px solid #ed9d43 }
+@media(max-width:600px) { .ingredient-row { grid-template-columns:minmax(0,1fr) 100px } .ingredient-row button { grid-column:1 / -1 } .ingredients-view .card { padding:16px } }
+
+.ingredients-toolbar > label.btn { flex:0 1 auto }

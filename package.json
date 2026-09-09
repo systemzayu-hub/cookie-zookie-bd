@@ -12,13 +12,18 @@
     "audit:prod": "npm audit --omit=dev --audit-level=high",
     "test": "node scripts/test.mjs",
     "build:backend": "tsc -p functions/tsconfig.json && node scripts/build-functions.mjs",
-    "test:rules": "node scripts/test-rules.mjs"
+    "test:rules": "node scripts/test-rules.mjs",
+    "prebuild": "node scripts/prepare-ocr.mjs",
+    "predev": "node scripts/prepare-ocr.mjs"
   },
   "dependencies": {
+    "@tesseract.js-data/por": "1.0.0",
     "firebase": "^12.18.0",
+    "idb-keyval": "6.3.0",
     "lucide-react": "^0.453.0",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^18.2.0",
+    "tesseract.js": "7.0.0"
   },
   "devDependencies": {
     "@firebase/rules-unit-testing": "^5.0.2",

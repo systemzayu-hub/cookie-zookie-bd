@@ -28,10 +28,11 @@ const ProductsStockView = lazy(() => import('./views/ProductsStock').then(m => (
 const ReportsView = lazy(() => import('./views/Reports').then(m => ({ default: m.ReportsView })))
 const CustomersBillingView = lazy(() => import('./views/CustomersBilling').then(m => ({ default: m.CustomersBillingView })))
 const FinanceiroView = lazy(() => import('./views/Financeiro').then(m => ({ default: m.FinanceiroView })))
+const IngredientsView = lazy(() => import('./views/Ingredients').then(m => ({ default: m.IngredientsView })))
 const AuditView = lazy(() => import('./views/Audit').then(m => ({ default: m.AuditView })))
 
 export default function App() {
-  const tabs: Tab[] = ['dashboard', 'vendas', 'produtos', 'relatorios', 'clientes', 'financeiro', 'audit']
+  const tabs: Tab[] = ['dashboard', 'vendas', 'produtos', 'relatorios', 'clientes', 'financeiro', 'ingredientes', 'audit']
   const [tab, setTab] = useState<Tab>(() => {
     const hash = window.location.hash.slice(1) as Tab
     return tabs.includes(hash) ? hash : 'dashboard'
@@ -273,6 +274,7 @@ export default function App() {
       { id: 'produtos', label: 'Produtos & Estoque', icon: <Package className="icon" /> },
       { id: 'relatorios', label: 'Relatórios', icon: <BarChart3 className="icon" /> },
       { id: 'clientes', label: 'Clientes & Cobrança', icon: <Users className="icon" /> },
+      { id: 'ingredientes', label: 'Ingredientes', icon: <ShoppingCart className="icon" /> },
       { id: 'financeiro', label: 'Financeiro', icon: <Percent className="icon" /> },
       { id: 'audit', label: 'Auditoria', icon: <ShieldCheck className="icon" /> },
     ]
@@ -422,6 +424,7 @@ export default function App() {
           {tab === 'produtos' && <ProductsStockView products={products} setProducts={setProducts} sales={sales} pushToast={pushToast} />}
           {tab === 'relatorios' && <ReportsView sales={sales} />}
           {tab === 'clientes' && <CustomersBillingView onCustomersCombined={handleCustomersCombined} customers={customers} setCustomers={setCustomers} sales={sales} setSales={setSales} pushToast={pushToast} />}
+          {tab === 'ingredientes' && <SensitiveData label="Desbloquear compras"><IngredientsView key={user.email} owner={user.email || ''} /></SensitiveData>}
           {tab === 'financeiro' && <FinanceiroView />}
           {tab === 'audit' && <OwnerAuditGate key={user.email}><AuditView /></OwnerAuditGate>}
         </Suspense>

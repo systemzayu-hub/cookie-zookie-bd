@@ -72,3 +72,48 @@ test('product screenshots join wrapped titles and exclude installment prices', (
  assert.equal(parseProductScreenshot('Farinha - R$ 12,50').items[0].total,12.5)
  assert.equal(parseProductScreenshot('Produto sem preço').items.length,0)
 })
+import { parsePurchaseImage, changeItemQuantity } from '../src/purchase-scan'
+test('receipt review separates tax from totals and reads item quantities', () => {
+ const scan = parsePurchaseImage('LOJA TESTE\nItem Codigo Descricao Qtde Unid Vl.unit Valor total\n001 123456 UTENSILIO A 2 un X 9,99 (7,49) 19,98\n002 234567 UTENSILIO B 2 un X 16,99 (14,70) 33,98\nVALOR TOTAL: 53,96\nCartao de Debito 53,96\nTributos 22,19','receipt')
+ assert.equal(scan.items.length,2); assert.equal(purchaseTotal(scan),53.96); assert.equal(scan.expectedTotal,53.96)
+ assert.equal(scan.items[0].quantity,2); assert.equal(scan.items[0].unitPrice,9.99)
+})
+test('receipt review joins wrapped items while retaining fractional quantities', () => {
+ const scan=parsePurchaseImage('Item Codigo Descricao Qtde Unid Vl.unit Valor total\n001 1234567890123 SACO DECORADO\n0.506 un X 43,49 22,01\n002 2345678901234 CREME 650G\n2 un X 39,99 79,98\nVALOR TOTAL: 101,99','receipt')
+ assert.equal(scan.items.length,2); assert.equal(purchaseTotal(scan),101.99)
+ assert.equal(scan.items[0].quantity,.506); assert.equal(scan.items[1].quantity,2); assert.equal(scan.items[1].packageSize,650)
+ assert.equal(changeItemQuantity(scan.items[0],1).total,43.49)
+})
+test('cart print preserves multiple row totals instead of multiplying them by quantity again', () => {
+ const scan = parsePurchaseImage('Creme de teste 1,01... R$ 90,98\n2 unidades\nAçúcar Teste 1kg R$ 20,95\n5 unidades','receipt')
+ assert.equal(scan.items.length,2); assert.equal(purchaseTotal(scan),111.93)
+ assert.equal(scan.items[0].quantity,2); assert.equal(scan.items[1].quantity,5)
+ assert.equal(scan.items[0].packageSize,undefined); assert.equal(scan.items[1].packageSize,1)
+ assert.equal(changeItemQuantity(scan.items[0],3).total,136.47)
+})
+test('unreadable fiscal text cannot turn tax totals into purchased products', () => {
+ const scan=parsePurchaseImage('NFC FISCAL CNPJ\nTexto perdido R$ 9,33\nTributo Federal 3,75','receipt')
+ assert.equal(scan.items.length,0)
+ assert.match(scan.warning,/parcial/)
+})
+test('missing OCR prices stay empty for review and never become an invented purchase value', () => {
+ const scan=parsePurchaseImage('Item Codigo Descricao Qtde Unid Vl.unit Valor total\n001 123456 PRODUTO ILEGIVEL\n1 un X 13,49\nVALOR TOTAL: 13,49','receipt')
+ assert.equal(scan.items[0].total,0); assert.match(scan.warning,/parcial/)
+})
+
+test('package unit count is not mistaken for purchased quantity', () => {
+ const scan=parsePurchaseImage('Item Codigo Descricao Qtde Unid Vl.unit Valor total\n001 123456 SACO ADESIVO C 100UN\n1 un X 14,99 14,99\nVALOR TOTAL: 14,99','receipt')
+ assert.equal(scan.items[0].quantity,1); assert.equal(scan.items[0].total,14.99); assert.equal(scan.items[0].name,'SACO ADESIVO C 100UN')
+})
+test('photo review requires confirmation and changing quantity invalidates it', () => {
+ let latest: PurchaseDraft = {...old,text:'',items:[{name:'Produto',total:20,quantity:2}]}
+ function Review() { const [draft,setDraft] = useState(latest); latest=draft; return <PurchaseEditor draft={draft} change={setDraft} busy={false} onSave={()=>{}} onClose={()=>{}} onPhoto={()=>{}} onProcess={()=>{}} ignored={[]} /> }
+ let tree: ReturnType<typeof create>; act(()=>{tree=create(<Review />)})
+ const save = () => tree.root.findAllByType('button').find(b => b.props.children === 'Salvar compra')!
+ assert.equal(save().props.disabled,true)
+ act(()=>tree.root.findAllByType('input').find(i=>i.props.type === 'checkbox')!.props.onChange({target:{checked:true}}))
+ assert.equal(save().props.disabled,false)
+ act(()=>tree.root.findAllByType('input').find(i=>i.props['aria-label'] === 'Quantidade do produto 1')!.props.onChange({target:{value:'3'}}))
+ assert.equal(latest.items[0].total,30); assert.equal(save().props.disabled,true)
+ act(()=>tree.unmount())
+})

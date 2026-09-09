@@ -1,3 +1,4 @@
+import { parsePurchaseImage } from '../purchase-scan'
 import { useEffect, useRef, useState } from 'react'
 import { get, set, update } from 'idb-keyval'
 import { IngredientPurchase, parseProductScreenshot, parseIngredients, purchaseTotal, validPurchase, purchasesSummary, purchaseDue, groupDebts, normalizeIngredient, creditorName, replacePurchase, readPurchasesBackup } from '../ingredients'
@@ -46,10 +47,14 @@ export function IngredientsView({ owner }: { owner: string }) {
     })
     if (alive.current) setPurchases(next)
   }
-  const process = (text: string, photo = draft.photo) => {
-    const parsed = draft.photoKind === 'product' ? parseProductScreenshot(text) : parseIngredients(text)
-    setIgnored(parsed.ignored); change({ ...draft, text, photo, items: parsed.items })
-    setMessage('warning' in parsed ? String(parsed.warning) : parsed.items.length ? 'Itens preparados. Confira os valores antes de salvar.' : 'Nenhum valor identificado. Use: Farinha - 12,50 ou adicione produtos manualmente.')
+  const process = (text: string, photo = draft.photo, confidence?: number) => {
+    const parsed = photo ? parsePurchaseImage(text, draft.photoKind || 'receipt') : { ...parseIngredients(text), warning: 'Itens preparados. Confira os valores antes de salvar.' }
+    setIgnored(parsed.ignored)
+    change({ ...draft, text, photo, items: parsed.items, scanConfirmed: false, scanConfidence: confidence,
+      expectedTotal: 'expectedTotal' in parsed ? parsed.expectedTotal : undefined,
+      date: 'date' in parsed && parsed.date ? parsed.date : draft.date,
+      shop: draft.shop || ('shop' in parsed ? parsed.shop : '') || '' })
+    setMessage(confidence !== undefined && confidence < 75 ? 'Leitura com baixa confiança. Compare cada produto, quantidade e valor com a imagem.' : parsed.warning)
   }
   const readPhoto = async (file: File) => {
     if (lock.current) return
@@ -66,13 +71,14 @@ export function IngredientsView({ owner }: { owner: string }) {
       worker.current = w
       if (!alive.current) { await w.terminate(); return }
       const result = await w.recognize(photo)
-      if (alive.current) process(result.data.text, photo)
+      if (alive.current) process(result.data.text, photo, result.data.confidence)
     } catch { if (alive.current) setMessage('Não consegui ler a foto. Ela ficou anexada; digite os itens ou tente uma foto mais nítida.') }
     finally { await worker.current?.terminate(); worker.current = undefined; lock.current = false; if (alive.current) setBusy(false) }
   }
   const savePurchase = async () => {
     if (lock.current) return
-    const { text, photoKind, editingBefore, ...purchase } = draft
+    if (draft.photo && !draft.scanConfirmed) { setMessage('Confira a lista com a foto e marque a confirmação antes de salvar.'); return }
+    const { text, photoKind, editingBefore, expectedTotal, scanConfidence, scanConfirmed, ...purchase } = draft
     if (purchase.paymentStatus === 'paid') purchase.paidAmount = undefined
     if (!validPurchase(purchase)) { setMessage('Confira data, produtos, valores e quantidades. O valor devido deve estar entre zero e o total da compra.'); return }
     if (purchase.paymentStatus === 'pending' && purchaseDue(purchase) === 0) { purchase.paymentStatus = 'paid'; purchase.paidAmount = undefined; purchase.paidAt = today() }

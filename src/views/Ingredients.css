@@ -116,3 +116,10 @@
 
 .purchase-spending { margin-top:20px; font-size:.85rem }
 .purchase-spending[open] > summary { margin-bottom:16px }
+
+.purchase-item-main { grid-template-columns:minmax(160px,2fr) minmax(85px,.65fr) minmax(110px,1fr) minmax(110px,1fr) auto }
+.purchase-scan-review { margin:18px 0; padding:16px; border:1px solid var(--border); border-radius:12px; display:grid; gap:12px; font-size:.85rem }
+.purchase-scan-review > label:not(.purchase-check) { max-width:270px }
+.ingredients-view .purchase-check { display:flex; align-items:center; gap:10px }
+.ingredients-view .purchase-check input { width:20px; height:20px; min-height:20px; flex-shrink:0 }
+@media(max-width:950px) { .purchase-item-main { grid-template-columns:repeat(2,minmax(0,1fr)) } .purchase-item-main > label:first-child { grid-column:1/-1 } .purchase-item-main > button { grid-column:2; justify-self:end } }

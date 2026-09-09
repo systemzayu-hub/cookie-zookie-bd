@@ -11,7 +11,11 @@ import { PurchaseEntry } from './PurchaseEntry'
 import './Ingredients.css'
 const today = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' })
 const empty = (): PurchaseDraft => ({ id: uid(), date: today(), shop: '', items: [], text: '', paymentStatus: 'paid' })
-export function IngredientsView({ owner, sales = [] }: { owner: string; sales?: Sale[] }) {
+export function IngredientsView(props: { owner: string; sales?: Sale[] }) {
+  const role = useRole()
+  return role === 'owner' ? <OwnerPurchases {...props} /> : null
+}
+function OwnerPurchases({ owner, sales = [] }: { owner: string; sales?: Sale[] }) {
   const role = useRole()
   const isOwner = role === 'owner'
   const key = 'cc_ingredients:' + owner.toLowerCase()

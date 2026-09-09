@@ -344,7 +344,7 @@ export default function App() {
           </div>
         </div>
         <nav className="sidebar-nav">
-                  {nav.map(n => (
+                  {nav.filter(n => n.id !== 'ingredientes' || role === 'owner').map(n => (
                     <button key={n.id} className={`nav-item ${tab === n.id ? 'active' : ''}`} aria-current={tab === n.id ? 'page' : undefined} onClick={() => navigate(n.id)}>
                       {n.icon} {n.label}
                     </button>
@@ -424,7 +424,7 @@ export default function App() {
           {tab === 'produtos' && <ProductsStockView products={products} setProducts={setProducts} sales={sales} pushToast={pushToast} />}
           {tab === 'relatorios' && <ReportsView sales={sales} />}
           {tab === 'clientes' && <CustomersBillingView onCustomersCombined={handleCustomersCombined} customers={customers} setCustomers={setCustomers} sales={sales} setSales={setSales} pushToast={pushToast} />}
-          {tab === 'ingredientes' && <SensitiveData label="Desbloquear compras"><IngredientsView key={user.email} owner={user.email || ''} sales={sales} /></SensitiveData>}
+          {tab === 'ingredientes' && role === 'owner' && <SensitiveData label="Desbloquear compras"><IngredientsView key={user.email} owner={user.email || ''} sales={sales} /></SensitiveData>}
           {tab === 'financeiro' && <FinanceiroView />}
           {tab === 'audit' && <OwnerAuditGate key={user.email}><AuditView /></OwnerAuditGate>}
         </Suspense>

@@ -10,6 +10,10 @@ import { logAction } from '../audit'
 
 /* ========== PRODUCT NAME ALIASES ========== */
 const PRODUCT_ALIASES: Record<string, string> = {
+  'n': 'Nutella',
+  'k': 'Kinder',
+  't': 'Tradicional',
+  'm': 'Meio Amargo',
   'nutella': 'Nutella',
   'kinder': 'Kinder',
   'trad': 'Tradicional',
@@ -353,7 +357,7 @@ export function QuickSaleView({ products, customers, onSalesImported, pushToast,
               </div>
               <div>
                 <strong style={{ color: 'var(--tx-1)' }}>4. Abreviações</strong>
-                <p><code>Trad.</code> → Tradicional<br/><code>M. A.</code> → Meio Amargo</p>
+                <p><code>N</code> → Nutella<br/><code>K</code> → Kinder<br/><code>T</code> → Tradicional<br/><code>M</code> ou <code>MA</code> → Meio Amargo</p><p>Maiúsculas e minúsculas funcionam. Exemplo: <code>2 n - Marcos - C</code>.</p>
               </div>
             </div>
           </div>

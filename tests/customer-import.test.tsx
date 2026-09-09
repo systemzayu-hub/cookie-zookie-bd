@@ -232,3 +232,19 @@ test('failed import preserves the saved draft for retry', () => {
   assert.equal(JSON.parse(localStorage.getItem(key)!).text, 'Kinder - Minha Lista')
   act(() => root.unmount())
 })
+
+test('single-letter product aliases work in either case without matching unrelated products', () => {
+  const catalog = ['Nutella', 'Kinder', 'Tradicional', 'Meio Amargo'].map((name, index) => ({ ...products[0], id: String(index), name }))
+  for (const [alias, name] of [['n', 'Nutella'], ['k', 'Kinder'], ['t', 'Tradicional'], ['m', 'Meio Amargo'], ['ma', 'Meio Amargo']]) {
+    for (const token of [alias, alias.toUpperCase(), alias + '.']) {
+      const line = parseText(`2 ${token} - Marcos - C`, catalog, [])[0]
+      assert.equal(line.productNameMatched, name)
+      assert.equal(line.qty, 2)
+      assert.equal(line.customerNameRaw, 'Marcos')
+      assert.equal(line.status, 'Pago')
+      assert.equal(line.error, null)
+    }
+  }
+  assert.equal(parseText('2n-Marcos-C', catalog, [])[0].productNameMatched, 'Nutella')
+  assert.ok(parseText('2 n - Marcos - C', [products[0]], [])[0].error)
+})

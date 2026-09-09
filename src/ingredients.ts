@@ -45,6 +45,11 @@ export function replacePurchase(old: IngredientPurchase[], before: IngredientPur
   if (!current || JSON.stringify(current) !== JSON.stringify(before)) throw Error('Esta compra mudou em outra aba. Atualize a lista antes de tentar novamente; seu rascunho foi mantido.')
   return old.map(p => p.id === before.id ? after : p)
 }
+export function deletePurchase(old: IngredientPurchase[], before: IngredientPurchase) {
+  const current = old.find(p => p.id === before.id)
+  if (!current || JSON.stringify(current) !== JSON.stringify(before)) throw Error('Esta compra mudou em outra aba. Atualize a lista antes de excluir.')
+  return old.filter(p => p.id !== before.id)
+}
 export function parseIngredients(text: string) {
   const items: IngredientItem[] = [], ignored: string[] = []
   for (const raw of text.split(/\r?\n/).filter(s => s.trim())) {

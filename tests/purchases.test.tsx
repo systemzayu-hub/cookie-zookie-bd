@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { create, act } from 'react-test-renderer'
 import { useState } from 'react'
-import { IngredientPurchase, parseIngredients, parseProductScreenshot, purchaseTotal, purchasePaid, purchaseDue, purchasesSummary, groupDebts, normalizedPrice, priceStats, validPurchase, replacePurchase, readPurchasesBackup } from '../src/ingredients'
+import { IngredientPurchase, parseIngredients, parseProductScreenshot, purchaseTotal, purchasePaid, purchaseDue, purchasesSummary, groupDebts, normalizedPrice, priceStats, validPurchase, replacePurchase, deletePurchase, readPurchasesBackup } from '../src/ingredients'
 import { PurchaseEditor, PurchaseDraft } from '../src/views/PurchaseEditor'
 const old: IngredientPurchase = { id: 'legacy', date: '2026-09-08', shop: 'Mercado X', items: [{ name: 'Farinha', total: 100 }], photo: 'data:image/png;base64,YQ==' }
 const pending: IngredientPurchase = { ...old, id: 'pending', paymentStatus: 'pending', paidAmount: 15, dueDate: '2026-09-20', creditor: 'Mercado X', note: 'Entregar comprovante' }
@@ -137,4 +137,14 @@ test('quick totals register paid and pending without product details', () => {
  act(()=>tree.root.findAllByType('button').find(b=>b.props.children==='Usar estes valores')!.props.onClick())
  assert.equal(purchaseTotal(latest),2650); assert.equal(purchasePaid(latest),650); assert.equal(purchaseDue(latest),2000); assert.equal(validPurchase(latest),true)
  act(()=>tree.unmount())
+})
+
+test('deleting a purchase updates totals and rejects stale records', () => {
+ const records = [old,pending]
+ const next = deletePurchase(records,pending)
+ assert.deepEqual(purchasesSummary(next),{total:100,paid:100,due:0})
+ assert.equal(records.length,2)
+ assert.deepEqual(deletePurchase([old],old),[])
+ assert.throws(()=>deletePurchase([{...pending,shop:'Changed'}],pending))
+ assert.throws(()=>deletePurchase([],pending))
 })

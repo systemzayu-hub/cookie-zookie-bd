@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { get, set, update } from 'idb-keyval'
-import { IngredientPurchase, parseIngredients, purchaseTotal, validPurchase, purchasesSummary, purchaseDue, groupDebts, normalizeIngredient, creditorName, replacePurchase, readPurchasesBackup } from '../ingredients'
+import { IngredientPurchase, parseIngredients, purchaseTotal, validPurchase, purchasesSummary, purchaseDue, groupDebts, normalizeIngredient, creditorName, replacePurchase, deletePurchase, readPurchasesBackup } from '../ingredients'
 import { fmtBRL, uid } from '../types'
 import { PurchaseEditor, PurchaseDraft } from './PurchaseEditor'
 import { PurchasePrices } from './PurchasePrices'
@@ -84,6 +84,17 @@ export function IngredientsView({ owner }: { owner: string }) {
     catch (e) { setMessage(e instanceof Error ? e.message : 'Não foi possível atualizar a compra.') }
     finally { lock.current = false; setBusy(false) }
   }
+  const removePurchase = async (p: IngredientPurchase) => {
+    if (lock.current) return
+    if (!confirm(`Excluir este registro de ${fmtBRL(purchaseTotal(p))} (${p.shop || 'Local não informado'})? Ele será removido dos totais, pendências e histórico. Esta ação não pode ser desfeita.`)) return
+    lock.current = true; setBusy(true)
+    try {
+      await persist(old => deletePurchase(old, p))
+      if (draft.editingBefore?.id === p.id) { change(empty()); setEditor(false); setIgnored([]) }
+      setMessage('Registro excluído. Totais e pendências atualizados.')
+    } catch (e) { setMessage(e instanceof Error ? e.message : 'Não foi possível excluir. O registro foi preservado.') }
+    finally { lock.current = false; if (alive.current) setBusy(false) }
+  }
   const edit = (p: IngredientPurchase) => {
     if ((draft.text || draft.items.length || draft.photo) && !confirm('Abrir esta compra substituirá o rascunho atual. Continuar?')) return
     change({ ...p, text: '', editingBefore: p }); setEditor(true); setArea('compras'); setIgnored([])
@@ -114,7 +125,7 @@ export function IngredientsView({ owner }: { owner: string }) {
   const matchesSearch = (p: IngredientPurchase) => normalizeIngredient(`${p.shop} ${creditorName(p)} ${p.items.map(i => i.name).join(' ')}`).includes(normalizeIngredient(search))
   const filtered = period.filter(p => !!p.archived === archived && matchesSearch(p) && (status === 'all' || (purchaseDue(p) > 0 ? 'pending' : 'paid') === status)).sort((a,b) => b.date.localeCompare(a.date))
   const debts = groupDebts(period.filter(matchesSearch))
-  const renderEntry = (p: IngredientPurchase) => <PurchaseEntry key={p.id} purchase={p} busy={busy} today={today()} edit={() => edit(p)} pay={() => void action(p, { ...p, paymentStatus: 'paid', paidAmount: undefined, paidAt: today() }, 'Pagamento registrado. A compra continua no histórico.')} archive={() => {
+  const renderEntry = (p: IngredientPurchase) => <PurchaseEntry key={p.id} purchase={p} busy={busy} remove={() => void removePurchase(p)} today={today()} edit={() => edit(p)} pay={() => void action(p, { ...p, paymentStatus: 'paid', paidAmount: undefined, paidAt: today() }, 'Pagamento registrado. A compra continua no histórico.')} archive={() => {
     if (!p.archived && !confirm('Arquivar retira esta compra dos totais e das pendências. Você poderá restaurá-la. Continuar?')) return
     void action(p, { ...p, archived: !p.archived }, p.archived ? 'Compra restaurada.' : 'Compra arquivada. Você pode restaurá-la pelo filtro Arquivadas.')
   }} />

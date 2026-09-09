@@ -1,3 +1,4 @@
+import { SalesImage } from '../components/SalesImage'
 import { useState, useMemo, useRef } from 'react'
 import { ClipboardPaste, CheckCircle2, AlertCircle, Undo2, Sparkles } from 'lucide-react'
 import { Product, Customer, Sale, uid, fmtBRL } from '../types'
@@ -134,7 +135,7 @@ export function parseText(text: string, products: Product[], customers: Customer
       continue
     }
     const parts = saleParts(line, products)
-    if (!parts || !parts.customer || !parts.product) {
+    if (!parts || !parts.customer || !parts.product || /\[CONFERIR\]/i.test(line)) {
       result.push({ lineNum: i + 1, date: currentDate, dateAutomatic, qty: 0, productNameRaw: line, productNameMatched: null, productId: null, customerNameRaw: line, customerNameMatched: null, customerId: null, status: 'Pendente', statusLabel: '', error: 'Formato não reconhecido. Use: 2 Kinder - Nome - C', unitPrice: null, total: null })
       continue
     }
@@ -318,6 +319,7 @@ export function QuickSaleView({ products, customers, onSalesImported, pushToast,
                 </select>
               </div>
             </div>
+            <SalesImage onText={value => setText(text.trim() ? text.trimEnd() + "\n" + value : value)} />
             <textarea
               aria-label="Texto das vendas"
               className="paste-textarea"

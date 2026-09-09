@@ -1,3 +1,4 @@
+import { purchaseProfit } from '../src/purchase-profit'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { create, act } from 'react-test-renderer'
@@ -147,4 +148,14 @@ test('deleting a purchase updates totals and rejects stale records', () => {
  assert.deepEqual(deletePurchase([old],old),[])
  assert.throws(()=>deletePurchase([{...pending,shop:'Changed'}],pending))
  assert.throws(()=>deletePurchase([],pending))
+})
+
+test('profit includes paid and pending purchases once and excludes gifts and archives', () => {
+ const sale = {id:'s',date:'2026-09-09',items:[],total:3000,status:'Pago' as const,payment:'pix' as const,channel:'loja' as const}
+ const costs = {...old,items:[{name:'Compra sem detalhamento',total:2650}],paymentStatus:'pending' as const,paidAmount:650}
+ const result = purchaseProfit([sale,{...sale,id:'p',total:100,status:'Pendente',paidAmount:40},{...sale,id:'g',status:'Presente'}],[costs,{...old,archived:true}])
+ assert.equal(result.net,450); assert.equal(result.cash,2390); assert.equal(result.due,2000); assert.equal(result.receivable,60)
+ assert.equal(purchaseProfit([], [costs]).net,-2650)
+ assert.equal(purchaseProfit([], []).net,0)
+ assert.equal(purchaseProfit([sale], []).net,3000)
 })

@@ -1,7 +1,9 @@
+import { useRole } from '../auth'
+import { purchaseProfit } from '../purchase-profit'
 import { useEffect, useRef, useState } from 'react'
 import { get, set, update } from 'idb-keyval'
 import { IngredientPurchase, parseIngredients, purchaseTotal, validPurchase, purchasesSummary, purchaseDue, groupDebts, normalizeIngredient, creditorName, replacePurchase, deletePurchase, readPurchasesBackup } from '../ingredients'
-import { fmtBRL, uid } from '../types'
+import { Sale, fmtBRL, uid } from '../types'
 import { PurchaseEditor, PurchaseDraft } from './PurchaseEditor'
 import { PurchasePrices } from './PurchasePrices'
 import { MetricBars } from '../components/MetricBars'
@@ -9,7 +11,9 @@ import { PurchaseEntry } from './PurchaseEntry'
 import './Ingredients.css'
 const today = () => new Date().toLocaleDateString('sv-SE', { timeZone: 'America/Sao_Paulo' })
 const empty = (): PurchaseDraft => ({ id: uid(), date: today(), shop: '', items: [], text: '', paymentStatus: 'paid' })
-export function IngredientsView({ owner }: { owner: string }) {
+export function IngredientsView({ owner, sales = [] }: { owner: string; sales?: Sale[] }) {
+  const role = useRole()
+  const isOwner = role === 'owner'
   const key = 'cc_ingredients:' + owner.toLowerCase()
   const [purchases, setPurchases] = useState<IngredientPurchase[]>([]), [draft, setDraft] = useState(empty)
   const [ready, setReady] = useState(false), [busy, setBusy] = useState(false), [message, setMessage] = useState('')
@@ -120,6 +124,7 @@ export function IngredientsView({ owner }: { owner: string }) {
   }
   const period = purchases.filter(p => (!from || p.date >= from) && (!to || p.date <= to))
   const summary = purchasesSummary(period)
+  const profit = isOwner ? purchaseProfit(sales, purchases) : null
   const ingredientTotals = new Map<string, {label: string; value: number}>()
   period.filter(p => !p.archived).forEach(p => p.items.forEach(item => { const name = normalizeIngredient(item.name); const previous = ingredientTotals.get(name); ingredientTotals.set(name, { label: previous?.label || item.name, value: (Math.round((previous?.value || 0) * 100) + Math.round(item.total * 100)) / 100 }) }))
   const matchesSearch = (p: IngredientPurchase) => normalizeIngredient(`${p.shop} ${creditorName(p)} ${p.items.map(i => i.name).join(' ')}`).includes(normalizeIngredient(search))
@@ -132,9 +137,15 @@ export function IngredientsView({ owner }: { owner: string }) {
   if (!ready) return <p role="status">{message || 'Abrindo compras…'}</p>
   return <div className="ingredients-view">
     <header className="purchase-header"><div><h1>Compras</h1><p>Ingredientes, preços e pagamentos em um só lugar.</p></div><details className="purchase-tools"><summary>Backup e armazenamento</summary><p>Registros e fotos ficam neste navegador, nesta conta, sem sincronização entre aparelhos. O backup desta aba inclui as compras e fotos.</p><div className="purchase-actions"><button className="btn btn-secondary" onClick={() => void backup()}>Exportar compras e fotos</button><label className="purchase-upload">Importar backup<input aria-label="Importar backup de compras" type="file" accept=".json" disabled={busy} onChange={e => { const f = e.target.files?.[0]; if (f) void restore(f); e.target.value = '' }} /></label></div><small>Compras antigas sem situação foram consideradas pagas. Você pode alterar isso em Editar compra.</small></details></header>
-    <nav className="purchase-tabs" aria-label="Áreas de compras">{[['compras','Compras'],['precos','Histórico de preços'],['pendencias','Pagamentos / Pendências']].map(([id,label]) => <button key={id} aria-pressed={area === id} onClick={() => setArea(id)}>{label}{id === 'pendencias' && purchasesSummary(purchases).due > 0 && <span className="purchase-count">{purchases.filter(p => !p.archived && purchaseDue(p) > 0).length}</span>}</button>)}</nav>
+    <nav className="purchase-tabs" aria-label="Áreas de compras">{[['compras','Compras'],['precos','Histórico de preços'],['pendencias','Pagamentos / Pendências'],...(isOwner ? [['lucro','Lucro líquido']] : [])].map(([id,label]) => <button key={id} aria-pressed={area === id} onClick={() => setArea(id)}>{label}{id === 'pendencias' && purchasesSummary(purchases).due > 0 && <span className="purchase-count">{purchases.filter(p => !p.archived && purchaseDue(p) > 0).length}</span>}</button>)}</nav>
     {message && <p className="purchase-message" role="status" aria-live="polite">{message}</p>}
-    {area === 'precos' ? <PurchasePrices purchases={purchases} /> : <>
+    {area === 'lucro' ? (isOwner && profit ? <section className="card" aria-label="Lucro líquido do dono">
+      <h2>Lucro líquido estimado</h2><p>Acumulado de todos os registros · exclusivo do dono.</p>
+      <dl className="purchase-summary"><div><dt>Lucro líquido estimado</dt><dd>{fmtBRL(profit.net)}</dd></div><div><dt>Saldo recebido menos pago</dt><dd>{fmtBRL(profit.cash)}</dd></div></dl>
+      <dl className="summary-list"><div><dt>Vendas (sem presentes)</dt><dd>{fmtBRL(profit.revenue)}</dd></div><div><dt>Total comprado</dt><dd>{fmtBRL(profit.total)}</dd></div><div><dt>Recebido das vendas</dt><dd>{fmtBRL(profit.received)}</dd></div><div><dt>Compras já pagas</dt><dd>{fmtBRL(profit.paid)}</dd></div><div><dt>A receber das vendas</dt><dd>{fmtBRL(profit.receivable)}</dd></div><div><dt>A pagar nas compras</dt><dd>{fmtBRL(profit.due)}</dd></div></dl>
+      <p className="purchase-muted">Estimativa: vendas menos todas as compras, incluindo valores sem detalhamento e contas a pagar. O saldo considera somente o recebido menos o pago. Compras arquivadas ou excluídas não entram.</p>
+      <p className="purchase-muted">Inclui apenas os registros cadastrados. Não desconta novamente custos de produção ou perdas, para evitar contar a mesma compra duas vezes. Compras seguem armazenadas neste navegador; despesas não cadastradas e ingredientes ainda em estoque podem alterar o lucro real.</p>
+    </section> : null) : area === 'precos' ? <PurchasePrices purchases={purchases} /> : <>
       <dl className="purchase-summary" aria-label="Resumo financeiro"><div><dt>Total comprado</dt><dd>{fmtBRL(summary.total)}</dd></div><div><dt>Total pago</dt><dd>{fmtBRL(summary.paid)}</dd></div><div className="purchase-due"><dt>A pagar</dt><dd>{fmtBRL(summary.due)}</dd></div></dl>
       <div className="purchase-section-heading"><small>{from || to ? 'Totais do período selecionado' : 'Totais de todas as compras'} · excluem arquivadas</small>{area === 'compras' && <button className="btn btn-primary" disabled={busy} onClick={() => setEditor(!editor)}>{editor ? 'Ocultar cadastro' : draft.items.length || draft.text || draft.photo ? 'Continuar rascunho' : '+ Nova compra'}</button>}</div>
       {editor && area === 'compras' && <><PurchaseEditor draft={draft} change={change} busy={busy} onSave={() => void savePurchase()} onClose={() => setEditor(false)} onPhoto={file => void readPhoto(file)} onProcess={() => { if (!draft.items.length || confirm('Reprocessar substituirá os produtos da revisão. Continuar?')) process(draft.text) }} ignored={ignored}/><div className="purchase-section-heading"><small role="status">{draftSaved ? 'Rascunho salvo neste navegador.' : 'Salvando rascunho…'}</small><button className="btn btn-ghost" disabled={busy} onClick={() => { if (confirm('Descartar o rascunho? As compras salvas serão mantidas.')) { change(empty()); setIgnored([]) } }}>Descartar rascunho</button></div></>}

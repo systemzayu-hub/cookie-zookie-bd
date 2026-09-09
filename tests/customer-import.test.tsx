@@ -133,3 +133,57 @@ test('billing search filters names without accents and restores cards when clear
   assert.equal(root.root.findAllByType('article').length, 2)
   act(() => root.unmount())
 })
+
+test('dates default to today and selected dates are overridden only by explicit text headers', () => {
+  const today = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo' }).format(new Date())
+  const automatic = parseText('Kinder - Nova Pessoa', products, [])[0]
+  assert.equal(automatic.date, today)
+  assert.equal(automatic.dateAutomatic, true)
+  const result = parseText('Kinder - Primeira\n\n15/01\nKinder - Segunda\n16/01/25:\nKinder - Terceira', products, [], { date: '2025-01-10' })
+  assert.deepEqual(result.map(line => line.date), ['2025-01-10', '2025-01-15', '2025-01-16'])
+  assert.deepEqual(result.map(line => line.lineNum), [1, 4, 6])
+  assert.deepEqual(result.map(line => line.dateAutomatic), [true, false, false])
+  const relative = parseText('ontem\nKinder - Primeira\nhoje\nKinder - Segunda', products, [])
+  assert.equal(relative[1].date, today)
+  assert.equal(Date.parse(relative[1].date!) - Date.parse(relative[0].date!), 86_400_000)
+})
+
+test('paste supports optional quantities, x notation, full statuses, spreadsheet columns and hyphenated names', () => {
+  const catalog = [...products, { ...products[0], id: 'ma', name: 'Meio Amargo' }]
+  const result = parseText('Kinder - Ana-Maria - Pago\n2x Kinder - Bruno - D\n3 × Kinder - Carla - presente\n2\tKinder\tDaniel\tPendente\n1 Meio-Amargo - Ana-Maria - C\n2Meio-Amargo-Ana-Maria-C\nKinder - C', catalog, [], { status: 'Pago' })
+  assert.deepEqual(result.map(line => line.error), Array(7).fill(null))
+  assert.deepEqual(result.map(line => line.qty), [1, 2, 3, 2, 1, 2, 1])
+  assert.deepEqual(result.map(line => line.status), ['Pago', 'Debitado', 'Presente', 'Pendente', 'Pago', 'Pago', 'Pago'])
+  assert.equal(result[4].customerNameRaw, 'Ana-Maria')
+  assert.equal(result[5].customerNameRaw, 'Ana-Maria')
+  assert.equal(result[5].productId, 'ma')
+  assert.equal(result[6].customerNameRaw, 'C')
+  for (const code of ['--', '-', '—', 'presente', 'brinde']) assert.equal(parseText(`1 Kinder - Ana - ${code}`, products, [])[0].status, 'Presente')
+  assert.ok(parseText('1\tKinder\tAna\tINVALIDO', products, [])[0].error)
+})
+
+test('ambiguous product names are not silently assigned to the first product', () => {
+  const catalog = [{ ...products[0], name: 'Kinder branco' }, { ...products[0], id: 'p2', name: 'Kinder chocolate' }]
+  assert.ok(parseText('Kinder - Ana', catalog, [])[0].error)
+})
+
+test('date and status defaults are shown before saving and per-line dates can be corrected', () => {
+  setRole('owner')
+  let root: any, payload: any
+  act(() => { root = create(<PasswordProvider><QuickSaleView products={products} customers={[]} pushToast={() => {}} onSalesImported={(sales, customers) => { payload = { sales, customers }; return true }} /></PasswordProvider>) })
+  act(() => root.root.findByProps({ id: 'import-default-date' }).props.onChange({ target: { value: '2026-09-03' } }))
+  act(() => root.root.findByProps({ id: 'import-default-status' }).props.onChange({ target: { value: 'Pago' } }))
+  act(() => root.root.findByType('textarea').props.onChange({ target: { value: 'Kinder - Nova Pessoa' } }))
+  assert.match(label(root.root), /1 linha\(s\) de venda/)
+  act(() => button(root, 'Processar texto').props.onClick())
+  const dateInput = () => root.root.findByProps({ 'aria-label': 'Data da linha 1' })
+  assert.equal(dateInput().props.value, '2026-09-03')
+  act(() => dateInput().props.onChange({ target: { value: '' } }))
+  assert.equal(button(root, 'Confirmar e criar').props.disabled, true)
+  act(() => dateInput().props.onChange({ target: { value: '2026-09-04' } }))
+  act(() => button(root, 'Confirmar e criar').props.onClick())
+  assert.equal(payload.sales[0].date, '2026-09-04T15:00:00.000Z')
+  assert.equal(payload.sales[0].status, 'Pago')
+  assert.equal(payload.sales[0].paidAmount, 10)
+  act(() => root.unmount())
+})

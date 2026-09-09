@@ -1,5 +1,5 @@
 import { useState, useMemo, useRef } from 'react'
-import { ClipboardPaste, CheckCircle2, AlertCircle, ArrowRight, Undo2, Sparkles } from 'lucide-react'
+import { ClipboardPaste, CheckCircle2, AlertCircle, Undo2, Sparkles } from 'lucide-react'
 import { Product, Customer, Sale, uid, fmtBRL } from '../types'
 import { usePasswordGuard } from '../components/PasswordGate'
 import { dayKey } from '../analytics'
@@ -26,39 +26,63 @@ const PRODUCT_ALIASES: Record<string, string> = {
 }
 
 function matchProduct(input: string, products: Product[]): Product | null {
-  const normRaw = input.trim().toLowerCase()
-  // alias matching: remove pontos e espaços internos (tolerante a 'm.a', 'm. a.', 'ma')
-  const normAlias = normRaw.replace(/[.\s]+/g, '')
-  if (PRODUCT_ALIASES[normRaw] || PRODUCT_ALIASES[normAlias]) {
-    const name = PRODUCT_ALIASES[normRaw] || PRODUCT_ALIASES[normAlias]
-    return products.find(p => p.name.toLowerCase() === name.toLowerCase()) || null
-  }
-  // exact match
-  const normExact = normRaw.replace(/\.+$/g, '').trim()
-  const exact = products.find(p => p.name.toLowerCase() === normExact)
-  if (exact) return exact
-  // partial match (product name contains input or vice-versa)
-  const partial = products.find(p => p.name.toLowerCase().includes(normExact) || normExact.includes(p.name.toLowerCase()))
-  if (partial) return partial
-  // starts-with
-  const starts = products.find(p => p.name.toLowerCase().startsWith(normExact))
-  return starts || null
+  const norm = normalizeCustomerName(input).replace(/ /g, '')
+  if (!norm) return null
+  const alias = PRODUCT_ALIASES[input.trim().toLowerCase()] || PRODUCT_ALIASES[norm]
+  const wanted = normalizeCustomerName(alias || input).replace(/ /g, '')
+  const exact = products.filter(product => normalizeCustomerName(product.name).replace(/ /g, '') === wanted)
+  if (exact.length === 1) return exact[0]
+  const partial = products.filter(product => normalizeCustomerName(product.name).replace(/ /g, '').includes(wanted))
+  return partial.length === 1 ? partial[0] : null
 }
 
-/* ========== STATUS PARSING ========== */
-function parseStatus(code: string | undefined): Sale['status'] {
-  if (!code) return 'Pendente'
-  const c = code.trim().toUpperCase()
-  if (c === 'C') return 'Pago'
-  if (c === 'D') return 'Debitado'
-  if (c === '--' || c === '—' || c === '-') return 'Presente'
-  return 'Pendente'
+const STATUS_CODES: Record<string, Sale['status']> = {
+  c: 'Pago', pago: 'Pago', paga: 'Pago',
+  d: 'Debitado', debitado: 'Debitado', debitada: 'Debitado',
+  p: 'Pendente', pendente: 'Pendente',
+  '--': 'Presente', '-': 'Presente', '—': 'Presente', presente: 'Presente', brinde: 'Presente',
+}
+
+export function validImportDate(date: string): boolean {
+  const timestamp = Date.parse(date + 'T12:00:00-03:00')
+  return /^\d{4}-\d{2}-\d{2}$/.test(date) && Number.isFinite(timestamp) && dayKey(timestamp) === date
+}
+
+function saleParts(line: string, products: Product[]): { qty: number; product: string; customer: string; status?: string } | null {
+  // Spreadsheet columns: quantity, product, customer, optional status.
+  const columns = line.split('\t').map(value => value.trim())
+  if (columns.length >= 3 && columns.length <= 4 && /^\d+$/.test(columns[0])) {
+    if (columns[3] && !STATUS_CODES[normalizeCustomerName(columns[3])] && !STATUS_CODES[columns[3]]) return null
+    return { qty: Number(columns[0]), product: columns[1], customer: columns[2], status: columns[3] }
+  }
+  const quantity = line.match(/^(\d+)\s*(?:[x×]\s*)?(.+)$/i)
+  const qty = quantity ? Number(quantity[1]) : 1
+  const content = quantity ? quantity[2] : line
+  let product = '', customer = ''
+  const spaced = content.match(/^(.+?)\s+[-–—]\s+(.+)$/)
+  if (spaced) { product = spaced[1].trim(); customer = spaced[2].trim() }
+  else {
+    // Prefer the longest recognized product so Meio-Amargo keeps its hyphen.
+    for (let index = content.length - 2; index > 0; index--) {
+      if (/[-–—]/.test(content[index]) && matchProduct(content.slice(0, index), products)) {
+        product = content.slice(0, index).trim(); customer = content.slice(index + 1).trim(); break
+      }
+    }
+  }
+  if (!product || !customer) return null
+  const statusMatch = customer.match(/\s*[-–—]\s*(C|D|P|pago|paga|pendente|debitado|debitada|presente|brinde|--|—|-)\s*$/i)
+  if (statusMatch && customer.slice(0, statusMatch.index).trim()) {
+    return { qty, product, customer: customer.slice(0, statusMatch.index).trim(), status: statusMatch[1] }
+  }
+  return { qty, product, customer }
+
 }
 
 /* ========== TEXT PARSER ========== */
 export interface ParsedLine {
   lineNum: number
   date: string | null
+  dateAutomatic?: boolean
   qty: number
   productNameRaw: string
   productNameMatched: string | null
@@ -78,36 +102,43 @@ const STATUS_LABEL: Record<string, string> = {
   Pago: 'Pago (C)', Pendente: 'Pendente', Debitado: 'Debitado (D)', Presente: 'Presente (--)',
 }
 
-export function parseText(text: string, products: Product[], customers: Customer[]): ParsedLine[] {
-  const lines = text.split('\n').map(l => l.trim()).filter(l => l.length > 0)
-  const currentYear = new Date().getFullYear()
-  let currentDate = ''
+export function parseText(text: string, products: Product[], customers: Customer[], options: { date?: string; status?: Sale['status'] } = {}): ParsedLine[] {
+  const lines = text.split('\n').map(l => l.trim())
+  const defaultDate = options.date || dayKey(Date.now())
+  const currentYear = defaultDate.slice(0, 4)
+  let currentDate = defaultDate
+  let dateAutomatic = true
   const result: ParsedLine[] = []
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
+    if (!line) continue
+    const relative = normalizeCustomerName(line)
+    if (relative === 'hoje' || relative === 'ontem') {
+      currentDate = dayKey(Date.now() - (relative === 'ontem' ? 86_400_000 : 0))
+      dateAutomatic = false
+      continue
+    }
     // Date header: dd/mm or dd/mm/yy or dd/mm/yyyy
-    const dateMatch = line.match(/^(\d{1,2})[/.](\d{1,2})(?:[/.](\d{2,4}))?$/)
+    const dateMatch = line.match(/^(\d{1,2})[/.](\d{1,2})(?:[/.](\d{2}|\d{4}))?:?$/)
     if (dateMatch) {
       const [, dd, mm, yy] = dateMatch
       const year = yy ? (yy.length === 2 ? '20' + yy : yy) : String(currentYear)
       currentDate = `${year}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`
+      dateAutomatic = false
       continue
     }
-    // Sale line: "qty Product - Customer [- Status]"
-    // Pattern: number, then anything until ' - ' or '–', then customer, optionally ' - ' and status
-    const saleMatch = line.match(/^(\d+)\s+(.+?)\s*[-–]\s*(.+?)(?:\s*[-–]\s*([A-Za-z]{1,2}|--|-|—))?$/)
-    if (!saleMatch) {
-      result.push({ lineNum: i + 1, date: currentDate, qty: 0, productNameRaw: line, productNameMatched: null, productId: null, customerNameRaw: line, customerNameMatched: null, customerId: null, status: 'Pendente', statusLabel: '', error: 'Formato não reconhecido', unitPrice: null, total: null })
+    const parts = saleParts(line, products)
+    if (!parts || !parts.customer || !parts.product) {
+      result.push({ lineNum: i + 1, date: currentDate, dateAutomatic, qty: 0, productNameRaw: line, productNameMatched: null, productId: null, customerNameRaw: line, customerNameMatched: null, customerId: null, status: 'Pendente', statusLabel: '', error: 'Formato não reconhecido. Use: 2 Kinder - Nome - C', unitPrice: null, total: null })
       continue
     }
-    const [, qtyStr, rawProduct, rawCustomer, rawStatus] = saleMatch
-    const qty = parseInt(qtyStr, 10)
+    const { qty, product: rawProduct, customer: rawCustomer, status: rawStatus } = parts
     const prodMatch = matchProduct(rawProduct, products)
     const candidates = customerCandidates(rawCustomer, customers)
     const custMatch = candidates.length === 1 && normalizeCustomerName(candidates[0].name) === normalizeCustomerName(rawCustomer) ? candidates[0] : null
     const customerChoice = custMatch?.id || (candidates.length ? '' : 'new')
-    const status = parseStatus(rawStatus)
+    const status = rawStatus ? STATUS_CODES[rawStatus.toLowerCase()] || options.status || 'Pendente' : options.status || 'Pendente'
     const unitPrice = prodMatch?.price ?? null
     const total = unitPrice !== null ? qty * unitPrice : null
 
@@ -119,6 +150,7 @@ export function parseText(text: string, products: Product[], customers: Customer
     result.push({
       lineNum: i + 1,
       date: currentDate,
+      dateAutomatic,
       qty,
       productNameRaw: rawProduct.trim(),
       productNameMatched: prodMatch?.name ?? null,
@@ -143,6 +175,9 @@ export function QuickSaleView({ products, customers, onSalesImported, pushToast 
   onSalesImported: (sales: Sale[], customers: Customer[]) => boolean; pushToast: (m: string, t?: 'success' | 'error') => void
 }) {
   const [text, setText] = useState('')
+  const [defaultDate, setDefaultDate] = useState('')
+  const [defaultStatus, setDefaultStatus] = useState<Sale['status']>('Pendente')
+  const draft = useMemo(() => parseText(text, products, customers, { date: defaultDate, status: defaultStatus }), [text, products, customers, defaultDate, defaultStatus])
   const { guard } = usePasswordGuard()
   const [parsed, setParsed] = useState<ParsedLine[]>([])
   const [step, setStep] = useState<'input' | 'preview' | 'done'>('input')
@@ -151,7 +186,7 @@ export function QuickSaleView({ products, customers, onSalesImported, pushToast 
 
   const doParse = () => {
     if (!text.trim()) { pushToast('Cole o texto das vendas.', 'error'); return }
-    const lines = parseText(text, products, customers)
+    const lines = parseText(text, products, customers, { date: defaultDate, status: defaultStatus })
     if (lines.length === 0) { pushToast('Nenhuma linha encontrada.', 'error'); return }
     confirming.current = false
     setParsed(lines)
@@ -220,11 +255,11 @@ export function QuickSaleView({ products, customers, onSalesImported, pushToast 
     pushToast(`${count} venda(s) criada(s) com sucesso! 🎉`)
   })
 
-  const doReset = () => { setText(''); setParsed([]); setStep('input'); setCreatedCount(0); confirming.current = false }
+  const doReset = () => { setText(''); setParsed([]); setStep('input'); setCreatedCount(0); setDefaultDate(''); setDefaultStatus('Pendente'); confirming.current = false }
 
   const parseStats = useMemo(() => {
-    const valid = new Set(parsed.filter(l => l.productId && l.customerChoice && !l.error).map(l => `${l.date || dayKey(Date.now())}|${l.customerChoice === 'new' ? 'new:' + normalizeCustomerName(l.customerNameRaw) : l.customerChoice}|${l.status}`)).size
-    const warnings = parsed.filter(l => l.error || !l.customerChoice).length
+    const valid = new Set(parsed.filter(l => l.productId && l.customerChoice && !l.error && validImportDate(l.date || '')).map(l => `${l.date || dayKey(Date.now())}|${l.customerChoice === 'new' ? 'new:' + normalizeCustomerName(l.customerNameRaw) : l.customerChoice}|${l.status}`)).size
+    const warnings = parsed.filter(l => l.error || !l.customerChoice || !validImportDate(l.date || '')).length
     const total = parsed.filter(l => l.total).reduce((a, l) => a + (l.total || 0), 0)
     return { valid, warnings, total, count: parsed.length }
   }, [parsed])
@@ -248,20 +283,35 @@ export function QuickSaleView({ products, customers, onSalesImported, pushToast 
 
       {/* ===== STEP 1: INPUT ===== */}
       {step === 'input' && (
-        <div className="grid grid-2" style={{ gridTemplateColumns: '1fr 280px' }}>
+        <div className="paste-layout">
           <div className="card">
             <h3 className="card-title">Cole o texto das vendas</h3>
             <p style={{ color: 'var(--tx-2)', fontSize: '0.85em', marginBottom: 'var(--sp-4)' }}>
               Cada linha de venda no formato: <code style={{ color: 'var(--cz-600)' }}>Qtd Produto - Cliente - Status</code><br />
-              Status: <code>C</code> = Pago · <code>D</code> = Debitado · <code>--</code> = Presente · vazio = Pendente
+              Status: <code>C</code> = Pago · <code>D</code> = Debitado · <code>--</code> = Presente · vazio = status escolhido abaixo
             </p>
+            <div className="form-grid" style={{ marginBottom: 'var(--sp-4)' }}>
+              <div className="field">
+                <label htmlFor="import-default-date">Data das vendas sem data no texto</label>
+                <input id="import-default-date" type="date" value={defaultDate} onChange={event => setDefaultDate(event.target.value)} />
+                <span className="hint">{defaultDate ? 'A data escolhida vale para as linhas sem data.' : `Automático: hoje, ${dayKey(Date.now()).split('-').reverse().join('/')}. Não precisa preencher.`}</span>
+              </div>
+              <div className="field">
+                <label htmlFor="import-default-status">Quando o status não estiver no texto</label>
+                <select id="import-default-status" value={defaultStatus} onChange={event => setDefaultStatus(event.target.value as Sale['status'])}>
+                  {Object.keys(STATUS_LABEL).map(status => <option key={status} value={status}>{status}</option>)}
+                </select>
+              </div>
+            </div>
             <textarea
-              className="input"
+              aria-label="Texto das vendas"
+              className="paste-textarea"
               style={{ width: '100%', minHeight: 320, fontFamily: 'monospace', fontSize: '0.95em', lineHeight: 1.6 }}
-              placeholder={`30/08\n2 Kinder - Lukas - C\n3 M. A. - Lukas - C\n31/08\n1 Trad. - Sophie - C\n1 Kinder - Leticya\n1 Kinder - Lara 2°\n1 Nutella - Lara 2°`}
+              placeholder={`2 Kinder - Lukas - C\n3 M. A. - Lukas - Pago\nTrad. - Sophie\n1 Kinder - Lara 2°\n\nNão precisa colocar a data: usamos hoje automaticamente.`}
               value={text}
               onChange={e => setText(e.target.value)}
             />
+            {text.trim() && <p className="hint" role="status" style={{ marginTop: 'var(--sp-3)' }}>{draft.length} linha(s) de venda · {draft.filter(line => line.error).length} aviso(s) de formato · total estimado {fmtBRL(draft.reduce((sum, line) => sum + (line.total || 0), 0))}</p>}
             <div style={{ display: 'flex', gap: 'var(--sp-3)', marginTop: 'var(--sp-4)' }}>
               <button className="btn btn-cz" onClick={doParse} disabled={!text.trim()}>
                 <Sparkles size={16} /> Processar texto
@@ -274,12 +324,12 @@ export function QuickSaleView({ products, customers, onSalesImported, pushToast 
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-4)', fontSize: '0.85em', color: 'var(--tx-2)' }}>
               <div>
                 <strong style={{ color: 'var(--tx-1)' }}>1. Data</strong>
-                <p>Linhas como <code>30/08</code> definem a data das vendas abaixo</p>
+                <p>Sem data? Usamos hoje automaticamente. Você pode escolher outra no campo ao lado.</p><p>No texto, <code>30/08</code>, <code>hoje</code> ou <code>ontem</code> definem a data das próximas linhas.</p>
               </div>
               <div>
                 <strong style={{ color: 'var(--tx-1)' }}>2. Venda</strong>
                 <p><code>2 Kinder - Lukas - C</code></p>
-                <p><code>Qtd</code> <code>Produto</code> - <code>Cliente</code> - <code>Status</code></p>
+                <p>Também aceita <code>2x Kinder - Lukas</code> e <code>Kinder - Lukas</code> (1 unidade). Pode colar colunas de uma planilha: quantidade, produto, cliente e status.</p>
               </div>
               <div>
                 <strong style={{ color: 'var(--tx-1)' }}>3. Status</strong>
@@ -287,7 +337,7 @@ export function QuickSaleView({ products, customers, onSalesImported, pushToast 
                   <li><code>C</code> = Pago</li>
                   <li><code>D</code> = Debitado</li>
                   <li><code>--</code> = Presente</li>
-                  <li>Vazio = Pendente</li>
+                  <li>Vazio = status escolhido (começa em Pendente)</li><li>Também aceita Pago, Pendente, Debitado e Presente por extenso</li>
                 </ul>
               </div>
               <div>
@@ -336,7 +386,7 @@ export function QuickSaleView({ products, customers, onSalesImported, pushToast 
                   {parsed.map((l, i) => (
                     <tr key={i} style={{ opacity: l.error && !l.productId ? 0.5 : 1 }}>
                       <td>{l.lineNum}</td>
-                      <td>{l.date || '—'}</td>
+                      <td style={{ minWidth: 160 }}><input aria-label={`Data da linha ${l.lineNum}`} type="date" value={l.date || ''} onChange={event => setParsed(lines => lines.map((line, index) => index === i ? { ...line, date: event.target.value, dateAutomatic: false } : line))} /><span className="hint">{l.dateAutomatic ? 'Data automática' : 'Data informada'}</span></td>
                       <td style={{ fontWeight: 700, textAlign: 'center' }}>{l.qty}</td>
                       <td>
                         {l.productNameMatched ? (
@@ -366,7 +416,7 @@ export function QuickSaleView({ products, customers, onSalesImported, pushToast 
                       <td><span className={`badge badge-${l.status === 'Pago' ? 'success' : l.status === 'Pendente' ? 'warning' : l.status === 'Debitado' ? 'danger' : 'neutral'}`}>{l.statusLabel}</span></td>
                       <td style={{ fontWeight: 700 }}>{l.total !== null ? fmtBRL(l.total) : '—'}</td>
                       <td style={{ fontSize: '0.8em', color: l.error ? 'var(--warn-500)' : 'var(--tx-2)' }}>
-                        {l.error || (!l.customerChoice ? 'Selecione o cliente' : l.customerChoice === 'new' ? 'Novo cliente · número não informado' : '✓ OK')}
+                        {l.error || (!validImportDate(l.date || '') ? 'Confira a data desta linha' : '') || (!l.customerChoice ? 'Selecione o cliente' : l.customerChoice === 'new' ? 'Novo cliente · número não informado' : '✓ OK')}
                       </td>
                     </tr>
                   ))}

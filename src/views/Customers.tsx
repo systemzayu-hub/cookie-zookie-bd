@@ -1,3 +1,5 @@
+import type { CustomerMerge } from '../combine-customers'
+import { customerCandidates, normalizeCustomerName } from '../customer-matching'
 import { useState, useMemo } from 'react'
 import { Plus, Pencil, Trash2, X, Users, ShoppingBag, AlertCircle, CheckCircle2, Check } from 'lucide-react'
 import { Customer, Sale, fmtBRL, uid } from '../types'
@@ -41,8 +43,8 @@ function ConfirmDeleteModal({ isOpen, onClose, onConfirm, title, message, itemNa
   )
 }
 
-export function CustomersView({ customers, setCustomers, sales, pushToast }: {
-  customers: Customer[]; setCustomers: React.Dispatch<React.SetStateAction<Customer[]>>; sales: Sale[]; pushToast: (m: string, t?: 'success' | 'error') => void
+export function CustomersView({ customers, setCustomers, sales, pushToast, onCustomersCombined }: {
+  onCustomersCombined?: (request: CustomerMerge) => boolean; customers: Customer[]; setCustomers: React.Dispatch<React.SetStateAction<Customer[]>>; sales: Sale[]; pushToast: (m: string, t?: 'success' | 'error') => void
 }) {
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
@@ -50,6 +52,9 @@ export function CustomersView({ customers, setCustomers, sales, pushToast }: {
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing] = useState<Customer | null>(null)
   const [form, setForm] = useState({ name: '', contact: '' })
+  const [mergePrompt, setMergePrompt] = useState<{ source: Customer; name: string; contact: string; candidates: Customer[] } | null>(null)
+  const [mergeTarget, setMergeTarget] = useState('')
+  const [mergePhone, setMergePhone] = useState('')
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null)
   const { guard } = usePasswordGuard()
 
@@ -64,13 +69,20 @@ export function CustomersView({ customers, setCustomers, sales, pushToast }: {
   const openNew = () => { setEditing(null); setForm({ name: '', contact: '' }); setShowModal(true) }
   const openEdit = (c: Customer) => { setEditing(c); setForm({ name: c.name, contact: c.contact }); setShowModal(true) }
 
-  const submit = () => {
+  const submit = (renameOnly = false) => {
     const name = form.name.trim()
     const contact = form.contact.trim()
     if (!name) { pushToast('Informe o nome.', 'error'); return }
     if (contact && !/^\(\d{2}\) \d{4,5}-\d{4}$/.test(contact)) { pushToast('Informe um telefone válido com DDD.', 'error'); return }
     if (name.length > 120 || contact.length > 120) { pushToast('Nome e contato devem ter até 120 caracteres.', 'error'); return }
-    if (customers.some(customer => customer.id !== editing?.id && customer.name.toLocaleLowerCase('pt-BR') === name.toLocaleLowerCase('pt-BR'))) { pushToast('Já existe um cliente com esse nome.', 'error'); return }
+    if (editing && onCustomersCombined && !renameOnly && name !== editing.name) {
+      const candidates = customerCandidates(name, customers.filter(customer => customer.id !== editing.id))
+      if (candidates.length) {
+        setMergePrompt({ source: editing, name, contact, candidates }); setMergeTarget(''); setMergePhone('')
+        return
+      }
+    }
+    if (customers.some(customer => customer.id !== editing?.id && normalizeCustomerName(customer.name) === normalizeCustomerName(name))) { pushToast('Já existe um cliente com esse nome.', 'error'); return }
     if (editing) {
       guard('Alterar cliente', () => {
         setCustomers(cs => cs.map(c => c.id === editing.id ? { ...c, name, contact } : c))
@@ -86,6 +98,18 @@ export function CustomersView({ customers, setCustomers, sales, pushToast }: {
         setShowModal(false)
       })
     }
+  }
+
+  const target = mergePrompt?.candidates.find(customer => customer.id === mergeTarget)
+  const phoneConflict = !!target?.contact && !!mergePrompt?.contact && target.contact.replace(/\D/g, '') !== mergePrompt.contact.replace(/\D/g, '')
+  const confirmMerge = () => {
+    if (!mergePrompt || !target || !onCustomersCombined || (phoneConflict && !mergePhone)) return
+    const contact = phoneConflict ? (mergePhone === 'source' ? mergePrompt.contact : target.contact) : target.contact || mergePrompt.contact
+    guard('Combinar clientes', () => {
+      if (!onCustomersCombined({ source: mergePrompt.source, target, contact })) return
+      setMergePrompt(null); setShowModal(false); setEditing(null)
+      pushToast('Clientes combinados! Compras e pendências reunidas no cadastro escolhido.')
+    })
   }
 
   const remove = (id: string) => {
@@ -236,8 +260,33 @@ export function CustomersView({ customers, setCustomers, sales, pushToast }: {
         )}
       </div>
 
+      {mergePrompt && <div className="modal-backdrop">
+        <div className="modal" role="dialog" aria-modal="true" aria-label="Combinar clientes">
+          <div className="modal-header"><h3>Tem certeza de que quer combinar clientes?</h3><button className="modal-close" aria-label="Voltar à edição" onClick={() => setMergePrompt(null)}><X size={20} /></button></div>
+          <div className="form">
+            <p>Ao trocar “{mergePrompt.source.name}” por “{mergePrompt.name}”, encontramos outros cadastros parecidos. Se for a mesma pessoa, escolha onde reunir tudo:</p>
+            <fieldset style={{ border: 0, padding: 0 }}><legend>Cliente que será mantido</legend>
+              {mergePrompt.candidates.map(customer => <label key={customer.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 10 }}>
+                <input type="radio" name="merge-customer" checked={mergeTarget === customer.id} onChange={() => { setMergeTarget(customer.id); setMergePhone('') }} />
+                <span><strong>{customer.name}</strong> · <MaskedPII value={customer.contact} type="phone" /> · {countOf(customer.id)} compras · cadastro {new Date(customer.createdAt).toLocaleDateString('pt-BR')}</span>
+              </label>)}
+            </fieldset>
+            {target && <p>O cadastro <strong>{target.name}</strong> será mantido. As {countOf(mergePrompt.source.id)} compras de <strong>{mergePrompt.source.name}</strong>, incluindo pendências e pagamentos, serão transferidas para ele. O cadastro separado de {mergePrompt.source.name} deixará de aparecer. Valores, datas e estoque permanecem iguais.</p>}
+            {phoneConflict && <fieldset style={{ border: 0, padding: 0 }}><legend>Os telefones são diferentes. Qual deseja manter?</legend>
+              <label style={{ display: 'block', padding: 8 }}><input type="radio" name="merge-phone" checked={mergePhone === 'target'} onChange={() => setMergePhone('target')} /> Telefone de {target?.name}: <MaskedPII value={target?.contact || ''} type="phone" /></label>
+              <label style={{ display: 'block', padding: 8 }}><input type="radio" name="merge-phone" checked={mergePhone === 'source'} onChange={() => setMergePhone('source')} /> Telefone de {mergePrompt.source.name}: <MaskedPII value={mergePrompt.contact} type="phone" /></label>
+            </fieldset>}
+            <div className="modal-actions">
+              <button className="btn btn-secondary" onClick={() => setMergePrompt(null)}>Voltar à edição</button>
+              {!mergePrompt.candidates.some(customer => normalizeCustomerName(customer.name) === normalizeCustomerName(mergePrompt.name)) && <button className="btn btn-secondary" onClick={() => { setMergePrompt(null); submit(true) }}>Só renomear, sem combinar</button>}
+              <button className="btn btn-primary" disabled={!target || (phoneConflict && !mergePhone)} onClick={confirmMerge}>Sim, combinar clientes</button>
+            </div>
+          </div>
+        </div>
+      </div>}
+
       {pages > 1 && <div className="pagination"><span>{activePage + 1} / {pages}</span><button className="btn btn-secondary btn-sm" disabled={!activePage} onClick={() => setPage(activePage - 1)}>Anterior</button><button className="btn btn-secondary btn-sm" disabled={activePage === pages - 1} onClick={() => setPage(activePage + 1)}>Próxima</button></div>}
-      {showModal && (
+      {showModal && !mergePrompt && (
               <div className="modal-backdrop" onClick={() => setShowModal(false)}>
                 <div className="modal" role="dialog" aria-modal="true" aria-label={editing ? 'Editar cliente' : 'Novo cliente'} onClick={e => e.stopPropagation()}>
                   <div className="modal-header">
@@ -249,7 +298,7 @@ export function CustomersView({ customers, setCustomers, sales, pushToast }: {
                     <div className="field"><label>Telefone com DDD (opcional)</label><input value={form.contact} maxLength={15} autoComplete="tel" inputMode="tel" onChange={e => setForm(f => ({ ...f, contact: formatPhone(e.target.value) }))} placeholder="(11) 99999-0000" /><span className="hint">Se deixar vazio, aparecerá “Não informado”.</span></div>
                     <div className="modal-actions">
                       <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancelar</button>
-                      <button className="btn btn-primary" onClick={submit}>{editing ? 'Salvar' : 'Adicionar'}</button>
+                      <button className="btn btn-primary" onClick={() => submit()}>{editing ? 'Salvar' : 'Adicionar'}</button>
                     </div>
                   </div>
                 </div>

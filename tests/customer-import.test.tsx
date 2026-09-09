@@ -1,3 +1,5 @@
+import { combineCustomers } from '../src/combine-customers'
+import { mergeStore, SyncConflict } from '../src/store-merge'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { act, create } from 'react-test-renderer'
@@ -247,4 +249,76 @@ test('single-letter product aliases work in either case without matching unrelat
   }
   assert.equal(parseText('2n-Marcos-C', catalog, [])[0].productNameMatched, 'Nutella')
   assert.ok(parseText('2 n - Marcos - C', [products[0]], [])[0].error)
+})
+
+test('combining customers reassigns all history without changing amounts, payments, dates or stock', () => {
+  const source = customer('source', 'Marcus F'), target = customer('target', 'Marcus')
+  const statuses = ['Pago', 'Pendente', 'Debitado', 'Presente'] as const
+  const sales = statuses.map((status, i) => ({ ...sale, id: 'merge-' + i, customerId: source.id, status, paidAmount: 5 }))
+  const data = { products, customers: [source, target, customers[0]], sales: [...sales, sale] }
+  const snapshot = JSON.stringify(data)
+  const combined = combineCustomers(data, { source, target, contact: '(11) 99999-0000' })
+  assert.equal(combined.customers.length, 2)
+  assert.equal(combined.customers.find(c => c.id === target.id)?.name, 'Marcus')
+  assert.equal(combined.customers.find(c => c.id === target.id)?.contact, '(11) 99999-0000')
+  assert.deepEqual(combined.sales, [...sales.map(s => ({ ...s, customerId: target.id })), sale])
+  assert.deepEqual(combined.products, products)
+  assert.equal(JSON.stringify(data), snapshot)
+  assert.throws(() => combineCustomers(data, { source, target: source, contact: '' }))
+  assert.throws(() => combineCustomers({ ...data, customers: [target] }, { source, target, contact: '' }))
+  assert.throws(() => combineCustomers(data, { source: { ...source, name: 'changed' }, target, contact: '' }))
+})
+
+test('sync rejects a customer combination racing with a new sale for the removed customer', () => {
+  const source = customer('source', 'Marcus F'), target = customer('target', 'Marcus')
+  const base = { products, customers: [source, target], sales: [] }
+  const local = combineCustomers(base, { source, target, contact: '' })
+  const remote = { ...base, sales: [{ ...sale, customerId: source.id }] }
+  assert.throws(() => mergeStore(base, local, remote), SyncConflict)
+  assert.throws(() => mergeStore(base, remote, local), SyncConflict)
+})
+
+test('renaming to an existing client asks before combining and requires choosing between different phones', () => {
+  setRole('owner')
+  const source = { ...customer('source', 'Marcus F'), contact: '(11) 99999-0000' }
+  const target = { ...customer('target', 'Marcus'), contact: '(11) 98888-0000' }
+  let root: any, request: any, renamed = false
+  act(() => { root = create(<PasswordProvider><CustomersView customers={[source, target]} sales={[{ ...sale, customerId: source.id }]} setCustomers={() => { renamed = true }} pushToast={() => {}} onCustomersCombined={value => { request = value; return true }} /></PasswordProvider>) })
+  act(() => root.root.findByProps({ 'aria-label': 'Editar Marcus F' }).props.onClick())
+  act(() => root.root.findByProps({ placeholder: 'Nome do cliente' }).props.onChange({ target: { value: 'Marcus' } }))
+  act(() => button(root, 'Salvar').props.onClick())
+  assert.equal(renamed, false)
+  assert.equal(request, undefined)
+  assert.ok(label(root.root).includes('Tem certeza de que quer combinar clientes?'))
+  assert.equal(button(root, 'Só renomear'), undefined)
+  assert.equal(button(root, 'Sim, combinar clientes').props.disabled, true)
+  act(() => root.root.findByProps({ name: 'merge-customer' }).props.onChange())
+  assert.equal(button(root, 'Sim, combinar clientes').props.disabled, true)
+  act(() => root.root.findAllByProps({ name: 'merge-phone' })[1].props.onChange())
+  act(() => button(root, 'Sim, combinar clientes').props.onClick())
+  assert.equal(request.source.id, source.id)
+  assert.equal(request.target.id, target.id)
+  assert.equal(request.contact, source.contact)
+  assert.equal(root.root.findAllByProps({ 'aria-label': 'Combinar clientes' }).length, 0)
+  act(() => root.unmount())
+})
+
+test('similar rename can be cancelled or saved without combining; reverse exact rename also prompts', () => {
+  setRole('owner')
+  const source = customer('source', 'Marcus'), target = customer('target', 'Marcus F')
+  let root: any, renamed: any, combined = false
+  act(() => { root = create(<PasswordProvider><CustomersView customers={[source, target]} sales={[]} setCustomers={update => { renamed = typeof update === 'function' ? update([source, target]) : update }} pushToast={() => {}} onCustomersCombined={() => { combined = true; return true }} /></PasswordProvider>) })
+  act(() => root.root.findByProps({ 'aria-label': 'Editar Marcus' }).props.onClick())
+  act(() => root.root.findByProps({ placeholder: 'Nome do cliente' }).props.onChange({ target: { value: 'Marcus F' } }))
+  act(() => button(root, 'Salvar').props.onClick())
+  assert.ok(label(root.root).includes('Tem certeza de que quer combinar clientes?'))
+  act(() => button(root, 'Voltar à edição').props.onClick())
+  assert.equal(renamed, undefined)
+  act(() => root.root.findByProps({ placeholder: 'Nome do cliente' }).props.onChange({ target: { value: 'Marcus G' } }))
+  act(() => button(root, 'Salvar').props.onClick())
+  act(() => button(root, 'Só renomear').props.onClick())
+  assert.equal(renamed[0].name, 'Marcus G')
+  assert.equal(renamed.length, 2)
+  assert.equal(combined, false)
+  act(() => root.unmount())
 })

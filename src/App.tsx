@@ -1,3 +1,4 @@
+import { combineCustomers, type CustomerMerge } from './combine-customers'
 import { useEffect, useRef, useState, Suspense, lazy } from 'react'
 import { LayoutDashboard, ShoppingCart, Package, BarChart3, Users, Sun, Moon, Download, Upload, LogIn, LogOut, Percent, ShieldCheck, Menu, X, Cloud, CloudOff, RefreshCw } from 'lucide-react'
 import { Product, Sale, Customer, Tab, Pendencia, fmtBRL } from './types'
@@ -219,6 +220,16 @@ export default function App() {
     return true
   }
 
+  const handleCustomersCombined = (request: CustomerMerge) => {
+    try {
+      const next = combineCustomers(saleState.current, request)
+      saleState.current = next
+      setCustomers(next.customers); setSales(next.sales)
+      logAction('cliente', `Combinou "${request.source.name}" com "${request.target.name}" e transferiu seu histórico`)
+      return true
+    } catch (error) { pushToast((error as Error).message, 'error'); return false }
+  }
+
   const handleSalesImported = (sales: Sale[], customers: Customer[]) => {
     try {
       const next = recordSalesBatch(saleState.current, sales, customers)
@@ -410,7 +421,7 @@ export default function App() {
           {tab === 'vendas' && <SensitiveData label="Desbloquear vendas"><SalesView draftKey={user?.email ? `cc_sales_draft:${encodeURIComponent(user.email.toLowerCase())}` : undefined} products={products} customers={customers} sales={sales} onSaleAdded={handleSaleAdded} onSalesImported={handleSalesImported} pushToast={pushToast} /></SensitiveData>}
           {tab === 'produtos' && <ProductsStockView products={products} setProducts={setProducts} sales={sales} pushToast={pushToast} />}
           {tab === 'relatorios' && <ReportsView sales={sales} />}
-          {tab === 'clientes' && <CustomersBillingView customers={customers} setCustomers={setCustomers} sales={sales} setSales={setSales} pushToast={pushToast} />}
+          {tab === 'clientes' && <CustomersBillingView onCustomersCombined={handleCustomersCombined} customers={customers} setCustomers={setCustomers} sales={sales} setSales={setSales} pushToast={pushToast} />}
           {tab === 'financeiro' && <FinanceiroView />}
           {tab === 'audit' && <OwnerAuditGate key={user.email}><AuditView /></OwnerAuditGate>}
         </Suspense>

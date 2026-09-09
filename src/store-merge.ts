@@ -39,9 +39,12 @@ function mergeList<T extends { id: string }>(base: T[], local: T[], remote: T[],
 }
 
 export function mergeStore(base: StoreData, local: StoreData, remote: StoreData): StoreData {
-  return {
+  const merged = {
     products: mergeList(base.products, local.products, remote.products, true),
     sales: mergeList(base.sales, local.sales, remote.sales),
     customers: mergeList(base.customers, local.customers, remote.customers),
   }
+  const removed = new Set(base.customers.filter(customer => !merged.customers.some(current => current.id === customer.id)).map(customer => customer.id))
+  if (merged.sales.some(sale => sale.customerId && removed.has(sale.customerId))) throw new SyncConflict()
+  return merged
 }

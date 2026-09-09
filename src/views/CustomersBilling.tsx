@@ -1,3 +1,4 @@
+import type { CustomerMerge } from '../combine-customers'
 import { useState } from 'react'
 import { Users, HandCoins } from 'lucide-react'
 import { Customer, Sale } from '../types'
@@ -5,8 +6,8 @@ import { CustomersView } from './Customers'
 import { CobrancaView } from './Cobranca'
 import { SensitiveData } from '../components/SensitiveData'
 
-export function CustomersBillingView({ customers, setCustomers, sales, setSales, pushToast }: {
-  customers: Customer[]; setCustomers: React.Dispatch<React.SetStateAction<Customer[]>>; sales: Sale[]; setSales: React.Dispatch<React.SetStateAction<Sale[]>>; pushToast: (m: string, t?: 'success' | 'error') => void
+export function CustomersBillingView({ customers, setCustomers, sales, setSales, pushToast, onCustomersCombined }: {
+  onCustomersCombined: (request: CustomerMerge) => boolean; customers: Customer[]; setCustomers: React.Dispatch<React.SetStateAction<Customer[]>>; sales: Sale[]; setSales: React.Dispatch<React.SetStateAction<Sale[]>>; pushToast: (m: string, t?: 'success' | 'error') => void
 }) {
   const [section, setSection] = useState<'clientes' | 'cobranca'>('clientes')
 
@@ -21,7 +22,7 @@ export function CustomersBillingView({ customers, setCustomers, sales, setSales,
         </button>
       </div>
       {section === 'clientes' ? (
-        <CustomersView customers={customers} setCustomers={setCustomers} sales={sales} pushToast={pushToast} />
+        <CustomersView onCustomersCombined={onCustomersCombined} customers={customers} setCustomers={setCustomers} sales={sales} pushToast={pushToast} />
       ) : (
         <CobrancaView sales={sales} setSales={setSales} customers={customers} pushToast={pushToast} />
       )}

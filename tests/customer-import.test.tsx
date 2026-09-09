@@ -1,3 +1,5 @@
+import { dailySales } from '../src/analytics'
+import { DailySalesChart } from '../src/components/DailySalesChart'
 import { combineCustomers } from '../src/combine-customers'
 import { mergeStore, SyncConflict } from '../src/store-merge'
 import test from 'node:test'
@@ -320,5 +322,50 @@ test('similar rename can be cancelled or saved without combining; reverse exact 
   assert.equal(renamed[0].name, 'Marcus G')
   assert.equal(renamed.length, 2)
   assert.equal(combined, false)
+  act(() => root.unmount())
+})
+
+test('customer phone filters separate pending clients with and without numbers and combine with name search', () => {
+  const entries = [
+    { ...customer('with', 'Ana com telefone'), contact: '(11) 99999-0000' },
+    customer('without', 'Bia sem telefone'),
+    { ...customer('legacy', 'Clara não informado'), contact: 'Não informado' },
+    { ...customer('paid', 'Dora paga'), contact: '(11) 98888-0000' },
+    { ...customer('debited', 'Eva debitada'), contact: '(11) 97777-0000' },
+  ]
+  let root: any
+  act(() => { root = create(<PasswordProvider><CustomersView customers={entries} sales={entries.map(c => ({ ...sale, id: c.id, customerId: c.id, status: c.id === 'paid' ? 'Pago' : c.id === 'debited' ? 'Debitado' : 'Pendente' }))} setCustomers={() => {}} pushToast={() => {}} /></PasswordProvider>) })
+  const names = () => root.root.findAllByType('td').filter((node: any) => node.props['data-label'] === 'Cliente').map(label)
+  const filter = (value: string) => act(() => root.root.findByProps({ 'aria-label': 'Status dos clientes' }).props.onChange({ target: { value } }))
+  filter('with-phone')
+  assert.deepEqual(names(), ['Ana com telefone', 'Dora paga', 'Eva debitada'])
+  filter('with-phone-pending')
+  assert.deepEqual(names(), ['Ana com telefone'])
+  filter('without-phone-pending')
+  assert.deepEqual(names(), ['Bia sem telefone', 'Clara não informado'])
+  act(() => root.root.findByProps({ 'aria-label': 'Buscar cliente por nome ou telefone' }).props.onChange({ target: { value: 'clara' } }))
+  assert.deepEqual(names(), ['Clara não informado'])
+  filter('with-phone-pending')
+  assert.deepEqual(names(), [])
+  assert.ok(label(root.root).includes('Nenhum cliente encontrado'))
+  act(() => root.unmount())
+})
+
+test('daily chart separates orders and cookies, fills empty days and respects Sao Paulo dates', () => {
+  const now = Date.parse('2026-09-08T20:00:00Z')
+  const data = dailySales([{ ...sale, date: '2026-09-08T01:00:00Z' }, { ...sale, id: 'today', date: '2026-09-08T15:00:00Z', items: [{ ...sale.items[0], qty: 5 }], total: 50 }, { ...sale, id: 'gift', date: '2026-09-08T15:00:00Z', status: 'Presente' }, { ...sale, id: 'future', date: '2026-09-09T15:00:00Z' }], 7, now)
+  assert.equal(data.length, 7)
+  assert.equal(data[0].units, 0)
+  assert.equal(data[5].date, '2026-09-07')
+  assert.equal(data[5].count, 1)
+  assert.equal(data[5].units, 2)
+  assert.equal(data[6].count, 1)
+  assert.equal(data[6].units, 5)
+  let root: any
+  act(() => { root = create(<DailySalesChart sales={[]} />) })
+  assert.ok(label(root.root).includes('Nenhuma venda neste período'))
+  act(() => button(root, 'Vendas').props.onClick())
+  assert.ok(label(root.root).includes('Cada venda registrada conta uma vez'))
+  assert.equal(root.root.findAllByType('li').length, 7)
   act(() => root.unmount())
 })

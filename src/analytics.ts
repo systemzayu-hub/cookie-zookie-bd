@@ -37,3 +37,17 @@ export function productionPlan(products: Product[], sales: Sale[], now = Date.no
     return { ...product, weekly, coverage: daily ? product.stock / daily : null, suggested: Math.max(0, target - product.stock) }
   }).sort((a, b) => b.suggested - a.suggested || a.stock - b.stock)
 }
+
+export function dailySales(sales: Sale[], days = 7, now = Date.now()) {
+  const rows = Array.from({ length: days }, (_, index) => {
+    const date = dayKey(now - (days - 1 - index) * 86_400_000)
+    return { date, label: date.slice(8) + '/' + date.slice(5, 7), count: 0, units: 0 }
+  })
+  const byDate = new Map(rows.map(row => [row.date, row]))
+  for (const sale of periodSales(sales, days, now)) {
+    if (sale.status === 'Presente') continue
+    const row = byDate.get(dayKey(sale.date))
+    if (row) { row.count++; row.units += sale.items.reduce((sum, item) => sum + item.qty, 0) }
+  }
+  return rows
+}

@@ -161,7 +161,15 @@ export function CustomersView({ customers, setCustomers, sales, pushToast, onCus
   const noSalesCount = customers.filter(c => clientStatus.get(c.id) === 'Sem vendas').length
 
   const normalizeSearch = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR')
-  const visible = customers.filter(customer => (statusFilter === 'all' || clientStatus.get(customer.id) === statusFilter) && normalizeSearch(customer.name + ' ' + customer.contact).includes(normalizeSearch(search.trim()))).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
+  const visible = customers.filter(customer => {
+    const hasPhone = /\d/.test(customer.contact || '')
+    const pending = clientStatus.get(customer.id) === 'Pendente'
+    const matchesFilter = statusFilter === 'with-phone' ? hasPhone
+      : statusFilter === 'with-phone-pending' ? hasPhone && pending
+      : statusFilter === 'without-phone-pending' ? !hasPhone && pending
+      : statusFilter === 'all' || clientStatus.get(customer.id) === statusFilter
+    return matchesFilter && normalizeSearch(customer.name + ' ' + customer.contact).includes(normalizeSearch(search.trim()))
+  }).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
   const pages = Math.max(1, Math.ceil(visible.length / 25))
   const activePage = Math.min(page, pages - 1)
 
@@ -231,11 +239,11 @@ export function CustomersView({ customers, setCustomers, sales, pushToast, onCus
       <div className="card">
         <div className="report-toolbar">
           <input aria-label="Buscar cliente por nome ou telefone" placeholder="Buscar nome ou telefone..." value={search} onChange={event => { setSearch(event.target.value); setPage(0) }} />
-          <select aria-label="Status dos clientes" value={statusFilter} onChange={event => { setStatusFilter(event.target.value); setPage(0) }}><option value="all">Todos os clientes</option>{['Pago', 'Pendente', 'Debitado', 'Sem vendas'].map(status => <option key={status}>{status}</option>)}</select>
+          <select aria-label="Status dos clientes" value={statusFilter} onChange={event => { setStatusFilter(event.target.value); setPage(0) }}><option value="all">Todos os clientes</option>{['Pago', 'Pendente', 'Debitado', 'Sem vendas'].map(status => <option key={status}>{status}</option>)}<option value="with-phone">Números cadastrados</option><option value="with-phone-pending">Números cadastrados pendentes</option><option value="without-phone-pending">Sem número pendentes</option></select>
           <span className="badge badge-neutral">{visible.length} clientes</span>
         </div>
         {visible.length === 0 ? (
-          <div className="empty-state"><Users className="icon" size={40} /><p>Nenhum cliente cadastrado.</p></div>
+          <div className="empty-state"><Users className="icon" size={40} /><p>{customers.length ? 'Nenhum cliente encontrado para esta busca ou filtro.' : 'Nenhum cliente cadastrado.'}</p></div>
         ) : (
           <div className="table-wrap customers-table-wrap">
             <table className="table customers-table">

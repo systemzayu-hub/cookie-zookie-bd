@@ -1,3 +1,4 @@
+import './purchases.test'
 import './customer-import.test'
 import './security.test'
 import test from 'node:test'

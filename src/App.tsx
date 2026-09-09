@@ -274,7 +274,7 @@ export default function App() {
       { id: 'produtos', label: 'Produtos & Estoque', icon: <Package className="icon" /> },
       { id: 'relatorios', label: 'Relatórios', icon: <BarChart3 className="icon" /> },
       { id: 'clientes', label: 'Clientes & Cobrança', icon: <Users className="icon" /> },
-      { id: 'ingredientes', label: 'Ingredientes', icon: <ShoppingCart className="icon" /> },
+      { id: 'ingredientes', label: 'Compras', icon: <ShoppingCart className="icon" /> },
       { id: 'financeiro', label: 'Financeiro', icon: <Percent className="icon" /> },
       { id: 'audit', label: 'Auditoria', icon: <ShieldCheck className="icon" /> },
     ]

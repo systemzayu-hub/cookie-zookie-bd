@@ -1,6 +1,6 @@
 import { IngredientPurchase, IngredientUnit, normalizedPrice, purchaseDue, purchaseTotal } from '../ingredients'
 import { fmtBRL } from '../types'
-export type PurchaseDraft = IngredientPurchase & { text: string; editingBefore?: IngredientPurchase }
+export type PurchaseDraft = IngredientPurchase & { text: string; photoKind?: 'receipt' | 'product'; editingBefore?: IngredientPurchase }
 export function PurchaseEditor({ draft, change, busy, onSave, onClose, onPhoto, onProcess, ignored }: {
   draft: PurchaseDraft; change: (draft: PurchaseDraft) => void; busy: boolean; onSave: () => void; onClose: () => void
   onPhoto: (file: File) => void; onProcess: () => void; ignored: string[]
@@ -12,7 +12,7 @@ export function PurchaseEditor({ draft, change, busy, onSave, onClose, onPhoto, 
     <fieldset disabled={busy}>
       <div className="purchase-fields"><label>Data da compra<input type="date" required value={draft.date} onChange={e => patch({ date: e.target.value })} /></label><label>Local / estabelecimento<input value={draft.shop} maxLength={200} placeholder="Ex.: Mercado X" onChange={e => patch({ shop: e.target.value })} /></label></div>
       <details className="purchase-import" open={!draft.items.length || undefined}><summary>Adicionar pela foto ou pelo texto</summary>
-        <label className="purchase-upload">Foto da nota<input aria-label="Foto da nota" type="file" accept="image/jpeg,image/png,image/webp" onChange={e => { const f = e.target.files?.[0]; if (f) onPhoto(f); e.target.value = '' }} /></label>
+        <label>Tipo de imagem<select aria-label="Tipo de imagem" value={draft.photoKind || 'receipt'} onChange={e => patch({ photoKind: e.target.value as 'receipt' | 'product' })}><option value="receipt">Nota / cupom</option><option value="product">Print de produto de um site</option></select></label><small>Para prints, recorte um produto por imagem, incluindo nome e preço completo. Valores promocionais e parcelas precisam de conferência.</small><label className="purchase-upload">Foto ou print<input aria-label="Foto da nota" type="file" accept="image/jpeg,image/png,image/webp" onChange={e => { const f = e.target.files?.[0]; if (f) onPhoto(f); e.target.value = '' }} /></label>
         <label>Produtos e valores<textarea rows={4} value={draft.text} placeholder={'Farinha - 12,50\n2 caixas de leite - 11,00'} onChange={e => patch({ text: e.target.value })} /></label>
         <div className="purchase-section-heading"><small>Um produto por linha; o último valor é o total da linha, incluindo todas as unidades.</small><button className="btn btn-secondary" onClick={onProcess}>Preparar itens</button></div>
         {ignored.length > 0 && <details><summary>{ignored.length} linhas não incluídas · conferir</summary><pre>{ignored.join('\n')}</pre></details>}

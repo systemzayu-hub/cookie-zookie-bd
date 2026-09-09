@@ -2,7 +2,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { create, act } from 'react-test-renderer'
 import { useState } from 'react'
-import { IngredientPurchase, purchaseTotal, purchasePaid, purchaseDue, purchasesSummary, groupDebts, normalizedPrice, priceStats, validPurchase, replacePurchase, readPurchasesBackup } from '../src/ingredients'
+import { IngredientPurchase, parseProductScreenshot, purchaseTotal, purchasePaid, purchaseDue, purchasesSummary, groupDebts, normalizedPrice, priceStats, validPurchase, replacePurchase, readPurchasesBackup } from '../src/ingredients'
 import { PurchaseEditor, PurchaseDraft } from '../src/views/PurchaseEditor'
 const old: IngredientPurchase = { id: 'legacy', date: '2026-09-08', shop: 'Mercado X', items: [{ name: 'Farinha', total: 100 }], photo: 'data:image/png;base64,YQ==' }
 const pending: IngredientPurchase = { ...old, id: 'pending', paymentStatus: 'pending', paidAmount: 15, dueDate: '2026-09-20', creditor: 'Mercado X', note: 'Entregar comprovante' }
@@ -62,4 +62,13 @@ test('editor exposes pending amount and maps partial payment back to paid amount
  act(()=>tree.root.findAllByType('select').find(s => s.props.value === 'pending')!.props.onChange({target:{value:'paid'}}))
  assert.equal(purchasePaid(latest),100); assert.equal(purchaseDue(latest),0)
  act(()=>tree.unmount())
+})
+
+test('product screenshots join wrapped titles and exclude installment prices', () => {
+ const r = parseProductScreenshot('CHOCOLATE MEIO AMARGO\nEM GOTAS 1 KG\nR$ 39,90\n3x de R$ 13,30 sem juros\nAdicionar ao carrinho')
+ assert.deepEqual(r.items,[{name:'CHOCOLATE MEIO AMARGO EM GOTAS 1 KG',total:39.9}])
+ assert.equal(parseProductScreenshot('Chocolate\nDe R$ 49,90\nPor R$ 39,90').items.length,0)
+ assert.equal(parseProductScreenshot('Chocolate\nR$ 39,90\nR$ 35,90 no Pix').items.length,0)
+ assert.equal(parseProductScreenshot('Farinha - R$ 12,50').items[0].total,12.5)
+ assert.equal(parseProductScreenshot('Produto sem preço').items.length,0)
 })

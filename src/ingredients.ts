@@ -71,3 +71,27 @@ export function readPurchasesBackup(text: string): IngredientPurchase[] {
   if (data.kind !== 'cookie-zookie-ingredients' || ![1,2].includes(data.version) || !Array.isArray(data.purchases) || data.purchases.length > 5000 || !data.purchases.every(validPurchase) || new Set(data.purchases.map((p: IngredientPurchase) => p.id)).size !== data.purchases.length) throw Error('Backup inválido.')
   return data.purchases
 }
+
+// Product screenshots often put the name and price on separate lines.
+// Multiple prices are left for review rather than choosing a promotion or installment.
+export function parseProductScreenshot(text: string) {
+  const lines = text.split(/\r?\n/).map(s => s.trim()).filter(Boolean)
+  const money = /(?:R\$\s*)?(\d+(?:\.\d{3})*,\d{2}|\d+\.\d{2})/g
+  const noise = /^(comprar|adicionar|carrinho|buscar|pesquisar|entrar|menu|inicio|início|frete|entrega|avaliações|avaliacoes|descrição|descricao|compartilhar|favoritar|vendido por|loja|oferta|promoção|promocao)\b/i
+  const prices: { index: number; total: number; prefix: string }[] = []
+  lines.forEach((line,index) => {
+    if (noise.test(line) || /\b(?:\d+\s*x|parcelas?|sem juros|frete)\b/i.test(line)) return
+    for (const match of line.matchAll(money)) {
+      const total = Number(match[1].includes(',') ? match[1].replace(/\./g,'').replace(',','.') : match[1])
+      if (total > 0 && total <= 1000000) prices.push({index,total,prefix:line.slice(0,match.index).replace(/[\s:–-]+$/,'')})
+    }
+  })
+  const unique = [...new Set(prices.map(p => p.total))]
+  if (unique.length !== 1) return { items: [] as IngredientItem[], ignored: lines, warning: unique.length ? 'O print mostra mais de um preço. Confira qual valor você realmente vai pagar e informe-o na revisão.' : 'Não identifiquei um preço completo no print. Informe o valor na revisão.' }
+  const price = prices[0]
+  const names = lines.slice(0,price.index).filter(line => !noise.test(line) && !/^(de|por|preço|preco|r\$|\d|no pix|à vista|a vista)\b/i.test(line) && /[a-zà-ÿ]{3}/i.test(line))
+  const prefix = price.prefix.replace(/^(?:por|preço|preco)\s*:?\s*/i,'').trim()
+  const name = /[a-zà-ÿ]{3}/i.test(prefix) && !/^(no pix|à vista|a vista|de)$/i.test(prefix) ? prefix : names.slice(-2).join(' ')
+  if (!name) return { items: [] as IngredientItem[], ignored: lines, warning: 'O preço foi lido, mas o nome do produto não ficou claro. Preencha o nome na revisão.' }
+  return { items: [{name,total:unique[0]}], ignored: lines.filter((_,i) => i !== price.index), warning: 'Confira nome e preço. Um print de anúncio não confirma uma compra; salve somente se ela foi realizada.' }
+}

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
 import { get, set, update } from 'idb-keyval'
-import { IngredientPurchase, parseIngredients, purchaseTotal, validPurchase, purchasesSummary, purchaseDue, groupDebts, normalizeIngredient, creditorName, replacePurchase, readPurchasesBackup } from '../ingredients'
+import { IngredientPurchase, parseProductScreenshot, parseIngredients, purchaseTotal, validPurchase, purchasesSummary, purchaseDue, groupDebts, normalizeIngredient, creditorName, replacePurchase, readPurchasesBackup } from '../ingredients'
 import { fmtBRL, uid } from '../types'
 import { PurchaseEditor, PurchaseDraft } from './PurchaseEditor'
 import { PurchasePrices } from './PurchasePrices'
@@ -47,9 +47,9 @@ export function IngredientsView({ owner }: { owner: string }) {
     if (alive.current) setPurchases(next)
   }
   const process = (text: string, photo = draft.photo) => {
-    const parsed = parseIngredients(text)
+    const parsed = draft.photoKind === 'product' ? parseProductScreenshot(text) : parseIngredients(text)
     setIgnored(parsed.ignored); change({ ...draft, text, photo, items: parsed.items })
-    setMessage(parsed.items.length ? 'Itens preparados. Confira os valores antes de salvar.' : 'Nenhum valor identificado. Use: Farinha - 12,50 ou adicione produtos manualmente.')
+    setMessage('warning' in parsed ? String(parsed.warning) : parsed.items.length ? 'Itens preparados. Confira os valores antes de salvar.' : 'Nenhum valor identificado. Use: Farinha - 12,50 ou adicione produtos manualmente.')
   }
   const readPhoto = async (file: File) => {
     if (lock.current) return
@@ -59,10 +59,10 @@ export function IngredientsView({ owner }: { owner: string }) {
     try {
       const photo = await new Promise<string>((resolve, reject) => { const reader = new FileReader(); reader.onload = () => resolve(String(reader.result)); reader.onerror = reject; reader.readAsDataURL(file) })
       if (!alive.current) return
-      change({ ...draft, photo }); setMessage('Preparando leitura da nota… A primeira leitura pode demorar.')
+      change({ ...draft, photo }); setMessage('Preparando leitura da imagem… A primeira leitura pode demorar.')
       const { createWorker, OEM } = await import('tesseract.js')
       const base = new URL(import.meta.env.BASE_URL + 'ocr/', document.baseURI).href
-      const w = await createWorker('por', OEM.LSTM_ONLY, { workerPath: base + 'worker.min.js', corePath: base, langPath: base, workerBlobURL: false, logger: m => { if (alive.current && m.status === 'recognizing text') setMessage(`Lendo nota: ${Math.round(m.progress * 100)}%`) } })
+      const w = await createWorker('por', OEM.LSTM_ONLY, { workerPath: base + 'worker.min.js', corePath: base, langPath: base, workerBlobURL: false, logger: m => { if (alive.current && m.status === 'recognizing text') setMessage(`Lendo imagem: ${Math.round(m.progress * 100)}%`) } })
       worker.current = w
       if (!alive.current) { await w.terminate(); return }
       const result = await w.recognize(photo)
@@ -72,7 +72,7 @@ export function IngredientsView({ owner }: { owner: string }) {
   }
   const savePurchase = async () => {
     if (lock.current) return
-    const { text, editingBefore, ...purchase } = draft
+    const { text, photoKind, editingBefore, ...purchase } = draft
     if (purchase.paymentStatus === 'paid') purchase.paidAmount = undefined
     if (!validPurchase(purchase)) { setMessage('Confira data, produtos, valores e quantidades. O valor devido deve estar entre zero e o total da compra.'); return }
     if (purchase.paymentStatus === 'pending' && purchaseDue(purchase) === 0) { purchase.paymentStatus = 'paid'; purchase.paidAmount = undefined; purchase.paidAt = today() }

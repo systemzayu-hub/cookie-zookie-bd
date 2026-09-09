@@ -5,6 +5,7 @@ import { usePasswordGuard } from '../components/PasswordGate'
 import { dayKey } from '../analytics'
 import { customerCandidates, normalizeCustomerName } from '../customer-matching'
 import { MaskedPII } from '../components/MaskedPII'
+import { useSalesDraft } from '../sales-draft'
 import { logAction } from '../audit'
 
 /* ========== PRODUCT NAME ALIASES ========== */
@@ -170,14 +171,16 @@ export function parseText(text: string, products: Product[], customers: Customer
 }
 
 /* ========== QUICK SALE VIEW ========== */
-export function QuickSaleView({ products, customers, onSalesImported, pushToast }: {
-  products: Product[]; customers: Customer[]
+export function QuickSaleView({ products, customers, onSalesImported, pushToast, draftKey }: {
+  products: Product[]; customers: Customer[]; draftKey?: string
   onSalesImported: (sales: Sale[], customers: Customer[]) => boolean; pushToast: (m: string, t?: 'success' | 'error') => void
 }) {
-  const [text, setText] = useState('')
-  const [defaultDate, setDefaultDate] = useState('')
-  const [defaultStatus, setDefaultStatus] = useState<Sale['status']>('Pendente')
-  const draft = useMemo(() => parseText(text, products, customers, { date: defaultDate, status: defaultStatus }), [text, products, customers, defaultDate, defaultStatus])
+  const { draft: savedDraft, update: updateDraft, clear: clearDraft, saved: draftSaved } = useSalesDraft(draftKey)
+  const { text, date: defaultDate, status: defaultStatus, automaticDate } = savedDraft
+  const setText = (text: string) => updateDraft({ text })
+  const setDefaultDate = (date: string) => updateDraft({ date })
+  const setDefaultStatus = (status: Sale['status']) => updateDraft({ status })
+  const draft = useMemo(() => parseText(text, products, customers, { date: defaultDate || automaticDate, status: defaultStatus }), [text, products, customers, defaultDate, defaultStatus, automaticDate])
   const { guard } = usePasswordGuard()
   const [parsed, setParsed] = useState<ParsedLine[]>([])
   const [step, setStep] = useState<'input' | 'preview' | 'done'>('input')
@@ -186,7 +189,7 @@ export function QuickSaleView({ products, customers, onSalesImported, pushToast 
 
   const doParse = () => {
     if (!text.trim()) { pushToast('Cole o texto das vendas.', 'error'); return }
-    const lines = parseText(text, products, customers, { date: defaultDate, status: defaultStatus })
+    const lines = parseText(text, products, customers, { date: defaultDate || automaticDate, status: defaultStatus })
     if (lines.length === 0) { pushToast('Nenhuma linha encontrada.', 'error'); return }
     confirming.current = false
     setParsed(lines)
@@ -251,11 +254,15 @@ export function QuickSaleView({ products, customers, onSalesImported, pushToast 
     const count = sales.length
     logAction('venda-rapida', `Importou ${count} venda(s) via cola de texto (${parsed.length} linhas)`)
     setCreatedCount(count)
+    clearDraft()
     setStep('done')
     pushToast(`${count} venda(s) criada(s) com sucesso! 🎉`)
   })
 
-  const doReset = () => { setText(''); setParsed([]); setStep('input'); setCreatedCount(0); setDefaultDate(''); setDefaultStatus('Pendente'); confirming.current = false }
+  const doReset = () => {
+    if (text.trim() && step !== 'done' && !window.confirm('Descartar o rascunho salvo e começar uma nova lista?')) return
+    clearDraft(); setParsed([]); setStep('input'); setCreatedCount(0); confirming.current = false
+  }
 
   const parseStats = useMemo(() => {
     const valid = new Set(parsed.filter(l => l.productId && l.customerChoice && !l.error && validImportDate(l.date || '')).map(l => `${l.date || dayKey(Date.now())}|${l.customerChoice === 'new' ? 'new:' + normalizeCustomerName(l.customerNameRaw) : l.customerChoice}|${l.status}`)).size
@@ -281,6 +288,10 @@ export function QuickSaleView({ products, customers, onSalesImported, pushToast 
         )}
       </div>
 
+      {draftKey && step !== 'done' && <p role="status" style={{ color: draftSaved ? 'var(--tx-2)' : 'var(--danger-500)', marginBottom: 'var(--sp-4)' }}>
+        {draftSaved ? (text ? 'Rascunho salvo automaticamente neste navegador. Pode trocar de aba ou fechar o site e continuar depois.' : 'Sua lista será salva automaticamente neste navegador enquanto você digita.') : 'Não foi possível salvar o rascunho neste navegador. Copie o texto antes de sair.'}
+      </p>}
+      {draftKey && !draftSaved && step === 'done' && <p role="alert">As vendas foram registradas, mas não foi possível limpar o rascunho salvo. Não importe a mesma lista novamente.</p>}
       {/* ===== STEP 1: INPUT ===== */}
       {step === 'input' && (
         <div className="paste-layout">
@@ -294,7 +305,7 @@ export function QuickSaleView({ products, customers, onSalesImported, pushToast 
               <div className="field">
                 <label htmlFor="import-default-date">Data das vendas sem data no texto</label>
                 <input id="import-default-date" type="date" value={defaultDate} onChange={event => setDefaultDate(event.target.value)} />
-                <span className="hint">{defaultDate ? 'A data escolhida vale para as linhas sem data.' : `Automático: hoje, ${dayKey(Date.now()).split('-').reverse().join('/')}. Não precisa preencher.`}</span>
+                <span className="hint">{defaultDate ? 'A data escolhida vale para as linhas sem data.' : `Data automática: ${(automaticDate || dayKey(Date.now())).split('-').reverse().join('/')}. Não precisa preencher.`}</span>
               </div>
               <div className="field">
                 <label htmlFor="import-default-status">Quando o status não estiver no texto</label>

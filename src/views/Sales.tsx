@@ -3,13 +3,14 @@ import { Plus, X, CheckCircle2, Trash2, ClipboardPaste, ShoppingCart } from 'luc
 import { Product, Customer, Sale, SaleItem, LOW_STOCK_THRESHOLD, CHANNELS, PAYMENTS, fmtBRL, uid } from '../types'
 import { StatusBadge } from './Dashboard'
 import { usePasswordGuard } from '../components/PasswordGate'
+import { readSalesDraft } from '../sales-draft'
 import { QuickSaleView } from './QuickSale'
 
-export function SalesView({ products, customers, sales, onSaleAdded, onSalesImported, pushToast }: {
-  products: Product[]; customers: Customer[]; sales: Sale[]; onSaleAdded: (s: Sale) => boolean; onSalesImported: (sales: Sale[], customers: Customer[]) => boolean; pushToast: (m: string, t?: 'success' | 'error') => void
+export function SalesView({ products, customers, sales, onSaleAdded, onSalesImported, pushToast, draftKey }: {
+  draftKey?: string; products: Product[]; customers: Customer[]; sales: Sale[]; onSaleAdded: (s: Sale) => boolean; onSalesImported: (sales: Sale[], customers: Customer[]) => boolean; pushToast: (m: string, t?: 'success' | 'error') => void
 }) {
   const { guard } = usePasswordGuard()
-  const [mode, setMode] = useState<'manual' | 'paste'>('manual')
+  const [mode, setMode] = useState<'manual' | 'paste'>(() => readSalesDraft(draftKey).text ? 'paste' : 'manual')
   const [lines, setLines] = useState<SaleItem[]>(() => products.length ? [{ productId: products[0].id, qty: 1 }] : [])
   useEffect(() => { if (!lines.length && products.length) setLines([{ productId: products[0].id, qty: 1 }]) }, [products, lines.length])
   const [payment, setPayment] = useState<Sale['payment']>('pix')
@@ -78,7 +79,7 @@ export function SalesView({ products, customers, sales, onSaleAdded, onSalesImpo
       </div>
 
       {mode === 'paste' ? (
-        <QuickSaleView products={products} customers={customers} onSalesImported={onSalesImported} pushToast={pushToast} />
+        <QuickSaleView draftKey={draftKey} products={products} customers={customers} onSalesImported={onSalesImported} pushToast={pushToast} />
       ) : (
         <div className="card">
           {products.length === 0 && (

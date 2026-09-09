@@ -187,3 +187,48 @@ test('date and status defaults are shown before saving and per-line dates can be
   assert.equal(payload.sales[0].paidAmount, 10)
   act(() => root.unmount())
 })
+
+test('sales draft survives unmount and reload, stays scoped to the account, and clears after import', () => {
+  setRole('owner')
+  const key = 'draft-persistence-test'
+  let root: any, payload: any
+  const mount = (draftKey = key) => act(() => { root = create(<PasswordProvider><QuickSaleView draftKey={draftKey} products={products} customers={[]} pushToast={() => {}} onSalesImported={(sales, customers) => { payload = { sales, customers }; return true }} /></PasswordProvider>) })
+  mount()
+  act(() => root.root.findByType('textarea').props.onChange({ target: { value: 'Kinder - Minha Lista' } }))
+  act(() => root.root.findByProps({ id: 'import-default-date' }).props.onChange({ target: { value: '2026-09-02' } }))
+  act(() => root.root.findByProps({ id: 'import-default-status' }).props.onChange({ target: { value: 'Pago' } }))
+  assert.equal(JSON.parse(localStorage.getItem(key)!).text, 'Kinder - Minha Lista')
+  act(() => root.unmount())
+  mount('draft-other-account')
+  assert.equal(root.root.findByType('textarea').props.value, '')
+  act(() => root.unmount())
+  mount()
+  assert.equal(root.root.findByType('textarea').props.value, 'Kinder - Minha Lista')
+  assert.equal(root.root.findByProps({ id: 'import-default-date' }).props.value, '2026-09-02')
+  assert.equal(root.root.findByProps({ id: 'import-default-status' }).props.value, 'Pago')
+  act(() => root.root.findByType('textarea').props.onChange({ target: { value: 'Kinder - Minha Lista\n2 Kinder - Minha Lista' } }))
+  act(() => button(root, 'Processar texto').props.onClick())
+  act(() => root.unmount())
+  mount()
+  assert.match(root.root.findByType('textarea').props.value, /2 Kinder/)
+  act(() => button(root, 'Processar texto').props.onClick())
+  act(() => button(root, 'Confirmar e criar').props.onClick())
+  assert.equal(payload.sales[0].total, 30)
+  assert.equal(JSON.parse(localStorage.getItem(key)!).text, '')
+  act(() => root.unmount())
+  mount()
+  assert.equal(root.root.findByType('textarea').props.value, '')
+  act(() => root.unmount())
+})
+
+test('failed import preserves the saved draft for retry', () => {
+  setRole('owner')
+  let root: any
+  const key = 'draft-failed-import'
+  act(() => { root = create(<PasswordProvider><QuickSaleView draftKey={key} products={products} customers={[]} pushToast={() => {}} onSalesImported={() => false} /></PasswordProvider>) })
+  act(() => root.root.findByType('textarea').props.onChange({ target: { value: 'Kinder - Minha Lista' } }))
+  act(() => button(root, 'Processar texto').props.onClick())
+  act(() => button(root, 'Confirmar e criar').props.onClick())
+  assert.equal(JSON.parse(localStorage.getItem(key)!).text, 'Kinder - Minha Lista')
+  act(() => root.unmount())
+})

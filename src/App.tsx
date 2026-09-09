@@ -407,7 +407,7 @@ export default function App() {
         {!storeReady ? <div className="loading" role="status">Preparando os dados da equipe…</div> : <ErrorBoundary key={tab}>
         <Suspense fallback={<div className="loading" role="status">Carregando tela…</div>}>
           {tab === 'dashboard' && <Dashboard sales={sales} products={products} customers={customers} onNewSale={() => navigate('vendas')} onNavigate={navigate} />}
-          {tab === 'vendas' && <SensitiveData label="Desbloquear vendas"><SalesView products={products} customers={customers} sales={sales} onSaleAdded={handleSaleAdded} onSalesImported={handleSalesImported} pushToast={pushToast} /></SensitiveData>}
+          {tab === 'vendas' && <SensitiveData label="Desbloquear vendas"><SalesView draftKey={user?.email ? `cc_sales_draft:${encodeURIComponent(user.email.toLowerCase())}` : undefined} products={products} customers={customers} sales={sales} onSaleAdded={handleSaleAdded} onSalesImported={handleSalesImported} pushToast={pushToast} /></SensitiveData>}
           {tab === 'produtos' && <ProductsStockView products={products} setProducts={setProducts} sales={sales} pushToast={pushToast} />}
           {tab === 'relatorios' && <ReportsView sales={sales} />}
           {tab === 'clientes' && <CustomersBillingView customers={customers} setCustomers={setCustomers} sales={sales} setSales={setSales} pushToast={pushToast} />}

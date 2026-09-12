@@ -1,3 +1,4 @@
+import { billingMessage, billingWhatsApp } from '../billing-message'
 import { useState, useMemo } from 'react'
 import { MessageSquare, CheckCircle2, Copy, ChevronDown, ChevronUp, DollarSign, Users, AlertCircle, Calendar, Minus, Check, ChevronRight } from 'lucide-react'
 import { Sale, Customer, fmtBRL, saleOutstanding } from '../types'
@@ -76,23 +77,11 @@ export function CobrancaView({ sales, setSales, customers, pushToast }: Cobranca
   }, [groups, sortBy, sortDesc, search])
 
   // --- Actions ---
-  const normalizeWhats = (raw: string): string => {
-    let n = raw.normalize('NFKC').replace(/[^0-9]/g, '')
-    if (n && !n.startsWith('55')) n = '55' + n
-    return n
-  }
-
-  const buildMessage = (g: CustomerGroup) => {
-    const name = g.customer?.name || 'cliente'
-    const items = g.sales.flatMap(s => s.items.filter(i => !i.paid).map(i => `${i.qty}x ${i.name}`))
-    const totalUnpaid = g.sales.reduce((a, s) => a + saleOutstanding(s), 0)
-    return `Oi, ${name}! Passando aqui pra lembrar das pendências de cookies 🍪\n${items.join(', ')}\nTotal pendente: ${fmtBRL(totalUnpaid)}\nQuando puder acertar, me avisa 😊`
-  }
-
+  const buildMessage = (g: CustomerGroup) => billingMessage(g.customer?.name || 'cliente', g.sales)
   const openWhatsApp = (g: CustomerGroup) => {
-    const telefone = normalizeWhats(g.customer?.contact || '')
-    if (!telefone) { pushToast('Telefone não informado', 'error'); return }
-    window.open(`https://wa.me/${telefone}?text=${encodeURIComponent(buildMessage(g))}`, '_blank', 'noopener,noreferrer')
+    const url = g.customer ? billingWhatsApp(g.customer, g.sales) : null
+    if (!url) { pushToast('Confira o telefone com DDD e se há valor pendente.', 'error'); return }
+    window.open(url, '_blank', 'noopener,noreferrer')
     logAction('cobranca', `Abriu cobrança por WhatsApp para ${g.customer?.name || 'cliente sem cadastro'}`)
   }
 

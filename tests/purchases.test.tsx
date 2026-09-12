@@ -1,3 +1,4 @@
+import { billingMessage, billingWhatsApp } from '../src/billing-message'
 import { purchaseProfit } from '../src/purchase-profit'
 import test from 'node:test'
 import assert from 'node:assert/strict'
@@ -158,4 +159,14 @@ test('profit includes paid and pending purchases once and excludes gifts and arc
  assert.equal(purchaseProfit([], [costs]).net,-2650)
  assert.equal(purchaseProfit([], []).net,0)
  assert.equal(purchaseProfit([sale], []).net,3000)
+})
+
+test('WhatsApp charge uses only outstanding sales and preserves Brazilian area code 55', () => {
+ const customer={id:'c',name:'Ana',contact:'(55) 99999-1234',createdAt:'2026-09-12'}
+ const sale={id:'s',customerId:'c',date:'2026-09-12T12:00:00Z',items:[{productId:'p',name:'Nutella',qty:2,unitPrice:10}],total:20,paidAmount:5,status:'Pendente' as const,payment:'pix' as const,channel:'loja' as const}
+ const message=billingMessage('Ana',[sale,{...sale,id:'paid',status:'Pago'}])
+ assert.match(message,/2x Nutella/); assert.match(message,/15,00/); assert.doesNotMatch(message,/35,00/)
+ assert.ok(billingWhatsApp(customer,[sale])?.startsWith('https://wa.me/5555999991234?text='))
+ assert.equal(billingWhatsApp({...customer,contact:'Não informado'},[sale]),null)
+ assert.equal(billingWhatsApp(customer,[{...sale,status:'Pago'}]),null)
 })

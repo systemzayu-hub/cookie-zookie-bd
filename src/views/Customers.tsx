@@ -1,3 +1,4 @@
+import { billingWhatsApp } from '../billing-message'
 import type { CustomerMerge } from '../combine-customers'
 import { customerCandidates, normalizeCustomerName } from '../customer-matching'
 import { useState, useMemo } from 'react'
@@ -257,6 +258,7 @@ export function CustomersView({ customers, setCustomers, sales, pushToast, onCus
                     <td data-label="Compras / Cookies"><span className="badge badge-brand">{countOf(c.id)} / {cookiesOf(c.id)}</span></td>
                     <td data-label="Total gasto" className="text-right" style={{ fontWeight: 700 }}><MaskedMoney value={spendOf(c.id)} /></td>
                     <td data-label="Ações" className="text-right customer-actions">
+                      {statusFilter === 'with-phone-pending' && billingWhatsApp(c,sales) && <a className="btn btn-secondary btn-sm" aria-label={`Cobrar ${c.name} pelo WhatsApp`} href={billingWhatsApp(c,sales)!} target="_blank" rel="noopener noreferrer">WhatsApp</a>}
                       <button className="btn btn-secondary btn-sm" aria-label={`Editar ${c.name}`} onClick={() => openEdit(c)}><Pencil size={14} /></button>
                       <button className="btn btn-danger btn-sm" aria-label={`Excluir ${c.name}`} onClick={() => remove(c.id)}><Trash2 size={14} /></button>
                     </td>

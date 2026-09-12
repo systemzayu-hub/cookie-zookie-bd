@@ -1,7 +1,8 @@
+import { migratePurchases, watchPurchases, commitPurchases } from '../purchase-cloud'
 import { useRole } from '../auth'
 import { purchaseProfit } from '../purchase-profit'
 import { useEffect, useRef, useState } from 'react'
-import { get, set, update } from 'idb-keyval'
+import { get, set } from 'idb-keyval'
 import { IngredientPurchase, parseIngredients, purchaseTotal, validPurchase, purchasesSummary, purchaseDue, groupDebts, normalizeIngredient, creditorName, replacePurchase, deletePurchase, readPurchasesBackup } from '../ingredients'
 import { Sale, fmtBRL, uid } from '../types'
 import { PurchaseEditor, PurchaseDraft } from './PurchaseEditor'
@@ -20,39 +21,51 @@ function OwnerPurchases({ owner, sales = [] }: { owner: string; sales?: Sale[] }
   const isOwner = role === 'owner'
   const key = 'cc_ingredients:' + owner.toLowerCase()
   const [purchases, setPurchases] = useState<IngredientPurchase[]>([]), [draft, setDraft] = useState(empty)
+  const [syncMessage,setSyncMessage]=useState('Conectando compras…')
   const [ready, setReady] = useState(false), [busy, setBusy] = useState(false), [message, setMessage] = useState('')
   const [area, setArea] = useState('compras'), [editor, setEditor] = useState(false)
   const [from, setFrom] = useState(''), [to, setTo] = useState(''), [search, setSearch] = useState(''), [status, setStatus] = useState('all'), [archived, setArchived] = useState(false)
   const [ignored, setIgnored] = useState<string[]>([]), [draftSaved, setDraftSaved] = useState(true)
+  const photos=useRef<Record<string,string>>({})
   const alive = useRef(true), lock = useRef(false)
   const queue = useRef(Promise.resolve()), draftVersion = useRef(0)
   useEffect(() => {
-    let cancelled = false; alive.current = true
-    const reload = async () => {
-      try { const data = await get(key); if (data !== undefined && (!Array.isArray(data) || !data.every(validPurchase))) throw Error('Há um registro inválido. Os dados originais foram preservados.'); if (!cancelled) setPurchases(data || []) }
-      catch { if (!cancelled) setMessage('Não foi possível ler as compras. Os dados originais foram preservados.') }
+    let cancelled=false, stop=()=>{}, starting=false
+    alive.current=true
+    const start=async()=>{
+      if(starting || cancelled)return
+      starting=true
+      try {
+        const [data,saved,migrated]=await Promise.all([get(key),get(key+':draft'),get(key+':cloud-migrated')])
+        if(data!==undefined&&(!Array.isArray(data)||!data.every(validPurchase)))throw Error()
+        const local:IngredientPurchase[]=data||[]
+        photos.current={...Object.fromEntries(local.filter(p=>p.photo).map(p=>[p.id,p.photo!])),...await get(key+':photos')}
+        if(!migrated){if(await get(key+':before-cloud')===undefined)await set(key+':before-cloud',local);const conflicts=await migratePurchases(local);if(conflicts&&!cancelled)setMessage(`${conflicts} compras deste aparelho diferem das já sincronizadas. Mantivemos a versão do banco e preservamos os originais no backup anterior à sincronização.`);await set(key+':cloud-migrated',true)}
+        if(cancelled)return
+        if(saved&&typeof saved.text==='string'&&Array.isArray(saved.items)){setDraft(saved);setEditor(!!(saved.text||saved.items.length||saved.photo))}
+        stop()
+        stop=watchPurchases((rows,cached)=>{
+          if(cancelled)return
+          const merged=rows.map(p=>({...p,...(photos.current[p.id]?{photo:photos.current[p.id]}:{})}))
+          setPurchases(merged);setReady(true);setSyncMessage(cached?'Sem confirmação do servidor. Conecte-se para atualizar.':'Compras sincronizadas entre seus aparelhos.')
+          if(!cached)void set(key,merged).catch(()=>{if(!cancelled)setSyncMessage('Sincronizado, mas não foi possível atualizar a cópia local.')})
+        },()=>{if(!cancelled)setSyncMessage('Falha na sincronização. Verifique sua conexão e atualize a página. Os dados locais foram preservados.')})
+      }catch{if(!cancelled){setMessage('Não foi possível sincronizar as compras. Conecte-se à internet e tente novamente. Os dados deste aparelho foram preservados.');setSyncMessage('Aguardando conexão para sincronizar.')}}
+      finally{starting=false}
     }
-    Promise.all([get(key), get(key + ':draft')]).then(([data,saved]) => {
-      if (cancelled) return
-      if (data !== undefined && (!Array.isArray(data) || !data.every(validPurchase))) throw Error()
-      setPurchases(data || [])
-      if (saved && typeof saved.text === 'string' && Array.isArray(saved.items)) { setDraft(saved); setEditor(!!(saved.text || saved.items.length || saved.photo)) }
-      setReady(true)
-    }).catch(() => { if (!cancelled) setMessage('Não foi possível abrir os registros. Os dados originais foram preservados.') })
-    window.addEventListener('focus', reload)
-    return () => { cancelled = true; alive.current = false; window.removeEventListener('focus', reload) }
-  }, [key])
+    void start();window.addEventListener('online',start)
+    return()=>{cancelled=true;alive.current=false;stop();window.removeEventListener('online',start)}
+  },[key])
   const change = (next: PurchaseDraft) => {
     setDraft(next); setDraftSaved(false); const version = ++draftVersion.current
     queue.current = queue.current.then(() => set(key + ':draft', next)).then(() => { if (alive.current && draftVersion.current === version) setDraftSaved(true) }).catch(() => { if (alive.current) setMessage('Falha ao salvar rascunho. Confira o espaço do navegador.') })
   }
   const persist = async (transform: (old: IngredientPurchase[]) => IngredientPurchase[]) => {
-    let next: IngredientPurchase[] = []
-    await update<IngredientPurchase[]>(key, old => {
-      if (old !== undefined && (!Array.isArray(old) || !old.every(validPurchase))) throw Error('Não foi possível atualizar. Os registros originais foram preservados.')
-      next = transform(old || []); return next
-    })
-    if (alive.current) setPurchases(next)
+    const next=transform(purchases)
+    photos.current=Object.fromEntries(next.filter(p=>p.photo).map(p=>[p.id,p.photo!]))
+    await set(key+':photos',photos.current)
+    await commitPurchases(purchases,next)
+    // The realtime listener is the source of truth; do not overwrite newer remote data here.
   }
   const process = (text: string) => {
     const parsed = parseIngredients(text)
@@ -108,11 +121,11 @@ function OwnerPurchases({ owner, sales = [] }: { owner: string; sales?: Sale[] }
     change({ ...p, text: '', editingBefore: p }); setEditor(true); setArea('compras'); setIgnored([])
     requestAnimationFrame(() => document.querySelector('.purchase-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }
-  const backup = async () => {
+  const backup = async (original = false) => {
     try {
-      const saved = await get(key) || []
+      const saved = await get(original ? key+':before-cloud' : key) || []
       const blob = new Blob([JSON.stringify({ kind: 'cookie-zookie-ingredients', version: 2, purchases: saved })], { type: 'application/json' })
-      const url = URL.createObjectURL(blob), a = document.createElement('a'); a.href = url; a.download = `compras-${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000)
+      const url = URL.createObjectURL(blob), a = document.createElement('a'); a.href = url; a.download = `compras-${original ? 'originais-' : ''}${today()}.json`; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000)
     } catch { setMessage('Não foi possível exportar o backup.') }
   }
   const restore = async (file: File) => {
@@ -140,7 +153,7 @@ function OwnerPurchases({ owner, sales = [] }: { owner: string; sales?: Sale[] }
   }} />
   if (!ready) return <p role="status">{message || 'Abrindo compras…'}</p>
   return <div className="ingredients-view">
-    <header className="purchase-header"><div><h1>Compras</h1><p>Ingredientes, preços e pagamentos em um só lugar.</p></div><details className="purchase-tools"><summary>Backup e armazenamento</summary><p>Registros e fotos ficam neste navegador, nesta conta, sem sincronização entre aparelhos. O backup desta aba inclui as compras e fotos.</p><div className="purchase-actions"><button className="btn btn-secondary" onClick={() => void backup()}>Exportar compras e fotos</button><label className="purchase-upload">Importar backup<input aria-label="Importar backup de compras" type="file" accept=".json" disabled={busy} onChange={e => { const f = e.target.files?.[0]; if (f) void restore(f); e.target.value = '' }} /></label></div><small>Compras antigas sem situação foram consideradas pagas. Você pode alterar isso em Editar compra.</small></details></header>
+    <header className="purchase-header"><div><h1>Compras</h1><p>Ingredientes, preços e pagamentos em um só lugar.</p><p role="status">{syncMessage}</p></div><details className="purchase-tools"><summary>Backup e armazenamento</summary><p>Valores e registros sincronizam entre os aparelhos do dono. Fotos anexadas e rascunhos continuam neste navegador. O backup inclui as fotos disponíveis neste aparelho.</p><div className="purchase-actions"><button className="btn btn-secondary" onClick={() => void backup()}>Exportar compras e fotos</button><button className="btn btn-secondary" onClick={() => void backup(true)}>Backup anterior à sincronização</button><label className="purchase-upload">Importar backup<input aria-label="Importar backup de compras" type="file" accept=".json" disabled={busy} onChange={e => { const f = e.target.files?.[0]; if (f) void restore(f); e.target.value = '' }} /></label></div><small>Compras antigas sem situação foram consideradas pagas. Você pode alterar isso em Editar compra.</small></details></header>
     <nav className="purchase-tabs" aria-label="Áreas de compras">{[['compras','Compras'],['precos','Histórico de preços'],['pendencias','Pagamentos / Pendências'],...(isOwner ? [['lucro','Lucro líquido']] : [])].map(([id,label]) => <button key={id} aria-pressed={area === id} onClick={() => setArea(id)}>{label}{id === 'pendencias' && purchasesSummary(purchases).due > 0 && <span className="purchase-count">{purchases.filter(p => !p.archived && purchaseDue(p) > 0).length}</span>}</button>)}</nav>
     {message && <p className="purchase-message" role="status" aria-live="polite">{message}</p>}
     {area === 'lucro' ? (isOwner && profit ? <section className="card" aria-label="Lucro líquido do dono">
@@ -148,7 +161,7 @@ function OwnerPurchases({ owner, sales = [] }: { owner: string; sales?: Sale[] }
       <dl className="purchase-summary"><div><dt>Lucro líquido estimado</dt><dd>{fmtBRL(profit.net)}</dd></div><div><dt>Saldo recebido menos pago</dt><dd>{fmtBRL(profit.cash)}</dd></div></dl>
       <dl className="summary-list"><div><dt>Vendas (sem presentes)</dt><dd>{fmtBRL(profit.revenue)}</dd></div><div><dt>Total comprado</dt><dd>{fmtBRL(profit.total)}</dd></div><div><dt>Recebido das vendas</dt><dd>{fmtBRL(profit.received)}</dd></div><div><dt>Compras já pagas</dt><dd>{fmtBRL(profit.paid)}</dd></div><div><dt>A receber das vendas</dt><dd>{fmtBRL(profit.receivable)}</dd></div><div><dt>A pagar nas compras</dt><dd>{fmtBRL(profit.due)}</dd></div></dl>
       <p className="purchase-muted">Estimativa: vendas menos todas as compras, incluindo valores sem detalhamento e contas a pagar. O saldo considera somente o recebido menos o pago. Compras arquivadas ou excluídas não entram.</p>
-      <p className="purchase-muted">Inclui apenas os registros cadastrados. Não desconta novamente custos de produção ou perdas, para evitar contar a mesma compra duas vezes. Compras seguem armazenadas neste navegador; despesas não cadastradas e ingredientes ainda em estoque podem alterar o lucro real.</p>
+      <p className="purchase-muted">Inclui apenas os registros cadastrados. Não desconta novamente custos de produção ou perdas, para evitar contar a mesma compra duas vezes. Compras sincronizam entre seus aparelhos; despesas não cadastradas e ingredientes ainda em estoque podem alterar o lucro real.</p>
     </section> : null) : area === 'precos' ? <PurchasePrices purchases={purchases} /> : <>
       <dl className="purchase-summary" aria-label="Resumo financeiro"><div><dt>Total comprado</dt><dd>{fmtBRL(summary.total)}</dd></div><div><dt>Total pago</dt><dd>{fmtBRL(summary.paid)}</dd></div><div className="purchase-due"><dt>A pagar</dt><dd>{fmtBRL(summary.due)}</dd></div></dl>
       <div className="purchase-section-heading"><small>{from || to ? 'Totais do período selecionado' : 'Totais de todas as compras'} · excluem arquivadas</small>{area === 'compras' && <button className="btn btn-primary" disabled={busy} onClick={() => setEditor(!editor)}>{editor ? 'Ocultar cadastro' : draft.items.length || draft.text || draft.photo ? 'Continuar rascunho' : '+ Nova compra'}</button>}</div>

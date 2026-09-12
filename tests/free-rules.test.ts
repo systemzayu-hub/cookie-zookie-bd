@@ -17,7 +17,7 @@ const sale = (id = crypto.randomUUID()) => ({ id, date: new Date().toISOString()
 async function readStore() { return (await getDocFromServer(doc(client('owner'), 'loja', 'dados'))).data()! }
 async function audits() { return (await getDocs(collection(client('owner'), 'auditV2'))).docs.map(d => d.data()) }
 before(async () => {
-  env = await initializeTestEnvironment({ projectId: 'demo-cookie-zookie', firestore: { host: '127.0.0.1', port: 8089, rules: readFileSync('firestore.rules', 'utf8') } })
+  env = await initializeTestEnvironment({ projectId: process.env.TEST_PROJECT_ID || 'demo-cookie-zookie', firestore: { host: '127.0.0.1', port: 8089, rules: readFileSync('firestore.rules', 'utf8') } })
 })
 beforeEach(async () => {
   await env.clearFirestore()
@@ -186,4 +186,18 @@ test('key identity requires server-issued claim and password provider',async()=>
   for(const [uid,token] of [['other',claims],['cookie-zookie-owner-key',{...claims,ownerKey:false}],['cookie-zookie-owner-key',{...claims,firebase:{sign_in_provider:'custom'}}]] as any){
     await assertFails(getDocs(collection(env.authenticatedContext(uid,token).firestore() as any,'auditV2')))
   }
+})
+
+test('purchases sync across owner sessions and remain private to owner', async () => {
+ const a=client('owner'), b=client('owner')
+ const data={id:'purchase-test',date:'2026-09-12',shop:'Mercado',items:[{name:'Sem detalhamento',total:2650}],paymentStatus:'pending',paidAmount:650}
+ await assertSucceeds(setDoc(doc(a,'ownerPurchases',data.id),{data,deleted:false,updatedAt:serverTimestamp()}))
+ assert.equal((await getDocFromServer(doc(b,'ownerPurchases',data.id))).data()?.data.paidAmount,650)
+ for(const id of ['admin','employee','blocked','missing']) {
+  await assertFails(getDocs(collection(client(id),'ownerPurchases')))
+  await assertFails(setDoc(doc(client(id),'ownerPurchases',data.id),{data,deleted:false,updatedAt:serverTimestamp()}))
+ }
+ await assertSucceeds(setDoc(doc(a,'ownerPurchases',data.id),{deleted:true,updatedAt:serverTimestamp()}))
+ assert.equal((await getDocFromServer(doc(b,'ownerPurchases',data.id))).data()?.deleted,true)
+ await assertFails(deleteDoc(doc(a,'ownerPurchases',data.id)))
 })

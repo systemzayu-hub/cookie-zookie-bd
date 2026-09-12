@@ -7,7 +7,7 @@ const directory = await mkdtemp(join(tmpdir(), 'cookie-rules-tests-'))
 try {
   const outfile = join(directory, 'suite.cjs')
   await build({ entryPoints: ['tests/free-rules.test.ts'], outfile, bundle: true, platform: 'node', format: 'cjs', banner: { js: 'require = require(' + JSON.stringify('node:module') + ').createRequire(' + JSON.stringify(resolve('package.json')) + ');' }, external: ['firebase/*', '@firebase/rules-unit-testing'] })
-  const result = spawnSync(process.execPath, ['--test', outfile], { stdio: 'inherit', env: { ...process.env, NODE_PATH: resolve('node_modules') }, timeout: 120000 })
+  const result = spawnSync(process.execPath, ['--test', ...process.argv.slice(2), outfile], { stdio: 'inherit', env: { ...process.env, NODE_PATH: resolve('node_modules') }, timeout: 120000 })
   process.exitCode = result.status ?? 1
 } finally {
   if (dirname(resolve(directory)) !== resolve(tmpdir()) || !directory.includes('cookie-rules-tests-')) throw new Error('Unexpected test directory')

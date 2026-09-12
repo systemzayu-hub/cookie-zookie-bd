@@ -88,6 +88,16 @@ service cloud.firestore {
         && e.actor is string && e.actor.size() > 0 && e.actor.size() <= 120 && e.detail is string && e.detail.size() <= 1000
         && e.createdAt == request.time && e.hasUndo is bool && e.undoOf is string;
     }
+    match /ownerPurchases/{id} {
+      allow read: if owner();
+      allow create, update: if owner() && request.resource.data.keys().hasOnly(['data','deleted','updatedAt'])
+        && request.resource.data.updatedAt == request.time && request.resource.data.deleted is bool
+        && (request.resource.data.deleted == true || (request.resource.data.data is map
+          && request.resource.data.data.id == id && request.resource.data.data.items is list
+          && request.resource.data.data.items.size() <= 1000 && request.resource.data.data.date is string
+          && !('photo' in request.resource.data.data)));
+      allow delete: if false;
+    }
     match /loja/dados {
       allow read: if manager();
       allow update: if staff() && baseStoreValid(request.resource.data) && changedStore(request.resource.data)

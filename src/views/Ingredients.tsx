@@ -40,7 +40,13 @@ function OwnerPurchases({ owner, sales = [] }: { owner: string; sales?: Sale[] }
         if(data!==undefined&&(!Array.isArray(data)||!data.every(validPurchase)))throw Error()
         const local:IngredientPurchase[]=data||[]
         photos.current={...Object.fromEntries(local.filter(p=>p.photo).map(p=>[p.id,p.photo!])),...await get(key+':photos')}
-        if(!migrated){if(await get(key+':before-cloud')===undefined)await set(key+':before-cloud',local);const conflicts=await migratePurchases(local);if(conflicts&&!cancelled)setMessage(`${conflicts} compras deste aparelho diferem das já sincronizadas. Mantivemos a versão do banco e preservamos os originais no backup anterior à sincronização.`);await set(key+':cloud-migrated',true)}
+        // Recheck local records on every opening. A device may have marked the
+        // first migration as complete while it was empty or offline; in that
+        // case, a later local purchase must still reach the shared database.
+        if(!migrated && await get(key+':before-cloud')===undefined)await set(key+':before-cloud',local)
+        const conflicts=await migratePurchases(local)
+        if(conflicts&&!cancelled)setMessage(`${conflicts} compras deste aparelho diferem das já sincronizadas. Mantivemos a versão do banco e preservamos os originais no backup anterior à sincronização.`)
+        if(!migrated)await set(key+':cloud-migrated',true)
         if(cancelled)return
         if(saved&&typeof saved.text==='string'&&Array.isArray(saved.items)){setDraft(saved);setEditor(!!(saved.text||saved.items.length||saved.photo))}
         stop()

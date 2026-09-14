@@ -442,6 +442,7 @@ export default function App() {
         </Suspense>
         </ErrorBoundary>}
       </main>
+      <InstallApp floating />
 
       {toasts.length > 0 && (
         <div className="toast-container" aria-live="polite" aria-atomic="true">

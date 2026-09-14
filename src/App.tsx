@@ -1,6 +1,6 @@
 import { combineCustomers, type CustomerMerge } from './combine-customers'
 import { useEffect, useRef, useState, Suspense, lazy } from 'react'
-import { LayoutDashboard, ShoppingCart, Package, BarChart3, Users, Sun, Moon, Download, Upload, LogIn, LogOut, Percent, ShieldCheck, Menu, X, Cloud, CloudOff, RefreshCw } from 'lucide-react'
+import { LayoutDashboard, ShoppingCart, Package, BarChart3, Users, Sun, Moon, Download, Upload, LogIn, LogOut, Percent, ShieldCheck, Menu, X, Cloud, CloudOff, RefreshCw, WalletCards, TrendingDown } from 'lucide-react'
 import { Product, Sale, Customer, Tab, Pendencia, fmtBRL } from './types'
 import { seedProducts, seedCustomers, seedSales, load, save, STORAGE_ERROR_EVENT } from './data'
 import { baixarBackup, aplicarBackup } from './db'
@@ -29,10 +29,12 @@ const ReportsView = lazy(() => import('./views/Reports').then(m => ({ default: m
 const CustomersBillingView = lazy(() => import('./views/CustomersBilling').then(m => ({ default: m.CustomersBillingView })))
 const FinanceiroView = lazy(() => import('./views/Financeiro').then(m => ({ default: m.FinanceiroView })))
 const IngredientsView = lazy(() => import('./views/Ingredients').then(m => ({ default: m.IngredientsView })))
+const PaymentsView = lazy(() => import('./views/Payments').then(m => ({ default: m.PaymentsView })))
+const ProfitView = lazy(() => import('./views/Profit').then(m => ({ default: m.ProfitView })))
 const AuditView = lazy(() => import('./views/Audit').then(m => ({ default: m.AuditView })))
 
 export default function App() {
-  const tabs: Tab[] = ['dashboard', 'vendas', 'produtos', 'relatorios', 'clientes', 'financeiro', 'ingredientes', 'audit']
+  const tabs: Tab[] = ['dashboard', 'vendas', 'produtos', 'relatorios', 'clientes', 'financeiro', 'ingredientes', 'pagamentos', 'lucro', 'audit']
   const [tab, setTab] = useState<Tab>(() => {
     const hash = window.location.hash.slice(1) as Tab
     return tabs.includes(hash) ? hash : 'dashboard'
@@ -275,6 +277,8 @@ export default function App() {
       { id: 'relatorios', label: 'Relatórios', icon: <BarChart3 className="icon" /> },
       { id: 'clientes', label: 'Clientes & Cobrança', icon: <Users className="icon" /> },
       { id: 'ingredientes', label: 'Compras', icon: <ShoppingCart className="icon" /> },
+      { id: 'pagamentos', label: 'Pagamentos', icon: <WalletCards className="icon" /> },
+      { id: 'lucro', label: 'Lucro líquido', icon: <TrendingDown className="icon" /> },
       { id: 'financeiro', label: 'Financeiro', icon: <Percent className="icon" /> },
       { id: 'audit', label: 'Auditoria', icon: <ShieldCheck className="icon" /> },
     ]
@@ -344,7 +348,7 @@ export default function App() {
           </div>
         </div>
         <nav className="sidebar-nav">
-                  {nav.filter(n => n.id !== 'ingredientes' || role === 'owner').map(n => (
+                  {nav.filter(n => !['ingredientes', 'pagamentos', 'lucro'].includes(n.id) || role === 'owner').map(n => (
                     <button key={n.id} className={`nav-item ${tab === n.id ? 'active' : ''}`} aria-current={tab === n.id ? 'page' : undefined} onClick={() => navigate(n.id)}>
                       {n.icon} {n.label}
                     </button>
@@ -425,6 +429,8 @@ export default function App() {
           {tab === 'relatorios' && <ReportsView sales={sales} />}
           {tab === 'clientes' && <CustomersBillingView onCustomersCombined={handleCustomersCombined} customers={customers} setCustomers={setCustomers} sales={sales} setSales={setSales} pushToast={pushToast} />}
           {tab === 'ingredientes' && role === 'owner' && <SensitiveData label="Desbloquear compras"><IngredientsView key={user.email} owner={user.email || ''} sales={sales} /></SensitiveData>}
+          {tab === 'pagamentos' && role === 'owner' && <SensitiveData label="Desbloquear pagamentos"><PaymentsView owner={user.email || ''} sales={sales} customers={customers} pushToast={pushToast} /></SensitiveData>}
+          {tab === 'lucro' && role === 'owner' && <SensitiveData label="Desbloquear lucro"><ProfitView owner={user.email || ''} sales={sales} customers={customers} /></SensitiveData>}
           {tab === 'financeiro' && <FinanceiroView />}
           {tab === 'audit' && <OwnerAuditGate key={user.email}><AuditView /></OwnerAuditGate>}
         </Suspense>

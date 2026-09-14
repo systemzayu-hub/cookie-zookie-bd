@@ -244,7 +244,7 @@ button:disabled { cursor: not-allowed; }
 .app { display: flex; min-height: 100vh; min-height: 100dvh; overflow-x: hidden; }
 
 .sidebar {
-  width: 264px; flex-shrink: 0; padding: var(--sp-6) var(--sp-5);
+  width: 288px; flex-shrink: 0; padding: var(--sp-6) var(--sp-5);
   background: var(--sidebar); background-image: var(--grad-sidebar);
   color: #EDE2D3;
   display: flex; flex-direction: column; gap: var(--sp-2);
@@ -272,7 +272,7 @@ button:disabled { cursor: not-allowed; }
 
 .nav-item {
   display: flex; align-items: center; gap: var(--sp-3);
-  padding: var(--sp-3) var(--sp-4); border: none; background: transparent; cursor: pointer;
+  min-height: 50px; padding: var(--sp-3) var(--sp-4); border: none; background: transparent; cursor: pointer;
   border-radius: var(--r-md); color: #C9B4A1; font-family: var(--font-sans);
   font-size: var(--fs-sm); font-weight: 500; transition: all var(--tr); text-align: left; width: 100%;
 }
@@ -289,7 +289,7 @@ button:disabled { cursor: not-allowed; }
   overflow-x: hidden;
   display: flex;
   flex-direction: column;
-  gap: var(--sp-1);
+  gap: 6px;
   min-height: 0;
   padding-right: 2px;
   scrollbar-width: thin;
@@ -317,7 +317,7 @@ button:disabled { cursor: not-allowed; }
 .auth-login:hover { background: linear-gradient(135deg, #E0693A, #E0973F); transform: translateY(-1px); box-shadow: var(--sh-brand-lg); }
 .auth-offline { font-size: var(--fs-xs); color: #E0B45A; }
 
-.main { flex: 1; padding: var(--sp-10) var(--sp-12); max-width: 1360px; margin-left: 264px; }
+.main { flex: 1; padding: var(--sp-10) var(--sp-12); max-width: 1360px; margin-left: 288px; }
 
 .page-row { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--sp-8); gap: var(--sp-4); flex-wrap: wrap; }
 .page-row .page-title h2 { font-size: var(--fs-3xl); margin-bottom: var(--sp-1); }
@@ -365,7 +365,7 @@ button:disabled { cursor: not-allowed; }
   font-family: var(--font-sans); font-size: var(--fs-sm); font-weight: 600;
   transition: all var(--tr); white-space: nowrap;
 }
-.btn, .theme-toggle, .nav-item, .login-button { min-height: 44px; }
+.btn, .theme-toggle, .login-button { min-height: 44px; }
 .btn:disabled { opacity: 0.5; cursor: not-allowed; }
 .btn-primary {
   background: linear-gradient(135deg, var(--cz-500), var(--cz-600));

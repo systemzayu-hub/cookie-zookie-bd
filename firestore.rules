@@ -88,6 +88,18 @@ service cloud.firestore {
         && e.actor is string && e.actor.size() > 0 && e.actor.size() <= 120 && e.detail is string && e.detail.size() <= 1000
         && e.createdAt == request.time && e.hasUndo is bool && e.undoOf is string;
     }
+    match /ownerPayments/{id} {
+      allow read: if owner();
+      allow create, update: if owner() && request.resource.data.keys().hasOnly(['data','deleted','updatedAt'])
+        && request.resource.data.updatedAt == request.time && request.resource.data.deleted is bool
+        && (request.resource.data.deleted == true || (request.resource.data.data is map
+          && request.resource.data.data.id == id && request.resource.data.data.amount is number
+          && request.resource.data.data.amount > 0 && request.resource.data.data.amount <= 1000000
+          && request.resource.data.data.description is string && request.resource.data.data.description.size() > 0 && request.resource.data.data.description.size() <= 500
+          && request.resource.data.data.person is string && request.resource.data.data.person.size() <= 200
+          && request.resource.data.data.date is string));
+      allow delete: if false;
+    }
     match /ownerPurchases/{id} {
       allow read: if owner();
       allow create, update: if owner() && request.resource.data.keys().hasOnly(['data','deleted','updatedAt'])

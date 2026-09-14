@@ -2,6 +2,8 @@ node_modules/
 dist/
 build/
 release/
+release-new/
+release-final/
 *.log
 .DS_Store
 .vite/

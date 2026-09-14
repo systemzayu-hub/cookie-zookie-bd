@@ -55,7 +55,16 @@
     "appId": "com.cookiezookie.gestao",
     "productName": "Cookie Zookie",
     "compression": "normal",
+    "npmRebuild": false,
     "directories": { "output": "release" },
+    "electronDist": "node_modules/electron/dist",
+    "files": [
+      "electron-main.cjs",
+      "electron-preload.cjs",
+      "public/icon-512.png",
+      "package.json",
+      "!node_modules/**/*"
+    ],
     "win": {
       "target": "portable",
       "signExecutable": false,

@@ -52,15 +52,17 @@ test('price comparison uses chronological first and last, with cheapest location
  assert.equal(result.last,12); assert.equal(result.min,8); assert.equal(result.max,12); assert.equal(result.change,20); assert.equal(result.cheapest,'C')
  assert.equal(priceStats([]),null)
 })
-test('editor exposes pending amount and maps partial payment back to paid amount', () => {
+test('editor creates and updates an accumulated partial payment without settling the purchase', () => {
  let latest: PurchaseDraft = {...old,text:''}
  function Harness() { const [draft,setDraft] = useState(latest); latest = draft; return <PurchaseEditor draft={draft} change={setDraft} busy={false} onSave={()=>{}} onClose={()=>{}} onPhoto={()=>{}} onProcess={()=>{}} ignored={[]} /> }
  let tree: ReturnType<typeof create>; act(()=>{tree=create(<Harness />)})
  act(()=>tree.root.findAllByType('select').find(s => s.props.value === 'paid')!.props.onChange({target:{value:'pending'}}))
  assert.equal(latest.paymentStatus,'pending')
- const amount = tree.root.findAllByType('input').find(i=>i.props.max===100)!
- act(()=>amount.props.onChange({target:{value:'85'}}))
- assert.equal(latest.paidAmount,15); assert.equal(purchaseDue(latest),85)
+ const amount = tree.root.findAllByType('input').find(i=>i.props['aria-label']==='Valor já pago da compra')!
+ act(()=>amount.props.onChange({target:{value:'50'}}))
+ assert.equal(latest.paidAmount,50); assert.equal(purchasePaid(latest),50); assert.equal(purchaseDue(latest),50)
+ act(()=>amount.props.onChange({target:{value:'70'}}))
+ assert.equal(latest.paidAmount,70); assert.equal(purchasePaid(latest),70); assert.equal(purchaseDue(latest),30)
  act(()=>tree.root.findAllByType('select').find(s => s.props.value === 'pending')!.props.onChange({target:{value:'paid'}}))
  assert.equal(purchasePaid(latest),100); assert.equal(purchaseDue(latest),0)
  act(()=>tree.unmount())

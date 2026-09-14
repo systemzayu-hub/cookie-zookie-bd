@@ -99,7 +99,7 @@ function OwnerPurchases({ owner, sales = [] }: { owner: string; sales?: Sale[] }
     if (draft.photo && !draft.scanConfirmed) { setMessage('Confira a lista com a foto e marque a confirmação antes de salvar.'); return }
     const { text, quickPaid, quickDue, photoKind, editingBefore, expectedTotal, scanConfidence, scanConfirmed, ...purchase } = draft
     if (purchase.paymentStatus === 'paid') purchase.paidAmount = undefined
-    if (!validPurchase(purchase)) { setMessage('Confira data, produtos, valores e quantidades. O valor devido deve estar entre zero e o total da compra.'); return }
+    if (!validPurchase(purchase)) { setMessage('Confira data, produtos, valores e quantidades. O valor já pago deve ficar entre zero e o total da compra.'); return }
     if (purchase.paymentStatus === 'pending' && purchaseDue(purchase) === 0) { purchase.paymentStatus = 'paid'; purchase.paidAmount = undefined; purchase.paidAt = today() }
     lock.current = true; setBusy(true)
     try {
@@ -156,7 +156,7 @@ function OwnerPurchases({ owner, sales = [] }: { owner: string; sales?: Sale[] }
   const matchesSearch = (p: IngredientPurchase) => normalizeIngredient(`${p.shop} ${creditorName(p)} ${p.items.map(i => i.name).join(' ')}`).includes(normalizeIngredient(search))
   const filtered = period.filter(p => !!p.archived === archived && matchesSearch(p) && (status === 'all' || (purchaseDue(p) > 0 ? 'pending' : 'paid') === status)).sort((a,b) => b.date.localeCompare(a.date))
   const debts = groupDebts(period.filter(matchesSearch))
-  const renderEntry = (p: IngredientPurchase) => <PurchaseEntry key={p.id} purchase={p} busy={busy} remove={() => void removePurchase(p)} today={today()} edit={() => edit(p)} pay={() => void action(p, { ...p, paymentStatus: 'paid', paidAmount: undefined, paidAt: today() }, 'Pagamento registrado. A compra continua no histórico.')} archive={() => {
+  const renderEntry = (p: IngredientPurchase) => <PurchaseEntry key={p.id} purchase={p} busy={busy} remove={() => void removePurchase(p)} today={today()} edit={() => edit(p)} pay={() => void action(p, { ...p, paymentStatus: 'paid', paidAmount: undefined, paidAt: today() }, 'Pagamento integral registrado.')} archive={() => {
     if (!p.archived && !confirm('Arquivar retira esta compra dos totais e das pendências. Você poderá restaurá-la. Continuar?')) return
     void action(p, { ...p, archived: !p.archived }, p.archived ? 'Compra restaurada.' : 'Compra arquivada. Você pode restaurá-la pelo filtro Arquivadas.')
   }} />

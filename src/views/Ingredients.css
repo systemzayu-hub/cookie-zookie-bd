@@ -46,6 +46,8 @@
 .purchase-payment { margin:18px 0; padding-top:4px }
 .purchase-payment > details { margin-top:12px; font-size:.82rem }
 .purchase-payment textarea { margin-top:8px }
+.purchase-payment-summary { display:flex; flex-wrap:wrap; gap:8px 16px; margin:4px 0; color:var(--tx-2); font-size:.84rem }
+.purchase-payment-summary strong { color:var(--tx-1); font-variant-numeric:tabular-nums }
 .purchase-editor-total { flex:1 1 150px; display:grid; text-align:right }
 .purchase-editor-total strong { font-size:1.4rem }
 .purchase-entry { border-bottom:1px solid var(--border) }
@@ -55,6 +57,7 @@
 .purchase-entry > summary::-webkit-details-marker { display:none }
 .purchase-entry-main { display:grid; gap:3px; flex:1; min-width:0; overflow-wrap:anywhere }
 .purchase-entry-main strong { font-size:.94rem }
+.purchase-payment-totals { font-variant-numeric:tabular-nums }
 .purchase-entry > summary > strong { font-size:.95rem; white-space:nowrap; font-variant-numeric:tabular-nums }
 .purchase-status { font-size:.75rem; white-space:nowrap; color:var(--tx-2) }
 .purchase-status.pending { color:var(--cz-700); font-weight:600 }

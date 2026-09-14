@@ -11,11 +11,17 @@ export function InstallApp({ floating = false }: { floating?: boolean }) {
   const [showIosHelp, setShowIosHelp] = useState(false)
   const [showBrowserHelp, setShowBrowserHelp] = useState(false)
   const ios = /iphone|ipad|ipod/i.test(navigator.userAgent)
+  const windows = /windows/i.test(navigator.userAgent)
   useEffect(() => { listeners.add(setPrompt); return () => { listeners.delete(setPrompt) } }, [])
   const install = async () => {
     if (ios) { setShowIosHelp(value => !value); return }
     if (!prompt) { setShowBrowserHelp(true); return }
     await prompt.prompt(); await prompt.userChoice; deferredPrompt = null; listeners.forEach(listener => listener(null))
   }
-  return <div className={`install-app ${floating ? 'install-app-floating' : ''}`}><button className="install-app-button" onClick={() => void install()}><Download size={17} /> Instalar aplicativo</button>{ios && showIosHelp && <p className="install-app-help">No Safari, toque em Compartilhar e depois em <strong>“Adicionar à Tela de Início”</strong>.</p>}{!ios && showBrowserHelp && <p className="install-app-help">Use o ícone de instalar na barra do navegador.</p>}</div>
+  return <div className={`install-app ${floating ? 'install-app-floating' : ''}`}>
+    {windows ? <a className="install-app-button" href="https://github.com/systemzayu-hub/cookie-zookie-bd/releases/download/v1.0.0/Cookie.Zookie.1.0.0.exe"><Download size={17} /> Baixar para Windows</a> : <button className="install-app-button" onClick={() => void install()}><Download size={17} /> Instalar aplicativo</button>}
+    {windows && <p className="install-app-help">Baixe e abra o instalador para usar o aplicativo no computador.</p>}
+    {ios && showIosHelp && <p className="install-app-help">No Safari, toque em Compartilhar e depois em <strong>“Adicionar à Tela de Início”</strong>.</p>}
+    {!ios && !windows && showBrowserHelp && <p className="install-app-help">Use o ícone de instalar na barra do navegador.</p>}
+  </div>
 }

@@ -348,7 +348,7 @@ export default function App() {
           </div>
         </div>
         <nav className="sidebar-nav">
-                  {nav.filter(n => !['ingredientes', 'pagamentos', 'lucro'].includes(n.id) || role === 'owner').map(n => (
+                  {nav.filter(n => n.id !== 'ingredientes' && n.id !== 'lucro' || role === 'owner' || n.id === 'pagamentos' && role === 'admin').map(n => (
                     <button key={n.id} className={`nav-item ${tab === n.id ? 'active' : ''}`} aria-current={tab === n.id ? 'page' : undefined} onClick={() => navigate(n.id)}>
                       {n.icon} {n.label}
                     </button>
@@ -429,7 +429,7 @@ export default function App() {
           {tab === 'relatorios' && <ReportsView sales={sales} />}
           {tab === 'clientes' && <CustomersBillingView onCustomersCombined={handleCustomersCombined} customers={customers} setCustomers={setCustomers} sales={sales} setSales={setSales} pushToast={pushToast} />}
           {tab === 'ingredientes' && role === 'owner' && <SensitiveData label="Desbloquear compras"><IngredientsView key={user.email} owner={user.email || ''} sales={sales} /></SensitiveData>}
-          {tab === 'pagamentos' && role === 'owner' && <SensitiveData label="Desbloquear pagamentos"><PaymentsView owner={user.email || ''} sales={sales} customers={customers} pushToast={pushToast} onSaleStatusChange={(id, status) => { const sale = sales.find(item => item.id === id); if (!sale) return; setSales(current => current.map(item => item.id === id ? { ...item, status, ...(status === 'Pago' ? { paidAmount: item.total } : {}) } : item)); logAction('venda', `${sale.items.map(item => `${item.qty}x ${item.name}`).join(' + ')} — alterou de ${sale.status || 'Pago'} para ${status}`); pushToast('Classificação atualizada.') }} /></SensitiveData>}
+          {tab === 'pagamentos' && (role === 'owner' || role === 'admin') && <SensitiveData label="Desbloquear pagamentos"><PaymentsView owner={user.email || ''} sales={sales} customers={customers} pushToast={pushToast} onSaleStatusChange={(id, status) => { const sale = sales.find(item => item.id === id); if (!sale) return; setSales(current => current.map(item => item.id === id ? { ...item, status, ...(status === 'Pago' ? { paidAmount: item.total } : {}) } : item)); logAction('venda', `${sale.items.map(item => `${item.qty}x ${item.name}`).join(' + ')} — alterou de ${sale.status || 'Pago'} para ${status}`); pushToast('Classificação atualizada.') }} /></SensitiveData>}
           {tab === 'lucro' && role === 'owner' && <SensitiveData label="Desbloquear lucro"><ProfitView owner={user.email || ''} sales={sales} customers={customers} /></SensitiveData>}
           {tab === 'financeiro' && <FinanceiroView />}
           {tab === 'audit' && <OwnerAuditGate key={user.email}><AuditView /></OwnerAuditGate>}

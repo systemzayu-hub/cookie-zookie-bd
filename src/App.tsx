@@ -429,7 +429,7 @@ export default function App() {
           {tab === 'relatorios' && <ReportsView sales={sales} />}
           {tab === 'clientes' && <CustomersBillingView onCustomersCombined={handleCustomersCombined} customers={customers} setCustomers={setCustomers} sales={sales} setSales={setSales} pushToast={pushToast} />}
           {tab === 'ingredientes' && role === 'owner' && <SensitiveData label="Desbloquear compras"><IngredientsView key={user.email} owner={user.email || ''} sales={sales} /></SensitiveData>}
-          {tab === 'pagamentos' && role === 'owner' && <SensitiveData label="Desbloquear pagamentos"><PaymentsView owner={user.email || ''} sales={sales} customers={customers} pushToast={pushToast} /></SensitiveData>}
+          {tab === 'pagamentos' && role === 'owner' && <SensitiveData label="Desbloquear pagamentos"><PaymentsView owner={user.email || ''} sales={sales} customers={customers} pushToast={pushToast} onSaleStatusChange={(id, status) => { const sale = sales.find(item => item.id === id); if (!sale) return; setSales(current => current.map(item => item.id === id ? { ...item, status, ...(status === 'Pago' ? { paidAmount: item.total } : {}) } : item)); logAction('venda', `${sale.items.map(item => `${item.qty}x ${item.name}`).join(' + ')} — alterou de ${sale.status || 'Pago'} para ${status}`); pushToast('Classificação atualizada.') }} /></SensitiveData>}
           {tab === 'lucro' && role === 'owner' && <SensitiveData label="Desbloquear lucro"><ProfitView owner={user.email || ''} sales={sales} customers={customers} /></SensitiveData>}
           {tab === 'financeiro' && <FinanceiroView />}
           {tab === 'audit' && <OwnerAuditGate key={user.email}><AuditView /></OwnerAuditGate>}

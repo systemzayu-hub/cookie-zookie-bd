@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Cookie Zookie</string>
+    <string name="title_activity_main">Cookie Zookie</string>
+    <string name="package_name">com.cookiezookie.gestao</string>
+    <string name="custom_url_scheme">com.cookiezookie.gestao</string>
+</resources>

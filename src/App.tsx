@@ -348,7 +348,11 @@ export default function App() {
           </div>
         </div>
         <nav className="sidebar-nav">
-                  {nav.filter(n => n.id !== 'ingredientes' && n.id !== 'lucro' || role === 'owner' || n.id === 'pagamentos' && role === 'admin').map(n => (
+                  {nav.filter(n => {
+                    if (n.id === 'ingredientes' || n.id === 'lucro') return role === 'owner'
+                    if (n.id === 'pagamentos' || n.id === 'relatorios') return role === 'owner' || role === 'admin'
+                    return true
+                  }).map(n => (
                     <button key={n.id} className={`nav-item ${tab === n.id ? 'active' : ''}`} aria-current={tab === n.id ? 'page' : undefined} onClick={() => navigate(n.id)}>
                       {n.icon} {n.label}
                     </button>
@@ -426,7 +430,7 @@ export default function App() {
           {tab === 'dashboard' && <Dashboard sales={sales} products={products} customers={customers} onNewSale={() => navigate('vendas')} onNavigate={navigate} />}
           {tab === 'vendas' && <SensitiveData label="Desbloquear vendas"><SalesView draftKey={user?.email ? `cc_sales_draft:${encodeURIComponent(user.email.toLowerCase())}` : undefined} products={products} customers={customers} sales={sales} onSaleAdded={handleSaleAdded} onSalesImported={handleSalesImported} pushToast={pushToast} /></SensitiveData>}
           {tab === 'produtos' && <ProductsStockView products={products} setProducts={setProducts} sales={sales} pushToast={pushToast} />}
-          {tab === 'relatorios' && <ReportsView sales={sales} />}
+          {tab === 'relatorios' && (role === 'owner' || role === 'admin') && <ReportsView sales={sales} />}
           {tab === 'clientes' && <CustomersBillingView onCustomersCombined={handleCustomersCombined} customers={customers} setCustomers={setCustomers} sales={sales} setSales={setSales} pushToast={pushToast} />}
           {tab === 'ingredientes' && role === 'owner' && <SensitiveData label="Desbloquear compras"><IngredientsView key={user.email} owner={user.email || ''} sales={sales} /></SensitiveData>}
           {tab === 'pagamentos' && (role === 'owner' || role === 'admin') && <SensitiveData label="Desbloquear pagamentos"><PaymentsView owner={user.email || ''} sales={sales} customers={customers} pushToast={pushToast} onSaleStatusChange={(id, status) => { const sale = sales.find(item => item.id === id); if (!sale) return; setSales(current => current.map(item => item.id === id ? { ...item, status, ...(status === 'Pago' ? { paidAmount: item.total } : {}) } : item)); logAction('venda', `${sale.items.map(item => `${item.qty}x ${item.name}`).join(' + ')} — alterou de ${sale.status || 'Pago'} para ${status}`); pushToast('Classificação atualizada.') }} /></SensitiveData>}

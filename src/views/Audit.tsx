@@ -19,6 +19,11 @@ export function AuditView() {
   const [busy, setBusy] = useState(false)
   const [pending, setPending] = useState<AuditEntry | null>(null)
   const [preview, setPreview] = useState('')
+  const selectTab = (next: string) => {
+    setTab(next)
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+    document.getElementById('main-content')?.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+  }
   useEffect(() => {
     if (!can(role, 'audit')) return
     let active = true
@@ -59,7 +64,7 @@ export function AuditView() {
     setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
   return <>
-    <div className="page-row"><div className="page-title"><h1>Auditoria</h1></div><div className="audit-tabs"><button className="btn btn-secondary" onClick={exportCsv}>Exportar histórico</button><button className={`btn ${tab === 'history' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTab('history')}>Histórico</button>{can(role, 'team') && <button className={`btn ${tab === 'team' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => setTab('team')}>Equipe e acessos</button>}</div></div>
+    <div className="page-row"><div className="page-title"><h1>Auditoria</h1></div><div className="audit-tabs"><button className="btn btn-secondary" onClick={exportCsv}>Exportar histórico</button><button className={`btn ${tab === 'history' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => selectTab('history')}>Histórico</button>{can(role, 'team') && <button className={`btn ${tab === 'team' ? 'btn-primary' : 'btn-secondary'}`} onClick={() => selectTab('team')}>Equipe e acessos</button>}</div></div>
     {tab === 'team' && can(role, 'team') ? <TeamView/> : <>
       <div className="card checkout-fields"><label>Buscar<input className="input" placeholder="Pessoa ou ação" value={search} onChange={e => setSearch(e.target.value)}/></label><label>Tipo<select className="input" value={action} onChange={e => setAction(e.target.value)}><option value="">Todos</option>{[...new Set(entries.map(e => e.action))].sort().map(a => <option key={a}>{a}</option>)}</select></label><label>Período<select className="input" value={days} onChange={e => setDays(Number(e.target.value))}><option value={0}>Todo o histórico carregado</option><option value={1}>Últimas 24 horas</option><option value={7}>Últimos 7 dias</option><option value={30}>Últimos 30 dias</option></select></label></div>
       {error && <p role="alert" className="card">{error}</p>}

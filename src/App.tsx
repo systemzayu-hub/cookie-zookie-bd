@@ -46,6 +46,7 @@ export default function App() {
   const [dark, setDark] = useState<boolean>(() => load('cc_theme', window.matchMedia('(prefers-color-scheme: dark)').matches))
   const [isMenuOpen, setIsMenuOpen] = useState(false)
   const [isMoreOpen, setIsMoreOpen] = useState(false)
+  const [hasInstalledOverlay, setHasInstalledOverlay] = useState(false)
   const [products, setProducts] = useState<Product[]>(() => validateProducts(load<unknown[]>('cc_products', seedProducts)) ?? seedProducts)
   const [sales, setSales] = useState<Sale[]>(() => validateSales(load<unknown[]>('cc_sales', seedSales)) ?? seedSales)
   const [customers, setCustomers] = useState<Customer[]>(() => validateCustomers(load<unknown[]>('cc_customers', seedCustomers)) ?? seedCustomers)
@@ -57,6 +58,7 @@ export default function App() {
   const fileRef = useRef<HTMLInputElement>(null)
   const menuButtonRef = useRef<HTMLButtonElement>(null)
   const sidebarRef = useRef<HTMLElement>(null)
+  const scrollLockRef = useRef<{ y: number; body: Record<string, string>; htmlOverflow: string } | null>(null)
   const role = useRole()
   const [accessError, setAccessError] = useState('')
   const [accessWaitExpired, setAccessWaitExpired] = useState(false)
@@ -125,7 +127,7 @@ export default function App() {
   useEffect(() => {
     const followHash = () => {
       const next = (window.location.hash.slice(1) || 'dashboard') as Tab
-      if (tabs.includes(next)) { setTab(next); setIsMenuOpen(false) }
+      if (tabs.includes(next)) { setTab(next); setIsMenuOpen(false); setIsMoreOpen(false) }
     }
     window.addEventListener('hashchange', followHash)
     return () => window.removeEventListener('hashchange', followHash)
@@ -134,8 +136,16 @@ export default function App() {
   const navigate = (next: Tab) => {
     setTab(next); setIsMenuOpen(false); setIsMoreOpen(false)
     window.location.hash = next
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+    document.querySelector<HTMLElement>('#main-content')?.scrollTo({ top: 0, left: 0, behavior: 'auto' })
     document.getElementById('main-content')?.focus()
   }
+
+  useEffect(() => {
+    if (appShell === 'browser') return
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+    document.querySelector<HTMLElement>('#main-content')?.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+  }, [tab, appShell])
 
   const doLogin = async () => {
     if (loginBusy) return
@@ -170,17 +180,66 @@ export default function App() {
     save('cc_theme', dark)
   }, [dark])
   useEffect(() => {
-    document.body.style.overflow = isMenuOpen || isMoreOpen ? 'hidden' : '';
     const sidebar = sidebarRef.current
     const media = window.matchMedia('(max-width: 768px)')
     const update = () => {
       if (sidebar && media.matches && !isMenuOpen && !isMobileApp) sidebar.setAttribute('inert', '')
       else sidebar?.removeAttribute('inert')
-      document.body.style.overflow = media.matches && (isMenuOpen || isMoreOpen) ? 'hidden' : ''
     }
     update(); media.addEventListener('change', update)
-    return () => { document.body.style.overflow = ''; media.removeEventListener('change', update) };
+    return () => { media.removeEventListener('change', update) };
   }, [isMenuOpen, isMoreOpen, isMobileApp, user]);
+
+  useEffect(() => {
+    if (appShell === 'browser') return
+    const root = document.getElementById('root')
+    if (!root) return
+    const update = () => setHasInstalledOverlay(isMenuOpen || isMoreOpen || Boolean(root.querySelector('.modal-backdrop, dialog[open]')))
+    const observer = new MutationObserver(update)
+    observer.observe(root, { childList: true, subtree: true, attributes: true, attributeFilter: ['class', 'open'] })
+    update()
+    return () => observer.disconnect()
+  }, [appShell, isMenuOpen, isMoreOpen])
+
+  useEffect(() => {
+    if (appShell === 'browser') return
+    document.documentElement.classList.toggle('installed-overlay-open', hasInstalledOverlay)
+    const body = document.body
+    const html = document.documentElement
+    if (hasInstalledOverlay) {
+      if (scrollLockRef.current) return
+      const y = window.scrollY
+      scrollLockRef.current = {
+        y,
+        body: { overflow: body.style.overflow, position: body.style.position, top: body.style.top, left: body.style.left, right: body.style.right, width: body.style.width },
+        htmlOverflow: html.style.overflow,
+      }
+      html.style.overflow = 'hidden'
+      body.style.overflow = 'hidden'
+      body.style.position = 'fixed'
+      body.style.top = `-${y}px`
+      body.style.left = '0'
+      body.style.right = '0'
+      body.style.width = '100%'
+      return
+    }
+    const lock = scrollLockRef.current
+    if (!lock) return
+    Object.assign(body.style, lock.body)
+    html.style.overflow = lock.htmlOverflow
+    scrollLockRef.current = null
+    window.scrollTo({ top: lock.y, left: 0, behavior: 'auto' })
+    return () => document.documentElement.classList.remove('installed-overlay-open')
+  }, [appShell, hasInstalledOverlay])
+
+  useEffect(() => () => {
+    document.documentElement.classList.remove('installed-overlay-open')
+    const lock = scrollLockRef.current
+    if (!lock) return
+    Object.assign(document.body.style, lock.body)
+    document.documentElement.style.overflow = lock.htmlOverflow
+    window.scrollTo(0, lock.y)
+  }, [])
 
   useEffect(() => {
     if (!isMoreOpen) return
@@ -309,6 +368,7 @@ export default function App() {
   const mobilePrimary = availableNav.filter(n => ['dashboard', 'vendas', 'produtos', 'clientes'].includes(n.id))
   const mobileSecondary = availableNav.filter(n => !mobilePrimary.some(primary => primary.id === n.id))
   const mobileMoreActive = mobileSecondary.some(n => n.id === tab)
+  const activeNav = availableNav.find(item => item.id === tab)
 
   // Tela de carregamento/verificação de login obrigatório
   if (authLoading) {
@@ -419,7 +479,7 @@ export default function App() {
               </div>
             )}
           </div>
-          <button className="theme-toggle" onClick={() => setDark(d => !d)}>
+          <button className="theme-toggle app-theme-toggle" onClick={() => setDark(d => !d)}>
             {dark ? <Sun size={18} /> : <Moon size={18} />}
             {dark ? 'Tema claro' : 'Tema escuro'}
           </button>
@@ -441,6 +501,14 @@ export default function App() {
         </div>
       </aside>
 
+      {isMobileApp && <header className="mobile-app-bar">
+        <img src={logoUrl} alt="" />
+        <div><small>Cookie Zookie</small><strong>{activeNav?.label || 'Início'}</strong></div>
+        <span className={`mobile-app-sync ${!online || syncState === 'offline' ? 'offline' : ''}`} title={!online ? 'Offline' : 'Sincronizado'}>
+          {!online || syncState === 'offline' ? <CloudOff size={17} /> : syncState === 'syncing' ? <RefreshCw size={17} className="spin" /> : <Cloud size={17} />}
+        </span>
+      </header>}
+
       {isMobileApp && isMoreOpen && <>
         <button className="mobile-more-overlay" aria-label="Fechar menu Mais" onClick={() => setIsMoreOpen(false)} />
         <section id="mobile-more-menu" className="mobile-more-sheet" role="dialog" aria-modal="true" aria-labelledby="mobile-more-title">
@@ -451,7 +519,7 @@ export default function App() {
           </nav>
           <div className={`mobile-more-status ${!online || syncState === 'offline' ? 'offline' : ''}`}>{!online || syncState === 'offline' ? <CloudOff size={17} /> : <Cloud size={17} />}<span>{!online || syncState === 'offline' ? 'Offline · dados salvos no aparelho' : syncState === 'syncing' ? 'Sincronizando…' : 'Dados sincronizados com a equipe'}</span></div>
           <div className="mobile-more-actions">
-            <button onClick={() => setDark(value => !value)}>{dark ? <Sun size={19} /> : <Moon size={19} />}{dark ? 'Tema claro' : 'Tema escuro'}</button>
+            <button className="app-theme-toggle" onClick={() => setDark(value => !value)}>{dark ? <Sun size={19} /> : <Moon size={19} />}{dark ? 'Tema claro' : 'Tema escuro'}</button>
             <button onClick={() => void exportBackup()}><Download size={19} />Exportar backup</button>
             <button onClick={() => fileRef.current?.click()}><Upload size={19} />Importar backup</button>
             <button onClick={doLogout}><LogOut size={19} />Sair da conta</button>

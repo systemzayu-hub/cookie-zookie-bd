@@ -28,6 +28,11 @@ function OwnerPurchases({ owner, sales = [] }: { owner: string; sales?: Sale[] }
   const photos=useRef<Record<string,string>>({})
   const alive = useRef(true), lock = useRef(false)
   const queue = useRef(Promise.resolve()), draftVersion = useRef(0)
+  const selectArea = (next: string) => {
+    setArea(next)
+    window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+    document.getElementById('main-content')?.scrollTo({ top: 0, left: 0, behavior: 'auto' })
+  }
   useEffect(() => {
     let cancelled=false, stop=()=>{}, starting=false
     alive.current=true
@@ -158,7 +163,7 @@ function OwnerPurchases({ owner, sales = [] }: { owner: string; sales?: Sale[] }
   if (!ready) return <p role="status">{message || 'Abrindo compras…'}</p>
   return <div className="ingredients-view">
     <header className="purchase-header"><div><h1>Compras</h1><p>Ingredientes, preços e pagamentos em um só lugar.</p><p role="status">{syncMessage}</p></div><details className="purchase-tools"><summary>Backup e armazenamento</summary><p>Valores e registros sincronizam entre os aparelhos do dono. Fotos anexadas e rascunhos continuam neste navegador. O backup inclui as fotos disponíveis neste aparelho.</p><div className="purchase-actions"><button className="btn btn-secondary" onClick={() => void backup()}>Exportar compras e fotos</button><button className="btn btn-secondary" onClick={() => void backup(true)}>Backup anterior à sincronização</button><label className="purchase-upload">Importar backup<input aria-label="Importar backup de compras" type="file" accept=".json" disabled={busy} onChange={e => { const f = e.target.files?.[0]; if (f) void restore(f); e.target.value = '' }} /></label></div><small>Compras antigas sem situação foram consideradas pagas. Você pode alterar isso em Editar compra.</small></details></header>
-    <nav className="purchase-tabs" aria-label="Áreas de compras">{[['compras','Compras'],['precos','Histórico de preços'],['pendencias','Pendências']].map(([id,label]) => <button key={id} aria-pressed={area === id} onClick={() => setArea(id)}>{label}{id === 'pendencias' && purchasesSummary(purchases).due > 0 && <span className="purchase-count">{purchases.filter(p => !p.archived && purchaseDue(p) > 0).length}</span>}</button>)}</nav>
+    <nav className="purchase-tabs" aria-label="Áreas de compras">{[['compras','Compras'],['precos','Histórico de preços'],['pendencias','Pendências']].map(([id,label]) => <button key={id} aria-pressed={area === id} onClick={() => selectArea(id)}>{label}{id === 'pendencias' && purchasesSummary(purchases).due > 0 && <span className="purchase-count">{purchases.filter(p => !p.archived && purchaseDue(p) > 0).length}</span>}</button>)}</nav>
     {message && <p className="purchase-message" role="status" aria-live="polite">{message}</p>}
     {area === 'precos' ? <PurchasePrices purchases={purchases} /> : <>
       <dl className="purchase-summary" aria-label="Resumo financeiro"><div><dt>Total comprado</dt><dd>{fmtBRL(summary.total)}</dd></div><div><dt>Total pago</dt><dd>{fmtBRL(summary.paid)}</dd></div><div className="purchase-due"><dt>A pagar</dt><dd>{fmtBRL(summary.due)}</dd></div></dl>

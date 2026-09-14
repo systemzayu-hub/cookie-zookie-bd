@@ -3,13 +3,13 @@
   "short_name": "Cookie Zookie",
   "description": "Painel privado de vendas, estoque, clientes e cobranças.",
   "lang": "pt-BR",
-  "start_url": "./#dashboard",
+  "start_url": "./?source=mobile-app#dashboard",
   "scope": "./",
   "display": "standalone",
   "display_override": ["window-controls-overlay", "standalone"],
   "orientation": "any",
-  "background_color": "#fffaf4",
-  "theme_color": "#8b5a3c",
+  "background_color": "#070809",
+  "theme_color": "#070809",
   "categories": ["business", "productivity"],
   "icons": [
     {

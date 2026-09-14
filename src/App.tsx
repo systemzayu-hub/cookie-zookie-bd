@@ -13,6 +13,7 @@ import { setRole, useRole } from './auth'
 import { can, ROLE_LABEL } from './roles'
 import { watchAccess } from './sync'
 import { OwnerKeyLogin } from './components/OwnerKeyLogin'
+import { InstallApp } from './components/InstallApp'
 import { OwnerAuditGate } from './components/OwnerAuditGate'
 import { VisitorDashboard } from './views/VisitorDashboard'
 import { EmployeeSales } from './views/EmployeeSales'
@@ -315,6 +316,7 @@ export default function App() {
             </svg>
             {loginBusy ? 'Conectando…' : 'Entrar com Google'}
           </button>
+          <InstallApp />
           <OwnerKeyLogin/>
           {loginError && <p className="login-error" role="alert">{loginError}</p>}
         </div>

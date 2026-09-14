@@ -54,6 +54,8 @@
   "build": {
     "appId": "com.cookiezookie.gestao",
     "productName": "Cookie Zookie",
+    "compression": "normal",
+    "directories": { "output": "release" },
     "win": {
       "target": "portable",
       "signExecutable": false,

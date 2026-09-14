@@ -1561,6 +1561,15 @@ details:not(.purchase-entry) > summary:focus-visible { outline: 2px solid var(--
 .owner-key-input-row .btn { min-height: 48px; }
 .owner-key-hint { margin: 9px 0 0; color: var(--tx-3); font-size: .7rem; line-height: 1.4; }
 .owner-key-error { margin: 10px 0 0; padding: 10px 12px; border-radius: 10px; color: var(--danger-500); background: var(--danger-bg); font-size: .76rem; }
+.access-check-card { display: grid; justify-items: center; gap: 12px; }
+.access-check-card h1 { margin: 2px 0 0; font-size: 1.75rem; }
+.access-check-card > p { max-width: 340px; margin: 0 0 6px; color: var(--tx-2); line-height: 1.55; }
+.access-check-card > .btn { width: 100%; min-height: 46px; justify-content: center; }
+.access-check-card > .owner-key-login { margin-top: 2px; }
+.access-state-icon { display: grid; place-items: center; width: 58px; height: 58px; border-radius: 18px; }
+.access-state-icon.checking { color: var(--cz-600); background: var(--cz-100); }
+.access-state-icon.offline { color: #e0b45a; background: rgba(224, 180, 90, .12); }
+.access-state-icon.blocked { color: var(--danger-500); background: var(--danger-bg); }
 @keyframes disclosure-in { from { opacity: 0; transform: translateY(-5px); } to { opacity: 1; transform: translateY(0); } }
 
 @media (max-width: 480px) {

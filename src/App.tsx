@@ -59,6 +59,7 @@ export default function App() {
   const sidebarRef = useRef<HTMLElement>(null)
   const role = useRole()
   const [accessError, setAccessError] = useState('')
+  const [accessWaitExpired, setAccessWaitExpired] = useState(false)
   const saleState = useRef({ products, sales, customers })
   saleState.current = { products, sales, customers }
   const { status: syncState, ready: storeReady, retry: retrySync, discardPending } = useStoreSync(can(role, 'manage') ? user?.email ?? null : null, { products, sales, customers }, data => {
@@ -114,6 +115,12 @@ export default function App() {
       window.removeEventListener('offline', update)
     }
   }, [])
+
+  useEffect(() => {
+    if (!user || role || accessError || !online) { setAccessWaitExpired(false); return }
+    const timer = window.setTimeout(() => setAccessWaitExpired(true), 8000)
+    return () => window.clearTimeout(timer)
+  }, [user, role, accessError, online])
 
   useEffect(() => {
     const followHash = () => {
@@ -344,12 +351,21 @@ export default function App() {
     )
   }
 
-  if (!role || role === 'blocked') return <div className="login-gate"><div className="login-gate-card">
-    <h1>{role === 'blocked' ? 'Acesso não autorizado' : 'Verificando acesso'}</h1>
-    <p role="status">{role === 'blocked' ? 'Esta conta não tem acesso à loja. O dono pode liberar seu cargo pela equipe.' : accessError || 'Aguardando confirmação do servidor…'}</p>
-    <button className="btn btn-secondary" onClick={() => window.location.reload()}>Tentar novamente</button>
+  if (role === 'blocked') return <div className="login-gate"><div className="login-gate-card access-check-card">
+    <div className="access-state-icon blocked"><ShieldCheck size={27} /></div><h1>Acesso não autorizado</h1>
+    <p role="status">Esta conta não tem acesso à loja. O dono pode liberar seu cargo pela equipe.</p>
     <button className="btn btn-ghost" onClick={doLogout}>Sair da conta</button><OwnerKeyLogin/>
   </div></div>
+  if (!role) {
+    const canRetryAccess = online && Boolean(accessError || accessWaitExpired)
+    return <div className="login-gate"><div className="login-gate-card access-check-card">
+      <div className={`access-state-icon ${online ? 'checking' : 'offline'}`}>{online ? <RefreshCw size={27} className="spin" /> : <CloudOff size={27} />}</div>
+      <h1>{online ? 'Verificando acesso' : 'Você está offline'}</h1>
+      <p role="status">{!online ? 'Conecte este aparelho à internet. A verificação continua automaticamente quando a conexão voltar.' : accessError || (accessWaitExpired ? 'A confirmação está demorando mais que o normal. Você pode tentar novamente.' : 'Aguarde um instante enquanto confirmamos seu acesso com segurança.')}</p>
+      {canRetryAccess && <button className="btn btn-secondary" onClick={() => window.location.reload()}>Tentar novamente</button>}
+      <button className="btn btn-ghost" onClick={doLogout}>Sair da conta</button><OwnerKeyLogin/>
+    </div></div>
+  }
   if (role === 'viewer') return <VisitorDashboard name={user.name || user.email || ''} onLogout={doLogout}/>
   if (role === 'employee') return <EmployeeSales name={user.name || user.email || 'Funcionário'} onLogout={doLogout}/>
 

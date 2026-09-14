@@ -31,7 +31,7 @@ type CustomerGroup = {
 export function CobrancaView({ sales, setSales, customers, pushToast, onCustomerPayment, onSaleTransfer }: CobrancaViewProps) {
   const { guard } = usePasswordGuard()
   const [search, setSearch] = useState('')
-  const [sortBy, setSortBy] = useState<'total' | 'nome' | 'qtd' | 'data'>('data')
+  const [sortBy, setSortBy] = useState<'total' | 'nome' | 'qtd' | 'data'>('total')
   const [sortDesc, setSortDesc] = useState(true)
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set())
   const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set())

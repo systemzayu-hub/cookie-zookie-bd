@@ -127,6 +127,7 @@ test('customer form saves without phone and still rejects incomplete supplied nu
 test('billing search filters names without accents and restores cards when cleared', () => {
   let root: any
   act(() => { root = create(<PasswordProvider><CobrancaView customers={customers} sales={[sale, { ...sale, id: 's2', customerId: 'c' }]} setSales={() => {}} pushToast={() => {}} onCustomerPayment={() => true} onSaleTransfer={() => true} /></PasswordProvider>) })
+  assert.equal(root.root.findAllByType('select')[0].props.value, 'total')
   assert.equal(root.root.findAllByType('article').length, 2)
   act(() => root.root.findByProps({ id: 'billing-search' }).props.onChange({ target: { value: ' JOAO ' } }))
   assert.equal(root.root.findAllByType('article').length, 1)

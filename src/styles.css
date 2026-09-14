@@ -600,6 +600,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
 .billing-card-header { display: flex; align-items: center; gap: var(--sp-3); cursor: pointer; padding: var(--sp-4); }
 .billing-quick-actions { display: grid; grid-template-columns: repeat(3, max-content); gap: var(--sp-2); padding: var(--sp-3) var(--sp-4); border-top: 1px solid var(--border); }
 .partial-payment-row { display: flex; align-items: center; gap: var(--sp-3); margin-bottom: var(--sp-4); flex-wrap: wrap; }
+.billing-sale-actions { display:flex; justify-content:flex-end; padding:8px 12px; border-top:1px solid var(--border); background:var(--bg-soft); }
 .metric-bars { list-style: none; display: grid; gap: var(--sp-3); margin: 0; padding: var(--sp-2) 0; }
 .metric-bar-row { display: grid; gap: 5px; }
 .metric-bar-label { display: flex; justify-content: space-between; gap: var(--sp-3); font-size: var(--fs-sm); color: var(--tx-2); }
@@ -888,6 +889,7 @@ table.table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
   .billing-quick-actions { grid-template-columns: 1fr; }
   .partial-payment-row { display: grid; grid-template-columns: auto 1fr; }
   .partial-payment-row input, .partial-payment-row .btn { grid-column: 1 / -1; width: 100% !important; }
+  .billing-sale-actions .btn { width:100%; justify-content:center; }
 
   h1 { font-size: var(--fs-3xl); }
   h2 { font-size: var(--fs-2xl); }
@@ -1398,7 +1400,7 @@ input.customer-choice:focus-visible { outline: 2px solid var(--cz-600); outline-
 .installed-app .install-app { display: none !important; }
 .installed-app .app-theme-toggle { display: none !important; }
 .installed-app.installed-overlay-open .main { overflow: hidden !important; }
-.installed-app .table-wrap,
+.installed-app .table-wrap { touch-action: auto; }
 .installed-app .purchase-tabs,
 .installed-app .audit-tabs { overscroll-behavior-inline: contain; touch-action: pan-x; }
 .installed-app .brand-logo,
@@ -1465,7 +1467,7 @@ input.customer-choice:focus-visible { outline: 2px solid var(--cz-600); outline-
 }
 
 @media (max-width: 768px) {
-  .mobile-app .app { display: block; height: 100dvh; min-height: 0; padding: 0; background: #08090a; }
+  .mobile-app .app { display:block; height:var(--app-viewport-height, 100dvh); min-height:0; padding:0; background:#08090a; }
   .mobile-app .menu-toggle,
   .mobile-app .sidebar-overlay,
   .mobile-app .sidebar .brand,
@@ -1520,12 +1522,14 @@ input.customer-choice:focus-visible { outline: 2px solid var(--cz-600); outline-
   }
   .mobile-app .main {
     width: 100%;
-    height: 100dvh;
+    height: var(--app-viewport-height, 100dvh);
     max-width: none;
     margin: 0;
     min-height: 0;
     overflow-x: hidden;
     overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+    scroll-padding-block: calc(74px + env(safe-area-inset-top)) calc(112px + env(safe-area-inset-bottom));
     padding: calc(72px + env(safe-area-inset-top)) 14px calc(98px + env(safe-area-inset-bottom));
     background: radial-gradient(520px 320px at 85% -8%, rgba(232,146,63,.07), transparent 68%), #090a0b;
   }
@@ -1534,6 +1538,13 @@ input.customer-choice:focus-visible { outline: 2px solid var(--cz-600); outline-
   .mobile-app input,
   .mobile-app select,
   .mobile-app textarea { font-size: max(16px, 1em); }
+  .mobile-app .customers-table-wrap,
+  .mobile-app .customers-table,
+  .mobile-app .customers-table tbody,
+  .mobile-app .customers-table tr,
+  .mobile-app .billing-card { touch-action: pan-y; }
+  .mobile-keyboard-open.mobile-app .sidebar { transform:translateY(110%); pointer-events:none; }
+  .mobile-keyboard-open.mobile-app .main { padding-bottom:calc(32px + env(safe-area-inset-bottom)); scroll-padding-bottom:calc(32px + env(safe-area-inset-bottom)); }
 
   .mobile-app-bar {
     position: fixed;
@@ -1667,7 +1678,7 @@ details:not(.purchase-entry) > summary:focus-visible { outline: 2px solid var(--
 
 /* Phones rotated to landscape keep the full viewport for forms and dialogs. */
 @media (orientation: landscape) and (max-height: 600px) and (max-width: 1024px) {
-  .mobile-app .app { display: block; width:100%; height:100dvh; min-height:0; padding:0; overflow:hidden; }
+  .mobile-app .app { display:block; width:100%; height:var(--app-viewport-height, 100dvh); min-height:0; padding:0; overflow:hidden; }
   .mobile-app .mobile-app-bar { display: none; }
   .mobile-app .menu-toggle,
   .mobile-app .sidebar-overlay,
@@ -1692,7 +1703,7 @@ details:not(.purchase-entry) > summary:focus-visible { outline: 2px solid var(--
   .mobile-app .nav-item { flex:1 1 0; width:auto; min-width:0; min-height:50px; max-height:50px; padding:3px 2px; flex-direction:column; justify-content:center; gap:2px; border-radius:10px; font-size:.57rem; line-height:1.05; text-align:center; overflow:hidden; }
   .mobile-app .nav-item .icon { width:18px; height:18px; }
   .mobile-app .nav-item.active { box-shadow:inset 0 -3px 0 var(--cz-500); }
-  .mobile-app .main { box-sizing:border-box; width:100%; height:100dvh; max-width:100vw; min-width:0; margin:0; overflow-x:hidden; overflow-y:auto; padding:max(10px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) calc(70px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
+  .mobile-app .main { box-sizing:border-box; width:100%; height:var(--app-viewport-height, 100dvh); max-width:100vw; min-width:0; margin:0; overflow-x:hidden; overflow-y:auto; padding:max(10px, env(safe-area-inset-top)) max(12px, env(safe-area-inset-right)) calc(70px + env(safe-area-inset-bottom)) max(12px, env(safe-area-inset-left)); }
   .mobile-app .login-gate { min-height: 100dvh; padding: max(10px, env(safe-area-inset-top)) max(14px, env(safe-area-inset-right)) max(10px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left)); }
   .mobile-app .login-gate-card { display: grid; grid-template-columns: minmax(0, .9fr) minmax(320px, 1.1fr); align-items: center; gap: 28px; width: min(760px, 94vw); max-width: 760px; padding: 18px 24px; text-align: left; }
   .mobile-app .login-brand-block { min-width: 0; }

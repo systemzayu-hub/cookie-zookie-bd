@@ -8,6 +8,8 @@ import { usePasswordGuard } from '../components/PasswordGate'
 import { logAction } from '../audit'
 import { MaskedMoney } from '../components/MaskedMoney'
 import { MaskedPII } from '../components/MaskedPII'
+import { SaleTransferDialog } from '../components/SaleTransferDialog'
+import type { SaleTransfer } from '../sale-adjustments'
 
 // Modal de confirmação dupla para exclusão (reutilizável local)
 function ConfirmDeleteModal({ isOpen, onClose, onConfirm, title, message, itemName }: {
@@ -44,10 +46,12 @@ function ConfirmDeleteModal({ isOpen, onClose, onConfirm, title, message, itemNa
   )
 }
 
-export function CustomersView({ customers, setCustomers, sales, pushToast, onCustomersCombined }: {
+export function CustomersView({ customers, setCustomers, sales, pushToast, onCustomersCombined, onSaleTransfer }: {
+  onSaleTransfer?: (request: SaleTransfer) => boolean
   onCustomersCombined?: (request: CustomerMerge) => boolean; customers: Customer[]; setCustomers: React.Dispatch<React.SetStateAction<Customer[]>>; sales: Sale[]; pushToast: (m: string, t?: 'success' | 'error') => void
 }) {
   const [search, setSearch] = useState('')
+  const [transferCustomer, setTransferCustomer] = useState<Customer | null>(null)
   const [statusFilter, setStatusFilter] = useState('all')
   const [page, setPage] = useState(0)
   const [showModal, setShowModal] = useState(false)
@@ -261,6 +265,7 @@ export function CustomersView({ customers, setCustomers, sales, pushToast, onCus
                       {statusFilter === 'with-phone-pending' && billingWhatsApp(c,sales) && <a className="btn btn-secondary btn-sm" aria-label={`Cobrar ${c.name} pelo WhatsApp`} href={billingWhatsApp(c,sales)!} target="_blank" rel="noopener noreferrer">WhatsApp</a>}
                       <button className="btn btn-secondary btn-sm" aria-label={`Editar ${c.name}`} onClick={() => openEdit(c)}><Pencil size={14} /></button>
                       <button className="btn btn-danger btn-sm" aria-label={`Excluir ${c.name}`} onClick={() => remove(c.id)}><Trash2 size={14} /></button>
+                      {onSaleTransfer && countOf(c.id) > 0 && <button className="btn btn-secondary btn-sm customer-transfer" aria-label={`Transferir venda de ${c.name}`} onClick={() => setTransferCustomer(c)}><ShoppingBag size={14} /> Transferir venda</button>}
                     </td>
                   </tr>
                 ))}
@@ -269,6 +274,8 @@ export function CustomersView({ customers, setCustomers, sales, pushToast, onCus
           </div>
         )}
       </div>
+
+      {transferCustomer && onSaleTransfer && <SaleTransferDialog customer={transferCustomer} customers={customers} sales={sales} onTransfer={onSaleTransfer} onClose={() => setTransferCustomer(null)} />}
 
       {mergePrompt && <div className="modal-backdrop">
         <div className="modal" role="dialog" aria-modal="true" aria-label="Combinar clientes">

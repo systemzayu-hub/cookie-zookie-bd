@@ -1,4 +1,5 @@
 import { combineCustomers, type CustomerMerge } from './combine-customers'
+import { payCustomer, transferSale, type CustomerPayment, type SaleTransfer } from './sale-adjustments'
 import { useEffect, useRef, useState, Suspense, lazy } from 'react'
 import { LayoutDashboard, ShoppingCart, Package, BarChart3, Users, Sun, Moon, Download, Upload, LogIn, LogOut, Percent, ShieldCheck, Menu, X, Cloud, CloudOff, RefreshCw, WalletCards, TrendingDown, MoreHorizontal } from 'lucide-react'
 import { Product, Sale, Customer, Tab, Pendencia, fmtBRL } from './types'
@@ -69,6 +70,25 @@ export default function App() {
   }, online)
   const [loginBusy, setLoginBusy] = useState(false)
   const [loginError, setLoginError] = useState('')
+
+  useEffect(() => {
+    if (!isMobileApp || !window.visualViewport) return
+    const viewport = window.visualViewport
+    const root = document.documentElement
+    const updateViewport = () => {
+      root.style.setProperty('--app-viewport-height', `${Math.round(viewport.height)}px`)
+      root.classList.toggle('mobile-keyboard-open', window.innerHeight - viewport.height > 120)
+    }
+    updateViewport()
+    viewport.addEventListener('resize', updateViewport)
+    viewport.addEventListener('scroll', updateViewport)
+    return () => {
+      viewport.removeEventListener('resize', updateViewport)
+      viewport.removeEventListener('scroll', updateViewport)
+      root.style.removeProperty('--app-viewport-height')
+      root.classList.remove('mobile-keyboard-open')
+    }
+  }, [isMobileApp])
 
   useEffect(() => {
     let active = true
@@ -299,6 +319,30 @@ export default function App() {
     logAction('venda', `${det} — ${fmtBRL(s.total)} (${s.status})${cliente ? ` · ${cliente}` : ''}`)
     pushToast('Venda registrada!')
     return true
+  }
+
+  const handleCustomerPayment = (request: CustomerPayment) => {
+    if (!can(role, 'manage')) return false
+    try {
+      const next = payCustomer(saleState.current, request)
+      saleState.current = next
+      setSales(next.sales)
+      const customer = next.customers.find(item => item.id === request.customerId)
+      logAction('cobranca', `Registrou ${fmtBRL(request.amount)} para ${customer?.name || request.customerId}`)
+      return true
+    } catch (error) { pushToast((error as Error).message, 'error'); return false }
+  }
+
+  const handleSaleTransfer = (request: SaleTransfer) => {
+    if (!can(role, 'manage')) return false
+    try {
+      const next = transferSale(saleState.current, request)
+      saleState.current = next
+      setSales(next.sales)
+      logAction('venda', `Transferiu a venda ${request.sale.id} para ${request.target.name}`)
+      pushToast('Venda transferida!')
+      return true
+    } catch (error) { pushToast((error as Error).message, 'error'); return false }
   }
 
   const handleCustomersCombined = (request: CustomerMerge) => {
@@ -552,7 +596,7 @@ export default function App() {
           {tab === 'vendas' && <SensitiveData label="Desbloquear vendas"><SalesView draftKey={user?.email ? `cc_sales_draft:${encodeURIComponent(user.email.toLowerCase())}` : undefined} products={products} customers={customers} sales={sales} onSaleAdded={handleSaleAdded} onSalesImported={handleSalesImported} pushToast={pushToast} /></SensitiveData>}
           {tab === 'produtos' && <ProductsStockView products={products} setProducts={setProducts} sales={sales} pushToast={pushToast} />}
           {tab === 'relatorios' && (role === 'owner' || role === 'admin') && <ReportsView sales={sales} />}
-          {tab === 'clientes' && <CustomersBillingView onCustomersCombined={handleCustomersCombined} customers={customers} setCustomers={setCustomers} sales={sales} setSales={setSales} pushToast={pushToast} />}
+          {tab === 'clientes' && <CustomersBillingView onCustomersCombined={handleCustomersCombined} onCustomerPayment={handleCustomerPayment} onSaleTransfer={handleSaleTransfer} customers={customers} setCustomers={setCustomers} sales={sales} setSales={setSales} pushToast={pushToast} />}
           {tab === 'ingredientes' && role === 'owner' && <SensitiveData label="Desbloquear compras"><IngredientsView key={user.email} owner={user.email || ''} sales={sales} /></SensitiveData>}
           {tab === 'pagamentos' && (role === 'owner' || role === 'admin') && <SensitiveData label="Desbloquear pagamentos"><PaymentsView owner={user.email || ''} sales={sales} customers={customers} pushToast={pushToast} onSaleStatusChange={(id, status) => { const sale = sales.find(item => item.id === id); if (!sale) return; setSales(current => current.map(item => item.id === id ? { ...item, status, ...(status === 'Pago' ? { paidAmount: item.total } : {}) } : item)); logAction('venda', `${sale.items.map(item => `${item.qty}x ${item.name}`).join(' + ')} — alterou de ${sale.status || 'Pago'} para ${status}`); pushToast('Classificação atualizada.') }} /></SensitiveData>}
           {tab === 'lucro' && role === 'owner' && <SensitiveData label="Desbloquear lucro"><ProfitView owner={user.email || ''} sales={sales} customers={customers} /></SensitiveData>}

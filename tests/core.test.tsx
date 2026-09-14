@@ -1,5 +1,6 @@
 import './purchases.test'
 import './customer-import.test'
+import './sale-adjustments.test'
 import './security.test'
 import test from 'node:test'
 import assert from 'node:assert/strict'

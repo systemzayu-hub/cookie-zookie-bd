@@ -5,8 +5,10 @@ import { Customer, Sale } from '../types'
 import { CustomersView } from './Customers'
 import { CobrancaView } from './Cobranca'
 import { SensitiveData } from '../components/SensitiveData'
+import type { CustomerPayment, SaleTransfer } from '../sale-adjustments'
 
-export function CustomersBillingView({ customers, setCustomers, sales, setSales, pushToast, onCustomersCombined }: {
+export function CustomersBillingView({ customers, setCustomers, sales, setSales, pushToast, onCustomersCombined, onCustomerPayment, onSaleTransfer }: {
+  onCustomerPayment: (request: CustomerPayment) => boolean; onSaleTransfer: (request: SaleTransfer) => boolean
   onCustomersCombined: (request: CustomerMerge) => boolean; customers: Customer[]; setCustomers: React.Dispatch<React.SetStateAction<Customer[]>>; sales: Sale[]; setSales: React.Dispatch<React.SetStateAction<Sale[]>>; pushToast: (m: string, t?: 'success' | 'error') => void
 }) {
   const [section, setSection] = useState<'clientes' | 'cobranca'>('clientes')
@@ -22,9 +24,9 @@ export function CustomersBillingView({ customers, setCustomers, sales, setSales,
         </button>
       </div>
       {section === 'clientes' ? (
-        <CustomersView onCustomersCombined={onCustomersCombined} customers={customers} setCustomers={setCustomers} sales={sales} pushToast={pushToast} />
+        <CustomersView onCustomersCombined={onCustomersCombined} onSaleTransfer={onSaleTransfer} customers={customers} setCustomers={setCustomers} sales={sales} pushToast={pushToast} />
       ) : (
-        <CobrancaView sales={sales} setSales={setSales} customers={customers} pushToast={pushToast} />
+        <CobrancaView sales={sales} setSales={setSales} customers={customers} pushToast={pushToast} onCustomerPayment={onCustomerPayment} onSaleTransfer={onSaleTransfer} />
       )}
     </SensitiveData>
   )

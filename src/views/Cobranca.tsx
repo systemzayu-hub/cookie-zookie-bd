@@ -1,6 +1,6 @@
 import { billingMessage, billingWhatsApp } from '../billing-message'
 import { useState, useMemo } from 'react'
-import { MessageSquare, CheckCircle2, Copy, ChevronDown, ChevronUp, DollarSign, Users, AlertCircle, Calendar, Minus, Check, ChevronRight } from 'lucide-react'
+import { MessageSquare, CheckCircle2, Copy, ChevronDown, ChevronUp, DollarSign, Users, AlertCircle, Calendar, Minus, Check, ChevronRight, ArrowLeftRight } from 'lucide-react'
 import { Sale, Customer, fmtBRL, saleOutstanding } from '../types'
 import { CookieArt } from '../components/CookieArt'
 import { usePasswordGuard } from '../components/PasswordGate'
@@ -8,12 +8,16 @@ import { MaskedMoney } from '../components/MaskedMoney'
 import { MaskedPII } from '../components/MaskedPII'
 import { normalizeCustomerName } from '../customer-matching'
 import { logAction } from '../audit'
+import { SaleTransferDialog } from '../components/SaleTransferDialog'
+import type { CustomerPayment, SaleTransfer } from '../sale-adjustments'
 
 interface CobrancaViewProps {
   sales: Sale[]
   setSales: React.Dispatch<React.SetStateAction<Sale[]>>
   customers: Customer[]
   pushToast: (msg: string, type?: 'success' | 'error') => void
+  onCustomerPayment: (request: CustomerPayment) => boolean
+  onSaleTransfer: (request: SaleTransfer) => boolean
 }
 
 type CustomerGroup = {
@@ -24,7 +28,7 @@ type CustomerGroup = {
   totalQty: number
 }
 
-export function CobrancaView({ sales, setSales, customers, pushToast }: CobrancaViewProps) {
+export function CobrancaView({ sales, setSales, customers, pushToast, onCustomerPayment, onSaleTransfer }: CobrancaViewProps) {
   const { guard } = usePasswordGuard()
   const [search, setSearch] = useState('')
   const [sortBy, setSortBy] = useState<'total' | 'nome' | 'qtd' | 'data'>('data')
@@ -32,6 +36,7 @@ export function CobrancaView({ sales, setSales, customers, pushToast }: Cobranca
   const [expandedCards, setExpandedCards] = useState<Set<string>>(new Set())
   const [expandedProducts, setExpandedProducts] = useState<Set<string>>(new Set())
   const [partialAmounts, setPartialAmounts] = useState<Record<string, string>>({})
+  const [transfer, setTransfer] = useState<{ sale: Sale; customer: Customer } | null>(null)
 
   // Derive pendentes
   const pendentes = useMemo(() => sales.filter(s => s.status === 'Pendente'), [sales])
@@ -123,25 +128,12 @@ export function CobrancaView({ sales, setSales, customers, pushToast }: Cobranca
   }
 
   // Partial payment
-  const applyPartialPayment = (saleId: string) => {
-    const amount = Number((partialAmounts[saleId] || '0').replace(',', '.'))
+  const applyPartialPayment = (group: CustomerGroup) => {
+    const amount = Number((partialAmounts[group.customerId] || '0').replace(',', '.'))
     if (!Number.isFinite(amount) || amount <= 0) { pushToast('Valor inválido', 'error'); return }
-    const sale = sales.find(s => s.id === saleId)
-    if (!sale || amount > saleOutstanding(sale) + 0.001) { pushToast('O valor supera o saldo pendente.', 'error'); return }
     guard('Aplicar pagamento parcial', () => {
-      setSales(prev => prev.map(s => {
-        if (s.id !== saleId) return s
-        const paidAmount = Math.min(s.total, (s.paidAmount || 0) + amount)
-        const allPaid = paidAmount >= s.total
-        return {
-          ...s,
-          paidAmount,
-          items: allPaid ? s.items.map(item => ({ ...item, paid: true })) : s.items,
-          status: allPaid ? 'Pago' as const : 'Pendente' as const,
-        }
-      }))
-      setPartialAmounts(prev => ({ ...prev, [saleId]: '' }))
-      logAction('cobranca', `Registrou pagamento parcial de ${fmtBRL(amount)} na venda ${saleId.slice(0, 8)}`, () => setSales(prev => prev.map(s => s.id === sale.id ? sale : s)))
+      if (!onCustomerPayment({ customerId: group.customerId, amount, sales: group.sales })) return
+      setPartialAmounts(prev => ({ ...prev, [group.customerId]: '' }))
       pushToast(`${fmtBRL(amount)} descontado!`, 'success')
     })
   }
@@ -348,8 +340,8 @@ export function CobrancaView({ sales, setSales, customers, pushToast }: Cobranca
                       step="0.01"
                       placeholder="Ex: 6,00"
                       aria-label={`Valor parcial para ${g.customer?.name || 'cliente'}`}
-                      value={partialAmounts[g.sales[0]?.id] || ''}
-                      onChange={e => setPartialAmounts(prev => ({ ...prev, [g.sales[0]?.id]: e.target.value }))}
+                      value={partialAmounts[cid] || ''}
+                      onChange={e => setPartialAmounts(prev => ({ ...prev, [cid]: e.target.value }))}
                       style={{
                         width: 120, padding: 'var(--sp-2) var(--sp-3)',
                         border: '1px solid var(--border)', borderRadius: 'var(--r-md)',
@@ -360,20 +352,21 @@ export function CobrancaView({ sales, setSales, customers, pushToast }: Cobranca
                     />
                     <button
                       className="btn btn-primary btn-sm"
-                      onClick={(e) => { e.stopPropagation(); applyPartialPayment(g.sales[0]?.id) }}
+                      onClick={(e) => { e.stopPropagation(); applyPartialPayment(g) }}
                     >
                       <Minus size={14} /> Descontar
                     </button>
                   </div>
 
                   {/* Lista de vendas */}
+                  <p className="hint">O pagamento abate as compras mais antigas primeiro, até o saldo total do cliente.</p>
                   {g.sales.map(sale => {
                     const saleUnpaid = sale.items.filter(i => !i.paid)
                     const salePaid = sale.items.filter(i => i.paid)
                     const isProdExpanded = expandedProducts.has(sale.id)
 
                     return (
-                      <div key={sale.id} style={{ border: '1px solid var(--border)', borderRadius: 'var(--r-md)', marginBottom: 'var(--sp-3)', overflow: 'hidden' }}>
+                      <div key={sale.id} className="billing-sale" style={{ border: '1px solid var(--border)', borderRadius: 'var(--r-md)', marginBottom: 'var(--sp-3)', overflow: 'clip' }}>
                         {/* Sale header */}
                         <div
                           style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', padding: 'var(--sp-3)', cursor: 'pointer', background: 'var(--bg-soft)' }}
@@ -392,6 +385,8 @@ export function CobrancaView({ sales, setSales, customers, pushToast }: Cobranca
                           </span>
                           {isProdExpanded ? <ChevronUp size={16} color="var(--tx-3)" /> : <ChevronDown size={16} color="var(--tx-3)" />}
                         </div>
+
+                        {g.customer && <div className="billing-sale-actions"><button className="btn btn-secondary btn-sm" onClick={() => setTransfer({ sale, customer: g.customer! })}><ArrowLeftRight size={14} /> Trocar cliente desta venda</button></div>}
 
                         {/* Produtos expandidos */}
                         {isProdExpanded && (
@@ -466,6 +461,7 @@ export function CobrancaView({ sales, setSales, customers, pushToast }: Cobranca
           )
         })}
       </div>
+      {transfer && <SaleTransferDialog key={transfer.sale.id} customer={transfer.customer} initialSale={transfer.sale} customers={customers} sales={sales} onTransfer={onSaleTransfer} onClose={() => setTransfer(null)} />}
     </>
   )
 }

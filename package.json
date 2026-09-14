@@ -1,7 +1,7 @@
 {
   "name": "cookie-app-v2",
   "private": true,
-  "version": "1.0.0",
+  "version": "1.1.0",
   "type": "module",
   "main": "electron-main.cjs",
   "scripts": {
@@ -20,7 +20,8 @@
     "android": "npm run native:sync && npx cap open android",
     "ios": "npm run native:sync && npx cap open ios",
     "desktop": "electron electron-main.cjs",
-    "desktop:build": "electron-builder --win portable"
+    "desktop:build": "npm run desktop:icon && electron-builder --win portable",
+    "desktop:icon": "node scripts/generate-desktop-icon.mjs"
   },
   "dependencies": {
     "@tesseract.js-data/por": "1.0.0",
@@ -53,6 +54,10 @@
   "build": {
     "appId": "com.cookiezookie.gestao",
     "productName": "Cookie Zookie",
-    "win": { "target": "portable", "signAndEditExecutable": false }
+    "win": {
+      "target": "portable",
+      "signExecutable": false,
+      "icon": "build/icon.ico"
+    }
   }
 }

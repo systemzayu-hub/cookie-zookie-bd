@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { ChevronDown, KeyRound } from 'lucide-react'
 import { authLoginOwnerKey } from '../sync'
 export function OwnerKeyLogin({ expanded = false }: { expanded?: boolean }) {
   const [key, setKey] = useState('')
@@ -17,13 +18,15 @@ export function OwnerKeyLogin({ expanded = false }: { expanded?: boolean }) {
       setError(code.includes('too-many-requests') ? 'Muitas tentativas. Aguarde antes de tentar novamente.' : code.includes('network') ? 'Verifique sua conexão.' : 'Chave incorreta ou acesso indisponível.')
     } finally { setBusy(false) }
   }
-  return <details className="card" open={expanded || undefined}>
-    <summary>Entrar com chave do dono</summary>
-    <form className="checkout-fields" onSubmit={e => { e.preventDefault(); void submit() }}>
-      <label>Chave de acesso<input className="input" type="password" autoComplete="off" required maxLength={128} value={key} disabled={busy} onChange={e => setKey(e.target.value)}/></label>
-      <button className="btn btn-primary" disabled={busy}>{busy ? 'Entrando…' : 'Acessar como dono'}</button>
-    </form>
-    <small>Acesso temporário neste navegador.</small>
-    {error && <p role="alert">{error}</p>}
+  return <details className="card interactive-disclosure owner-key-login" open={expanded || undefined}>
+    <summary><span className="disclosure-icon"><KeyRound size={19} /></span><span><strong>Entrar com chave do dono</strong><small>Acesso administrativo temporário</small></span><ChevronDown className="disclosure-chevron" size={18} /></summary>
+    <div className="owner-key-panel">
+      <form className="owner-key-form" onSubmit={e => { e.preventDefault(); void submit() }}>
+        <label htmlFor="owner-access-key">Chave de acesso</label>
+        <div className="owner-key-input-row"><input id="owner-access-key" className="input" type="password" inputMode="text" autoComplete="off" placeholder="Digite a chave do dono" required maxLength={128} value={key} disabled={busy} onChange={e => setKey(e.target.value)}/><button className="btn btn-primary" disabled={busy}>{busy ? 'Verificando…' : 'Acessar'}</button></div>
+      </form>
+      <p className="owner-key-hint">A chave não fica salva. O acesso vale somente para esta sessão.</p>
+      {error && <p className="owner-key-error" role="alert">{error}</p>}
+    </div>
   </details>
 }

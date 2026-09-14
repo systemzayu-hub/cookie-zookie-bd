@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Download } from 'lucide-react'
+import { isInstalledApp } from '../app-environment'
 
 type InstallPrompt = Event & { prompt: () => Promise<void>; userChoice: Promise<{ outcome: 'accepted' | 'dismissed' }> }
 let deferredPrompt: InstallPrompt | null = null
@@ -13,6 +14,7 @@ export function InstallApp({ floating = false }: { floating?: boolean }) {
   const ios = /iphone|ipad|ipod/i.test(navigator.userAgent)
   const windows = /windows/i.test(navigator.userAgent)
   useEffect(() => { listeners.add(setPrompt); return () => { listeners.delete(setPrompt) } }, [])
+  if (isInstalledApp()) return null
   const install = async () => {
     if (ios) { setShowIosHelp(value => !value); return }
     if (!prompt) { setShowBrowserHelp(true); return }

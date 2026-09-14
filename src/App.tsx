@@ -1,6 +1,6 @@
 import { combineCustomers, type CustomerMerge } from './combine-customers'
 import { useEffect, useRef, useState, Suspense, lazy } from 'react'
-import { LayoutDashboard, ShoppingCart, Package, BarChart3, Users, Sun, Moon, Download, Upload, LogIn, LogOut, Percent, ShieldCheck, Menu, X, Cloud, CloudOff, RefreshCw, WalletCards, TrendingDown } from 'lucide-react'
+import { LayoutDashboard, ShoppingCart, Package, BarChart3, Users, Sun, Moon, Download, Upload, LogIn, LogOut, Percent, ShieldCheck, Menu, X, Cloud, CloudOff, RefreshCw, WalletCards, TrendingDown, MoreHorizontal } from 'lucide-react'
 import { Product, Sale, Customer, Tab, Pendencia, fmtBRL } from './types'
 import { seedProducts, seedCustomers, seedSales, load, save, STORAGE_ERROR_EVENT } from './data'
 import { baixarBackup, aplicarBackup } from './db'
@@ -21,6 +21,7 @@ import { configureUndoStore, setUndoOwner } from './undo'
 import { useStoreSync } from './useStoreSync'
 import { recordSale, recordSalesBatch } from './record-sale'
 import { validateCustomers, validateProducts, validateSales, validateStoreData } from './validation'
+import { getAppShell } from './app-environment'
 import logoUrl from './assets/logo.png'
 
 const Dashboard = lazy(() => import('./views/Dashboard').then(m => ({ default: m.Dashboard })))
@@ -35,6 +36,8 @@ const ProfitView = lazy(() => import('./views/Profit').then(m => ({ default: m.P
 const AuditView = lazy(() => import('./views/Audit').then(m => ({ default: m.AuditView })))
 
 export default function App() {
+  const appShell = getAppShell()
+  const isMobileApp = appShell === 'mobile'
   const tabs: Tab[] = ['dashboard', 'vendas', 'produtos', 'relatorios', 'clientes', 'financeiro', 'ingredientes', 'pagamentos', 'lucro', 'audit']
   const [tab, setTab] = useState<Tab>(() => {
     const hash = window.location.hash.slice(1) as Tab
@@ -42,6 +45,7 @@ export default function App() {
   })
   const [dark, setDark] = useState<boolean>(() => load('cc_theme', window.matchMedia('(prefers-color-scheme: dark)').matches))
   const [isMenuOpen, setIsMenuOpen] = useState(false)
+  const [isMoreOpen, setIsMoreOpen] = useState(false)
   const [products, setProducts] = useState<Product[]>(() => validateProducts(load<unknown[]>('cc_products', seedProducts)) ?? seedProducts)
   const [sales, setSales] = useState<Sale[]>(() => validateSales(load<unknown[]>('cc_sales', seedSales)) ?? seedSales)
   const [customers, setCustomers] = useState<Customer[]>(() => validateCustomers(load<unknown[]>('cc_customers', seedCustomers)) ?? seedCustomers)
@@ -121,7 +125,7 @@ export default function App() {
   }, [])
 
   const navigate = (next: Tab) => {
-    setTab(next); setIsMenuOpen(false)
+    setTab(next); setIsMenuOpen(false); setIsMoreOpen(false)
     window.location.hash = next
     document.getElementById('main-content')?.focus()
   }
@@ -159,17 +163,24 @@ export default function App() {
     save('cc_theme', dark)
   }, [dark])
   useEffect(() => {
-    document.body.style.overflow = isMenuOpen ? 'hidden' : '';
+    document.body.style.overflow = isMenuOpen || isMoreOpen ? 'hidden' : '';
     const sidebar = sidebarRef.current
     const media = window.matchMedia('(max-width: 768px)')
     const update = () => {
-      if (sidebar && media.matches && !isMenuOpen) sidebar.setAttribute('inert', '')
+      if (sidebar && media.matches && !isMenuOpen && !isMobileApp) sidebar.setAttribute('inert', '')
       else sidebar?.removeAttribute('inert')
-      document.body.style.overflow = media.matches && isMenuOpen ? 'hidden' : ''
+      document.body.style.overflow = media.matches && (isMenuOpen || isMoreOpen) ? 'hidden' : ''
     }
     update(); media.addEventListener('change', update)
     return () => { document.body.style.overflow = ''; media.removeEventListener('change', update) };
-  }, [isMenuOpen, user]);
+  }, [isMenuOpen, isMoreOpen, isMobileApp, user]);
+
+  useEffect(() => {
+    if (!isMoreOpen) return
+    const close = (event: KeyboardEvent) => { if (event.key === 'Escape') setIsMoreOpen(false) }
+    document.addEventListener('keydown', close)
+    return () => document.removeEventListener('keydown', close)
+  }, [isMoreOpen])
 
   useEffect(() => {
     if (!isMenuOpen || !sidebarRef.current) return
@@ -283,6 +294,14 @@ export default function App() {
       { id: 'financeiro', label: 'Financeiro', icon: <Percent className="icon" /> },
       { id: 'audit', label: 'Auditoria', icon: <ShieldCheck className="icon" /> },
     ]
+  const availableNav = nav.filter(n => {
+    if (n.id === 'ingredientes' || n.id === 'lucro') return role === 'owner'
+    if (n.id === 'pagamentos' || n.id === 'relatorios') return role === 'owner' || role === 'admin'
+    return true
+  })
+  const mobilePrimary = availableNav.filter(n => ['dashboard', 'vendas', 'produtos', 'clientes'].includes(n.id))
+  const mobileSecondary = availableNav.filter(n => !mobilePrimary.some(primary => primary.id === n.id))
+  const mobileMoreActive = mobileSecondary.some(n => n.id === tab)
 
   // Tela de carregamento/verificação de login obrigatório
   if (authLoading) {
@@ -300,25 +319,26 @@ export default function App() {
     return (
       <div className="login-gate">
         <div className="login-gate-card">
-          <div className="login-logo"><img src={logoUrl} alt="Cookie Zookie" /></div>
-          <h1 className="login-title">Cookie Zookie</h1>
-          <div className="login-sub">Banco de Dados · Área restrita</div>
-          <p className="login-desc">
-            Este painel é privado. Entre com sua conta Google para acessar as informações
-            e sincronizar os dados com a equipe.
-          </p>
-          <button className="login-button" onClick={doLogin} disabled={loginBusy}>
-            <svg width="18" height="18" viewBox="0 0 24 24">
-              <path fill="#4285F4" d="M23.5 12.27c0-.85-.08-1.66-.22-2.45H12v4.64h6.45a5.5 5.5 0 0 1-2.39 3.61v3h3.87c2.26-2.09 3.57-5.17 3.57-8.8z"/>
-              <path fill="#34A853" d="M12 24c3.24 0 5.96-1.07 7.94-2.91l-3.87-3c-1.08.72-2.45 1.15-4.07 1.15-3.13 0-5.78-2.11-6.73-4.96H1.29v3.1A12 12 0 0 0 12 24z"/>
-              <path fill="#FBBC05" d="M5.27 14.28A7.2 7.2 0 0 1 4.89 12c0-.79.14-1.56.38-2.28V6.62H1.29a12 12 0 0 0 0 10.76l3.98-3.1z"/>
-              <path fill="#EA4335" d="M12 4.77c1.76 0 3.34.6 4.58 1.79L20.14 2.98A12 12 0 0 0 12 0 12 12 0 0 0 1.29 6.62l3.98 3.1C6.27 6.88 8.93 4.77 12 4.77z"/>
-            </svg>
-            {loginBusy ? 'Conectando…' : 'Entrar com Google'}
-          </button>
-          <InstallApp />
-          <OwnerKeyLogin/>
-          {loginError && <p className="login-error" role="alert">{loginError}</p>}
+          <div className="login-brand-block">
+            <div className="login-logo"><img src={logoUrl} alt="Cookie Zookie" /></div>
+            <h1 className="login-title">Cookie Zookie</h1>
+            <div className="login-sub">Banco de Dados · Área restrita</div>
+            <p className="login-desc">Este painel é privado. Entre com sua conta Google para acessar as informações e sincronizar os dados com a equipe.</p>
+          </div>
+          <div className="login-action-block">
+            <button className="login-button" onClick={doLogin} disabled={loginBusy}>
+              <svg width="18" height="18" viewBox="0 0 24 24">
+                <path fill="#4285F4" d="M23.5 12.27c0-.85-.08-1.66-.22-2.45H12v4.64h6.45a5.5 5.5 0 0 1-2.39 3.61v3h3.87c2.26-2.09 3.57-5.17 3.57-8.8z"/>
+                <path fill="#34A853" d="M12 24c3.24 0 5.96-1.07 7.94-2.91l-3.87-3c-1.08.72-2.45 1.15-4.07 1.15-3.13 0-5.78-2.11-6.73-4.96H1.29v3.1A12 12 0 0 0 12 24z"/>
+                <path fill="#FBBC05" d="M5.27 14.28A7.2 7.2 0 0 1 4.89 12c0-.79.14-1.56.38-2.28V6.62H1.29a12 12 0 0 0 0 10.76l3.98-3.1z"/>
+                <path fill="#EA4335" d="M12 4.77c1.76 0 3.34.6 4.58 1.79L20.14 2.98A12 12 0 0 0 12 0 12 12 0 0 0 1.29 6.62l3.98 3.1C6.27 6.88 8.93 4.77 12 4.77z"/>
+              </svg>
+              {loginBusy ? 'Conectando…' : 'Entrar com Google'}
+            </button>
+            <InstallApp />
+            <OwnerKeyLogin/>
+            {loginError && <p className="login-error" role="alert">{loginError}</p>}
+          </div>
         </div>
       </div>
     )
@@ -350,15 +370,12 @@ export default function App() {
           </div>
         </div>
         <nav className="sidebar-nav">
-                  {nav.filter(n => {
-                    if (n.id === 'ingredientes' || n.id === 'lucro') return role === 'owner'
-                    if (n.id === 'pagamentos' || n.id === 'relatorios') return role === 'owner' || role === 'admin'
-                    return true
-                  }).map(n => (
+                  {(isMobileApp ? mobilePrimary : availableNav).map(n => (
                     <button key={n.id} className={`nav-item ${tab === n.id ? 'active' : ''}`} aria-current={tab === n.id ? 'page' : undefined} onClick={() => navigate(n.id)}>
                       {n.icon} {n.label}
                     </button>
                   ))}
+                  {isMobileApp && <button className={`nav-item ${mobileMoreActive || isMoreOpen ? 'active' : ''}`} aria-expanded={isMoreOpen} aria-controls="mobile-more-menu" onClick={() => setIsMoreOpen(value => !value)}><MoreHorizontal className="icon" /> Mais</button>}
                 </nav>
         <div className="sidebar-footer">
           <div className="auth-box">
@@ -404,12 +421,30 @@ export default function App() {
                 if (recovery) baixarBackup(recovery.products, recovery.sales, recovery.customers)
               } catch { pushToast('Exportação da cópia de recuperação cancelada.', 'error') }
             }}><Download size={16} /> Cópia do último conflito</button>}
-            <input ref={fileRef} type="file" accept=".json,application/json" style={{ display: 'none' }} onChange={e => {
-              const f = e.target.files?.[0]; if (f) void onImport(f); e.target.value = ''
-            }} />
           </div>
         </div>
       </aside>
+
+      {isMobileApp && isMoreOpen && <>
+        <button className="mobile-more-overlay" aria-label="Fechar menu Mais" onClick={() => setIsMoreOpen(false)} />
+        <section id="mobile-more-menu" className="mobile-more-sheet" role="dialog" aria-modal="true" aria-labelledby="mobile-more-title">
+          <div className="mobile-more-handle" aria-hidden="true" />
+          <header><div><span>Cookie Zookie</span><h2 id="mobile-more-title">Mais opções</h2></div><button className="mobile-more-close" onClick={() => setIsMoreOpen(false)} aria-label="Fechar"><X size={22} /></button></header>
+          <nav className="mobile-more-grid" aria-label="Outras áreas">
+            {mobileSecondary.map(n => <button key={n.id} className={tab === n.id ? 'active' : ''} onClick={() => navigate(n.id)}>{n.icon}<span>{n.label}</span></button>)}
+          </nav>
+          <div className={`mobile-more-status ${!online || syncState === 'offline' ? 'offline' : ''}`}>{!online || syncState === 'offline' ? <CloudOff size={17} /> : <Cloud size={17} />}<span>{!online || syncState === 'offline' ? 'Offline · dados salvos no aparelho' : syncState === 'syncing' ? 'Sincronizando…' : 'Dados sincronizados com a equipe'}</span></div>
+          <div className="mobile-more-actions">
+            <button onClick={() => setDark(value => !value)}>{dark ? <Sun size={19} /> : <Moon size={19} />}{dark ? 'Tema claro' : 'Tema escuro'}</button>
+            <button onClick={() => void exportBackup()}><Download size={19} />Exportar backup</button>
+            <button onClick={() => fileRef.current?.click()}><Upload size={19} />Importar backup</button>
+            <button onClick={doLogout}><LogOut size={19} />Sair da conta</button>
+          </div>
+        </section>
+      </>}
+      <input ref={fileRef} type="file" accept=".json,application/json" style={{ display: 'none' }} onChange={e => {
+        const f = e.target.files?.[0]; if (f) void onImport(f); e.target.value = ''
+      }} />
 
       <main id="main-content" className="main" tabIndex={-1}>
         {(syncState === 'error' || syncState === 'conflict' || !online) && <div className="sync-banner" role="status">

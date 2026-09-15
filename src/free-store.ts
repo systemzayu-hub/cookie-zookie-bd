@@ -4,7 +4,7 @@ import type { User } from 'firebase/auth'
 import { mergeStore, sameData } from './store-merge'
 import { validateStoreData, type StoreData } from './validation'
 import { employeeSale } from './employee-sale'
-import { recordSale } from './record-sale'
+import { recordSale, removeSale } from './record-sale'
 import { diffRows, reversePatches } from './undo-model'
 import { can, type Role } from './roles'
 import type { Sale } from './types'
@@ -96,6 +96,22 @@ export function createFreeStore(db: Firestore, currentUser: () => User | null) {
         tx.set(doc(db, 'catalog', 'products'), { products: after.products, revision: id })
         tx.set(doc(db, 'auditV2', id), { ...header(user, id, 'venda', 'Venda registrada'), saleId: sale.id, sale, beforeProducts: products, afterProducts: after.products })
         return { id: sale.id, repeated: false }
+      })
+    },
+    async deleteSale({ sale }: { sale: Sale }) {
+      const user = identity(), id = auditId()
+      if (!sale || typeof sale.id !== 'string' || !sale.id) throw new Error('Venda inválida.')
+      return runTransaction(db, async tx => {
+        const [access, store] = await Promise.all([
+          tx.get(doc(db, 'teamAccess', accessKey(user.email!))),
+          tx.get(shop),
+        ])
+        if (!can(access.data()?.role, 'manage')) throw new Error('Seu cargo não permite excluir vendas.')
+        const before = core(store.data())
+        const after = core(removeSale(before, sale))
+        const detail = `Venda ${sale.id} excluída; estoque recomposto.`
+        writeStore(tx, user, id, before, after, 'alteracao', detail)
+        return after
       })
     },
     async previewUndo({ id }: { id: string }) {

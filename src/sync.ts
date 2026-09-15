@@ -7,6 +7,7 @@ import { OWNER_KEY_EMAIL } from './owner-access'
 import { createFreeStore } from './free-store'
 import type { Role } from './roles'
 import type { UndoPatch } from './undo-model'
+import type { Sale } from './types'
 
 let app: FirebaseApp | null = null
 let db: Firestore | null = null
@@ -113,6 +114,9 @@ export async function callBackend<T>(name: string, data: unknown = {}): Promise<
 }
 export async function syncCommit(base: StoreData, local: StoreData): Promise<StoreData> {
   return callBackend<StoreData>('commitStore', { base, local })
+}
+export async function deleteSaleRemote(sale: Sale): Promise<StoreData> {
+  return callBackend<StoreData>('deleteSale', { sale })
 }
 
 export async function watchAccess(uid: string, callback: (role: Role | null) => void, failure: () => void) {

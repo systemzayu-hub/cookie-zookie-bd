@@ -14,7 +14,9 @@ import { useStoreSync } from '../src/useStoreSync'
 import { MetricBars } from '../src/components/MetricBars'
 import { Operations } from '../src/components/Operations'
 import * as server from './sync-mock'
-import { recordSale } from '../src/record-sale'
+import { recordSale, removeSale } from '../src/record-sale'
+import { SalesView, customerNameForSale } from '../src/views/Sales'
+import { PasswordProvider } from '../src/components/PasswordGate'
 
 const empty = { products: [], sales: [], customers: [] }
 const product = { id: 'p1', name: 'Tradicional', stock: 10, price: 6, category: 'tradicional' }
@@ -33,6 +35,27 @@ test('sale validation rejects duplicate IDs, invalid quantities and insufficient
   assert.throws(() => recordSale(base, { ...sale, items: [{ ...sale.items[0], qty: NaN }] }))
   assert.throws(() => recordSale(base, { ...sale, items: [{ ...sale.items[0], qty: 6 }, { ...sale.items[0], qty: 6 }] }))
   assert.throws(() => recordSale(base, { ...sale, customerId: 'deleted-customer' }))
+})
+test('sale removal restores only its quantities and rejects stale or replayed snapshots', () => {
+  const recorded = recordSale(base, sale)
+  const removed = removeSale(recorded, sale)
+  assert.equal(removed.sales.length, 0)
+  assert.equal(removed.products[0].stock, 10)
+  assert.throws(() => removeSale(recorded, { ...sale, total: 11 }), /outro dispositivo/)
+  assert.throws(() => removeSale(removed, sale), /já foi removida/)
+})
+test('sale history resolves the customer and renders its accessible modal cards', () => {
+  assert.equal(customerNameForSale({ ...sale, customerId: 'c1' }, [customer]), 'Cliente teste')
+  assert.equal(customerNameForSale({ ...sale, customerId: 'old-customer' }, [customer]), 'Sem cliente')
+  let root: any
+  act(() => { root = create(<PasswordProvider><SalesView products={[product]} customers={[customer]} sales={[{ ...sale, customerId: 'c1' }]} onSaleAdded={() => true} onSaleDeleted={async () => true} onSalesImported={() => true} pushToast={() => {}} /></PasswordProvider>) })
+  const history = root.root.find((node: any) => node.type === 'button' && node.props['aria-haspopup'] === 'dialog')
+  act(() => history.props.onClick())
+  const modal = root.root.find((node: any) => node.type === 'dialog' && node.props.className === 'history-modal')
+  assert.equal(modal.props['aria-labelledby'], 'sale-history-title')
+  assert.ok(modal.findAll((node: any) => node.children.includes('Cliente teste')).length)
+  assert.ok(root.root.findAll((node: any) => node.props.className === 'sale-history-cards').length)
+  act(() => root.unmount())
 })
 
 test('independent records from two devices are preserved', () => {

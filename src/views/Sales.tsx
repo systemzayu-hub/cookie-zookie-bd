@@ -1,13 +1,14 @@
-import { useEffect, useState } from 'react'
-import { Plus, X, CheckCircle2, Trash2, ClipboardPaste, ShoppingCart } from 'lucide-react'
+import { useEffect, useRef, useState } from 'react'
+import { Plus, X, CheckCircle2, Trash2, ClipboardPaste, ShoppingCart, History, UserRound } from 'lucide-react'
 import { Product, Customer, Sale, SaleItem, LOW_STOCK_THRESHOLD, CHANNELS, PAYMENTS, fmtBRL, uid } from '../types'
 import { StatusBadge } from './Dashboard'
 import { usePasswordGuard } from '../components/PasswordGate'
 import { readSalesDraft } from '../sales-draft'
 import { QuickSaleView } from './QuickSale'
+import { ConfirmDialog } from '../components/ConfirmDialog'
 
-export function SalesView({ products, customers, sales, onSaleAdded, onSalesImported, pushToast, draftKey }: {
-  draftKey?: string; products: Product[]; customers: Customer[]; sales: Sale[]; onSaleAdded: (s: Sale) => boolean; onSalesImported: (sales: Sale[], customers: Customer[]) => boolean; pushToast: (m: string, t?: 'success' | 'error') => void
+export function SalesView({ products, customers, sales, onSaleAdded, onSaleDeleted, onSalesImported, pushToast, draftKey }: {
+  draftKey?: string; products: Product[]; customers: Customer[]; sales: Sale[]; onSaleAdded: (s: Sale) => boolean; onSaleDeleted: (sale: Sale) => Promise<boolean>; onSalesImported: (sales: Sale[], customers: Customer[]) => boolean; pushToast: (m: string, t?: 'success' | 'error') => void
 }) {
   const { guard } = usePasswordGuard()
   const [mode, setMode] = useState<'manual' | 'paste'>(() => readSalesDraft(draftKey).text ? 'paste' : 'manual')
@@ -19,6 +20,8 @@ export function SalesView({ products, customers, sales, onSaleAdded, onSalesImpo
   const [status, setStatus] = useState<Sale['status']>('Pago')
   const [error, setError] = useState('')
   const [historyOpen, setHistoryOpen] = useState(false)
+  const [pendingDeletion, setPendingDeletion] = useState<Sale | null>(null)
+  const [deleting, setDeleting] = useState(false)
 
   const addLine = () => { if (products.length) setLines(l => [...l, { productId: products[0].id, qty: 1 }]) }
   const updateLine = (idx: number, patch: Partial<SaleItem>) => setLines(l => l.map((x, i) => i === idx ? { ...x, ...patch } : x))
@@ -50,12 +53,20 @@ export function SalesView({ products, customers, sales, onSaleAdded, onSalesImpo
     setLines(products.length ? [{ productId: products[0].id, qty: 1 }] : [])
     setError('')
   })
+  const requestDeletion = (sale: Sale) => guard('Excluir venda', () => setPendingDeletion(sale), 'admin')
+  const confirmDeletion = async () => {
+    if (!pendingDeletion || deleting) return
+    setDeleting(true)
+    const deleted = await onSaleDeleted(pendingDeletion)
+    setDeleting(false)
+    if (deleted) setPendingDeletion(null)
+  }
 
   return (
     <>
       <div className="page-row">
         <div className="page-title"><h2>Vendas</h2><p>Registre vendas manualmente ou cole o texto da planilha</p></div>
-        <button className="btn btn-secondary" onClick={() => setHistoryOpen(h => !h)}>{historyOpen ? 'Fechar' : 'Histórico'} de vendas</button>
+        <button className="btn btn-secondary" onClick={() => setHistoryOpen(true)} aria-haspopup="dialog"><History size={16} /> Histórico de vendas</button>
       </div>
 
       {/* Toggle: Registrar (manual) / Colar texto (planilha) */}
@@ -154,36 +165,67 @@ export function SalesView({ products, customers, sales, onSaleAdded, onSalesImpo
         </div>
       )}
 
-      {historyOpen && <SaleHistory sales={sales} />}
+      {historyOpen && <SaleHistory sales={sales} customers={customers} onDelete={requestDeletion} onClose={() => setHistoryOpen(false)} />}
+      {pendingDeletion && <ConfirmDialog titleId="delete-sale-title" busy={deleting} onCancel={() => setPendingDeletion(null)}>
+        <h2 id="delete-sale-title">Excluir esta venda?</h2>
+        <p><strong>{customerNameForSale(pendingDeletion, customers)}</strong> · {new Date(pendingDeletion.date).toLocaleDateString('pt-BR')} · {fmtBRL(pendingDeletion.total)}</p>
+        <p>Ela será removida do histórico e as quantidades de seus itens voltarão ao estoque atual.</p>
+        <p><strong>Outras vendas e seus pagamentos não serão alterados.</strong></p>
+        <div className="pw-buttons"><button autoFocus className="btn btn-secondary" disabled={deleting} onClick={() => setPendingDeletion(null)}>Cancelar</button><button className="btn btn-danger" disabled={deleting} onClick={() => void confirmDeletion()}>{deleting ? 'Excluindo…' : 'Excluir venda'}</button></div>
+      </ConfirmDialog>}
     </>
   )
 }
 
-function SaleHistory({ sales }: { sales: Sale[] }) {
+export function customerNameForSale(sale: Sale, customers: Customer[]) {
+  return sale.customerId ? customers.find(customer => customer.id === sale.customerId)?.name || 'Sem cliente' : 'Sem cliente'
+}
+
+function SaleHistory({ sales, customers, onDelete, onClose }: { sales: Sale[]; customers: Customer[]; onDelete: (sale: Sale) => void; onClose: () => void }) {
+  const dialogRef = useRef<HTMLDialogElement>(null)
+  useEffect(() => {
+    const dialog = dialogRef.current
+    dialog?.showModal()
+    return () => dialog?.close()
+  }, [])
   return (
-    <div className="card" style={{ marginTop: 'var(--sp-6)' }}>
-      <h3 className="card-title">Histórico de Vendas</h3>
+    <dialog ref={dialogRef} className="history-modal" aria-labelledby="sale-history-title" onCancel={event => { event.preventDefault(); onClose() }}>
+      <div className="history-modal-header"><div><h2 id="sale-history-title">Histórico de Vendas</h2><p>{sales.length} {sales.length === 1 ? 'venda registrada' : 'vendas registradas'}</p></div><button className="modal-close" aria-label="Fechar histórico de vendas" onClick={onClose}><X size={20} /></button></div>
+      <div className="history-modal-body">
       {sales.length === 0 ? (
         <div className="empty-state"><Trash2 className="icon" size={40} /><p>Histórico vazio.</p></div>
       ) : (
-        <div className="table-wrap">
+        <>
+        <div className="table-wrap sale-history-table-wrap">
           <table className="table">
-            <thead><tr><th>Data</th><th>Itens</th><th>Pagamento</th><th>Canal</th><th>Status</th><th className="text-right">Total</th></tr></thead>
+            <thead><tr><th>Data</th><th>Cliente</th><th>Itens</th><th>Pagamento</th><th>Canal</th><th>Status</th><th className="text-right">Total</th><th><span className="sr-only">Ações</span></th></tr></thead>
             <tbody>
               {sales.map(s => (
                 <tr key={s.id}>
                   <td>{new Date(s.date).toLocaleDateString('pt-BR') + ' ' + new Date(s.date).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</td>
+                  <td>{customerNameForSale(s, customers)}</td>
                   <td>{s.items.map(i => `${i.name} x${i.qty}`).join(', ')}</td>
                   <td><span className="badge badge-neutral">{s.payment}</span></td>
                   <td><span className="badge badge-brand">{s.channel}</span></td>
                   <td><StatusBadge status={s.status} /></td>
                   <td className="text-right" style={{ fontWeight: 700 }}>{fmtBRL(s.total)}</td>
+                  <td><button className="btn btn-ghost btn-sm" aria-label={`Excluir venda de ${customerNameForSale(s, customers)}`} onClick={() => onDelete(s)}><Trash2 size={15} /></button></td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+        <div className="sale-history-cards">
+          {sales.map(s => <article className="sale-history-card" key={s.id}>
+            <div className="sale-history-card-top"><div><span className="sale-history-label">Cliente</span><strong><UserRound size={15} /> {customerNameForSale(s, customers)}</strong></div><button className="btn btn-ghost btn-sm" aria-label={`Excluir venda de ${customerNameForSale(s, customers)}`} onClick={() => onDelete(s)}><Trash2 size={15} /></button></div>
+            <p className="sale-history-date">{new Date(s.date).toLocaleDateString('pt-BR') + ' · ' + new Date(s.date).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
+            <p className="sale-history-items">{s.items.map(i => `${i.name} x${i.qty}`).join(', ')}</p>
+            <div className="sale-history-meta"><span className="badge badge-neutral">{s.payment}</span><span className="badge badge-brand">{s.channel}</span><StatusBadge status={s.status} /><strong>{fmtBRL(s.total)}</strong></div>
+          </article>)}
+        </div>
+        </>
       )}
-    </div>
+      </div>
+    </dialog>
   )
 }

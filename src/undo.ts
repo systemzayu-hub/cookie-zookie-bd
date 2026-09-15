@@ -43,6 +43,9 @@ export function undoStatus(id: string): 'available' | 'undone' | 'unavailable' {
   const record = records().find(item => item.id === id)
   return record ? record.undone ? 'undone' : 'available' : 'unavailable'
 }
+export function auditUndoPatches(id: string): UndoPatch[] {
+  return records().find(item => item.id === id)?.patches || []
+}
 export function previewUndo(id: string): { source: UndoSource; count: number }[] {
   const record = records().find(item => item.id === id)
   if (!record || record.undone) throw new Error('Esta ação não está disponível para desfazer neste aparelho.')

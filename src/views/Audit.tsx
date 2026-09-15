@@ -1,11 +1,12 @@
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useEffect, useState } from 'react'
-import { Undo2 } from 'lucide-react'
+import { ChevronDown, Undo2 } from 'lucide-react'
 import { useRole } from '../auth'
 import { can } from '../roles'
 import { canUndoAction, loadAudit, loadAuditRemote, undoAuditAction, type AuditEntry } from '../audit'
-import { callBackend, onAuditChanges } from '../sync'
-import { previewUndo, undoStatus } from '../undo'
+import { callBackend, onAuditChanges, type AuditDetails } from '../sync'
+import { auditFieldLabel, changesFromPatches, formatAuditValue, type AuditChange } from '../audit-changes'
+import { auditUndoPatches, previewUndo, undoStatus } from '../undo'
 import { TeamView } from './Team'
 const names: Record<string, string> = { products: 'produtos', sales: 'vendas', customers: 'clientes', custos: 'custos', perdas: 'perdas' }
 export function AuditView() {
@@ -19,6 +20,9 @@ export function AuditView() {
   const [busy, setBusy] = useState(false)
   const [pending, setPending] = useState<AuditEntry | null>(null)
   const [preview, setPreview] = useState('')
+  const [expanded, setExpanded] = useState<string | null>(null)
+  const [details, setDetails] = useState<Record<string, AuditDetails>>({})
+  const [detailsLoading, setDetailsLoading] = useState<string | null>(null)
   const selectTab = (next: string) => {
     setTab(next)
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
@@ -54,6 +58,23 @@ export function AuditView() {
     } catch (e) { setError((e as Error).message) }
     finally { setBusy(false) }
   }
+  const toggleDetails = async (entry: AuditEntry) => {
+    if (expanded === entry.id) { setExpanded(null); return }
+    setExpanded(entry.id)
+    if (details[entry.id]) return
+    if (entry.local) {
+      const changes = changesFromPatches(auditUndoPatches(entry.id))
+      setDetails(previous => ({ ...previous, [entry.id]: { changes, unavailable: !changes.length } }))
+      return
+    }
+    setDetailsLoading(entry.id)
+    try {
+      const result = await callBackend<AuditDetails>('auditDetails', { id: entry.id })
+      setDetails(previous => ({ ...previous, [entry.id]: result }))
+    }
+    catch { setDetails(previous => ({ ...previous, [entry.id]: { changes: [], unavailable: true } })) }
+    finally { setDetailsLoading(current => current === entry.id ? null : current) }
+  }
   const filtered = entries.filter(e => (!action || e.action === action) && (!days || e.ts >= Date.now() - days * 86400000) && `${e.actor} ${e.email || ''} ${e.detail}`.toLocaleLowerCase('pt-BR').includes(search.toLocaleLowerCase('pt-BR')))
   const exportCsv = () => {
     if (!can(role, 'audit')) return
@@ -71,7 +92,8 @@ export function AuditView() {
       <div className="card audit-history">{!filtered.length && <p>Nenhuma ação encontrada.</p>}{filtered.map(entry => {
         const reversed = undone.has(entry.id) || entry.local && undoStatus(entry.id) === 'undone'
         const available = !reversed && (entry.local ? canUndoAction(entry.id) : !!entry.hasUndo)
-        return <article className="audit-event" key={entry.id}><div><div className="audit-event-meta"><strong>{entry.actor}</strong><time dateTime={new Date(entry.ts).toISOString()}>{new Date(entry.ts).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}</time><span className="badge badge-neutral">{entry.local ? 'Neste aparelho' : entry.action}</span></div><p>{entry.detail}</p></div>{available ? <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => select(entry)}><Undo2 size={15}/> Desfazer</button> : <small>{reversed ? 'Desfeita' : entry.action === 'equipe' ? 'Gerencie pela equipe' : 'Sem reversão disponível'}</small>}</article>
+        const open = expanded === entry.id, detail = details[entry.id]
+        return <article className={`audit-event${open ? ' is-expanded' : ''}`} key={entry.id}><button type="button" className="audit-event-summary" aria-expanded={open} aria-controls={`audit-details-${entry.id}`} onClick={() => void toggleDetails(entry)}><span className="audit-event-summary-copy"><span className="audit-event-meta"><strong>{entry.actor}</strong><time dateTime={new Date(entry.ts).toISOString()}>{new Date(entry.ts).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })}</time><span className="badge badge-neutral">{entry.local ? 'Neste aparelho' : entry.action}</span></span><span className="audit-event-description">{entry.detail}</span></span><span className="audit-event-expand">{open ? 'Ocultar detalhes' : 'Ver detalhes'}<ChevronDown size={17}/></span></button>{available ? <button className="btn btn-secondary btn-sm" disabled={busy} onClick={() => select(entry)}><Undo2 size={15}/> Desfazer</button> : <small>{reversed ? 'Desfeita' : entry.action === 'equipe' ? 'Gerencie pela equipe' : 'Sem reversão disponível'}</small>}{open && <div className="audit-event-changes" id={`audit-details-${entry.id}`}>{detailsLoading === entry.id ? <small className="audit-details-message">Carregando mudanças…</small> : detail?.changes.length ? <div className="audit-change-list">{detail.changes.map((change: AuditChange, index) => <div className="audit-change" key={`${change.entity}-${change.field}-${index}`}><div className="audit-change-heading"><strong>{change.entity}</strong><span>{auditFieldLabel(change.field)}</span></div><div className="audit-change-values"><div><small>Antes</small><span>{formatAuditValue(change.before, change.field)}</span></div><div><small>Depois</small><span>{formatAuditValue(change.after, change.field)}</span></div></div></div>)}</div> : <small className="audit-details-message">{detail?.unavailable ? 'Este registro antigo não possui dados suficientes para mostrar a comparação completa.' : 'Este evento não alterou dados cadastrados.'}</small>}</div>}</article>
       })}</div>
     </>}
     {pending && <ConfirmDialog titleId="undo-confirm" busy={busy} onCancel={() => setPending(null)}><h2 id="undo-confirm">Desfazer esta ação?</h2><p>{pending.detail}</p><p>{preview}</p><p>Alterações posteriores serão preservadas. Se houver conflito, a reversão será recusada.</p>{error && <p role="alert">{error}</p>}<div className="pw-buttons"><button autoFocus className="btn btn-secondary" disabled={busy} onClick={() => setPending(null)}>Cancelar</button><button className="btn btn-primary" disabled={busy} onClick={() => void confirm()}>{busy ? 'Desfazendo…' : 'Confirmar reversão'}</button></div></ConfirmDialog>}

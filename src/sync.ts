@@ -7,6 +7,7 @@ import { OWNER_KEY_EMAIL } from './owner-access'
 import { createFreeStore } from './free-store'
 import type { Role } from './roles'
 import type { UndoPatch } from './undo-model'
+import type { AuditChange } from './audit-changes'
 import type { Sale } from './types'
 
 let app: FirebaseApp | null = null
@@ -174,7 +175,11 @@ export type AuditEntryDB = {
   hasUndo?: boolean
   undoOf?: string
   local?: boolean
+  targetEmail?: string
+  beforeRole?: string
+  afterRole?: string
 }
+export type AuditDetails = { changes: AuditChange[]; unavailable?: boolean }
 
 
 function readAudit(value: Record<string, any>): AuditEntryDB {

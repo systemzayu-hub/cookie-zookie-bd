@@ -6,6 +6,7 @@ import { validateStoreData, type StoreData } from './validation'
 import { employeeSale } from './employee-sale'
 import { recordSale, removeSale } from './record-sale'
 import { diffRows, reversePatches } from './undo-model'
+import { changesFromPatches } from './audit-changes'
 import { can, type Role } from './roles'
 import type { Sale } from './types'
 
@@ -124,6 +125,21 @@ export function createFreeStore(db: Firestore, currentUser: () => User | null) {
       const [before, after] = await Promise.all([getDocFromServer(doc(db, 'auditSnapshots', id, 'versions', 'before')), getDocFromServer(doc(db, 'auditSnapshots', id, 'versions', 'after'))])
       const b = core(before.data()), a = core(after.data())
       return (['products', 'sales', 'customers'] as const).map(source => ({ source, count: diffRows(source, b[source], a[source]).length })).filter(item => item.count)
+    },
+    async auditDetails({ id }: { id: string }) {
+      identity()
+      const entry = await getDocFromServer(doc(db, 'auditV2', id))
+      if (!entry.exists()) return { changes: [], unavailable: true }
+      const event = entry.data()
+      if (event.action === 'equipe') return { changes: [{ entity: `Acesso: ${event.targetEmail || 'conta'}`, field: 'role', before: event.beforeRole, after: event.afterRole }] }
+      try {
+        const [before, after] = event.action === 'venda'
+          ? [{ data: () => ({ products: event.beforeProducts || [], sales: [], customers: [] }) }, { data: () => ({ products: event.afterProducts || [], sales: event.sale ? [event.sale] : [], customers: [] }) }]
+          : await Promise.all([getDocFromServer(doc(db, 'auditSnapshots', id, 'versions', 'before')), getDocFromServer(doc(db, 'auditSnapshots', id, 'versions', 'after'))])
+        const left = core(before.data()), right = core(after.data())
+        const patches = (['products', 'sales', 'customers'] as const).flatMap(source => diffRows(source, left[source], right[source]))
+        return { changes: changesFromPatches(patches), unavailable: !patches.length }
+      } catch { return { changes: [], unavailable: true } }
     },
     async undoAction({ id }: { id: string }) {
       const user = identity(), nextId = auditId()

@@ -1,11 +1,12 @@
 import { combineCustomers, type CustomerMerge } from './combine-customers'
 import { payCustomer, transferSale, type CustomerPayment, type SaleTransfer } from './sale-adjustments'
+import type { SaleEdit } from './edit-sale'
 import { useEffect, useRef, useState, Suspense, lazy } from 'react'
 import { LayoutDashboard, ShoppingCart, Package, BarChart3, Users, Sun, Moon, Download, Upload, LogIn, LogOut, Percent, ShieldCheck, Menu, X, Cloud, CloudOff, RefreshCw, WalletCards, TrendingDown, MoreHorizontal } from 'lucide-react'
 import { Product, Sale, Customer, Tab, Pendencia, fmtBRL } from './types'
 import { seedProducts, seedCustomers, seedSales, load, save, STORAGE_ERROR_EVENT } from './data'
 import { baixarBackup, aplicarBackup } from './db'
-import { authLoginGoogle, authLogout, authOnChange, authReauthenticateGoogle, deleteSaleRemote, firebaseReady } from './sync'
+import { authLoginGoogle, authLogout, authOnChange, authReauthenticateGoogle, deleteSaleRemote, editSaleRemote, firebaseReady } from './sync'
 import { PasswordProvider } from './components/PasswordGate'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { SensitiveData } from './components/SensitiveData'
@@ -65,7 +66,8 @@ export default function App() {
   const [accessWaitExpired, setAccessWaitExpired] = useState(false)
   const saleState = useRef({ products, sales, customers })
   saleState.current = { products, sales, customers }
-  const { status: syncState, ready: storeReady, retry: retrySync, discardPending } = useStoreSync(can(role, 'manage') ? user?.email ?? null : null, { products, sales, customers }, data => {
+  const { status: syncState, ready: storeReady, retry: retrySync, discardPending, transact } = useStoreSync(can(role, 'manage') ? user?.email ?? null : null, { products, sales, customers }, data => {
+    saleState.current = data
     setProducts(data.products); setSales(data.sales); setCustomers(data.customers)
   }, online)
   const [loginBusy, setLoginBusy] = useState(false)
@@ -476,15 +478,19 @@ export default function App() {
     if (!online) { pushToast('Conecte-se à internet para excluir uma venda com segurança.', 'error'); return false }
     if (syncState !== 'synced') { pushToast('Aguarde a sincronização terminar antes de excluir a venda.', 'error'); return false }
     try {
-      const next = await deleteSaleRemote(sale)
-      saleState.current = next
-      setProducts(next.products); setSales(next.sales); setCustomers(next.customers)
+      await transact(() => deleteSaleRemote(sale))
       pushToast('Venda excluída e estoque recomposto.')
       return true
     } catch (error) {
       pushToast((error as Error).message, 'error')
       return false
     }
+  }
+  const handleSaleEdited = async (request: SaleEdit) => {
+    if (!can(role, 'manage')) throw new Error('Seu cargo não permite editar vendas.')
+    if (syncState !== 'synced') throw new Error('Aguarde a sincronização terminar antes de editar a venda.')
+    await transact(() => editSaleRemote(request))
+    pushToast('Venda atualizada e estoque ajustado.')
   }
   if (role === 'viewer') return <VisitorDashboard name={user.name || user.email || ''} onLogout={doLogout}/>
   if (role === 'employee') return <EmployeeSales name={user.name || user.email || 'Funcionário'} onLogout={doLogout}/>
@@ -609,7 +615,7 @@ export default function App() {
         {!storeReady ? <div className="loading" role="status">Preparando os dados da equipe…</div> : <ErrorBoundary key={tab}>
         <Suspense fallback={<div className="loading" role="status">Carregando tela…</div>}>
           {tab === 'dashboard' && <Dashboard sales={sales} products={products} customers={customers} onNewSale={() => navigate('vendas')} onNavigate={navigate} />}
-          {tab === 'vendas' && <SensitiveData label="Desbloquear vendas"><SalesView draftKey={user?.email ? `cc_sales_draft:${encodeURIComponent(user.email.toLowerCase())}` : undefined} products={products} customers={customers} sales={sales} onSaleAdded={handleSaleAdded} onSaleDeleted={handleSaleDeleted} onSalesImported={handleSalesImported} pushToast={pushToast} /></SensitiveData>}
+          {tab === 'vendas' && <SensitiveData label="Desbloquear vendas"><SalesView draftKey={user?.email ? `cc_sales_draft:${encodeURIComponent(user.email.toLowerCase())}` : undefined} products={products} customers={customers} sales={sales} onSaleAdded={handleSaleAdded} onSaleDeleted={handleSaleDeleted} onSaleEdited={handleSaleEdited} onSalesImported={handleSalesImported} pushToast={pushToast} /></SensitiveData>}
           {tab === 'produtos' && <ProductsStockView products={products} setProducts={setProducts} sales={sales} pushToast={pushToast} />}
           {tab === 'relatorios' && (role === 'owner' || role === 'admin') && <ReportsView sales={sales} />}
           {tab === 'clientes' && <CustomersBillingView onCustomersCombined={handleCustomersCombined} onCustomerPayment={handleCustomerPayment} onSaleTransfer={handleSaleTransfer} customers={customers} setCustomers={setCustomers} sales={sales} setSales={setSales} pushToast={pushToast} />}

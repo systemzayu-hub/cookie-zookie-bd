@@ -3,6 +3,7 @@ import './customer-import.test'
 import './sale-adjustments.test'
 import './security.test'
 import './audit-changes.test'
+import './edit-sale.test'
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { useState } from 'react'
@@ -49,13 +50,14 @@ test('sale history resolves the customer and renders its accessible modal cards'
   assert.equal(customerNameForSale({ ...sale, customerId: 'c1' }, [customer]), 'Cliente teste')
   assert.equal(customerNameForSale({ ...sale, customerId: 'old-customer' }, [customer]), 'Sem cliente')
   let root: any
-  act(() => { root = create(<PasswordProvider><SalesView products={[product]} customers={[customer]} sales={[{ ...sale, customerId: 'c1' }]} onSaleAdded={() => true} onSaleDeleted={async () => true} onSalesImported={() => true} pushToast={() => {}} /></PasswordProvider>) })
+  act(() => { root = create(<PasswordProvider><SalesView products={[product]} customers={[customer]} sales={[{ ...sale, customerId: 'c1' }]} onSaleAdded={() => true} onSaleDeleted={async () => true} onSaleEdited={async () => {}} onSalesImported={() => true} pushToast={() => {}} /></PasswordProvider>) })
   const history = root.root.find((node: any) => node.type === 'button' && node.props['aria-haspopup'] === 'dialog')
   act(() => history.props.onClick())
   const modal = root.root.find((node: any) => node.type === 'dialog' && node.props.className === 'history-modal')
   assert.equal(modal.props['aria-labelledby'], 'sale-history-title')
   assert.ok(modal.findAll((node: any) => node.children.includes('Cliente teste')).length)
   assert.ok(root.root.findAll((node: any) => node.props.className === 'sale-history-cards').length)
+  assert.ok(modal.findAll((node: any) => String(node.props['aria-label'] || '').startsWith('Editar venda de Cliente teste')).length)
   act(() => root.unmount())
 })
 
@@ -173,6 +175,17 @@ test('sync hook keeps a conflicting local copy and does not write over the other
   act(() => server.emit({ ...base, products: [{ ...product, stock: 9 }] }))
   await flush()
   assert.equal(control.status, 'conflict'); assert.equal(control.data.products[0].stock, 8)
+  assert.equal(server.commits.length, 0)
+  act(() => root.unmount())
+})
+test('direct transaction advances the baseline without committing the same change twice', async () => {
+  storage.clear(); server.reset(base)
+  let root: any
+  act(() => { root = create(<Harness />) }); act(() => server.emit(base))
+  const next = { ...base, products: [{ ...product, stock: 9 }] }
+  await act(async () => { await control.transact(async () => next) })
+  act(() => server.emit(next)); await flush()
+  assert.equal(control.data.products[0].stock, 9)
   assert.equal(server.commits.length, 0)
   act(() => root.unmount())
 })

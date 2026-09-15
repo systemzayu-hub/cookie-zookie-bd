@@ -5,6 +5,7 @@ import { mergeStore, sameData } from './store-merge'
 import { validateStoreData, type StoreData } from './validation'
 import { employeeSale } from './employee-sale'
 import { recordSale, removeSale } from './record-sale'
+import { editSale, type SaleEdit } from './edit-sale'
 import { diffRows, reversePatches } from './undo-model'
 import { changesFromPatches } from './audit-changes'
 import { can, type Role } from './roles'
@@ -97,6 +98,23 @@ export function createFreeStore(db: Firestore, currentUser: () => User | null) {
         tx.set(doc(db, 'catalog', 'products'), { products: after.products, revision: id })
         tx.set(doc(db, 'auditV2', id), { ...header(user, id, 'venda', 'Venda registrada'), saleId: sale.id, sale, beforeProducts: products, afterProducts: after.products })
         return { id: sale.id, repeated: false }
+      })
+    },
+    async editSale({ sale, changes, reviewed, operationId }: SaleEdit) {
+      const user = identity()
+      if (!/^v2-[a-f0-9-]{36}$/.test(operationId)) throw new Error('Identificador da edição inválido.')
+      return runTransaction(db, async tx => {
+        const [access, store, receipt] = await Promise.all([
+          tx.get(doc(db, 'teamAccess', accessKey(user.email!))), tx.get(shop),
+          tx.get(doc(db, 'auditSnapshots', operationId, 'versions', 'after')),
+        ])
+        if (!can(access.data()?.role, 'manage')) throw new Error('Seu cargo não permite editar vendas.')
+        if (receipt.exists()) throw new Error('Esta edição já foi aplicada. Atualize o histórico.')
+        const before = core(store.data())
+        const after = core(editSale(before, sale, changes))
+        if (!sameData(after.sales.find(s => s.id === sale.id), reviewed)) throw new Error('Os preços ou os dados mudaram. Revise novamente a edição antes de salvar.')
+        if (!sameData(before, after)) writeStore(tx, user, operationId, before, after, 'alteracao', `Venda ${sale.id} editada; valores recalculados e estoque ajustado pela diferença.`)
+        return after
       })
     },
     async deleteSale({ sale }: { sale: Sale }) {

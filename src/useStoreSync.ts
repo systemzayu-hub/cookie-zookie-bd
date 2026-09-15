@@ -104,7 +104,32 @@ export function useStoreSync(owner: string | null, data: StoreData, apply: (data
     return () => window.removeEventListener('beforeunload', warn)
   }, [])
 
-  return { status, ready, retry: () => reconnect(value => value + 1), discardPending: () => {
+  // Direct transactions must advance the sync baseline too. Applying their result
+  // only to React state would enqueue the same stock change as a local commit.
+  const transact = async (operation: () => Promise<StoreData>) => {
+    if (!owner || !online || !navigator.onLine || !base.current || busy.current || conflict.current || !sameData(base.current, current.current)) {
+      throw new Error('Aguarde a conexão e a sincronização antes de alterar a venda.')
+    }
+    const sent = current.current, session = generation.current
+    busy.current = true; setStatus('syncing')
+    try {
+      const committed = await operation()
+      if (session !== generation.current) throw new Error('A sessão mudou. Confira o histórico ao entrar novamente.')
+      const next = mergeStore(sent, current.current, committed)
+      base.current = committed; receive(next)
+      pending.current = !sameData(next, committed); persist()
+      setStatus(pending.current ? 'syncing' : 'synced')
+    } finally {
+      if (session === generation.current) {
+        busy.current = false
+        // Re-read on success or uncertain network outcome, preserving persisted edits.
+        missedSnapshot.current = false
+        reconnect(value => value + 1)
+      }
+    }
+  }
+
+  return { status, ready, transact, retry: () => reconnect(value => value + 1), discardPending: () => {
     if (!save('cc_sync_pending', null)) return false
     pending.current = false
     return true

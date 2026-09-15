@@ -9,6 +9,7 @@ import type { Role } from './roles'
 import type { UndoPatch } from './undo-model'
 import type { AuditChange } from './audit-changes'
 import type { Sale } from './types'
+import type { SaleEdit } from './edit-sale'
 
 let app: FirebaseApp | null = null
 let db: Firestore | null = null
@@ -118,6 +119,9 @@ export async function syncCommit(base: StoreData, local: StoreData): Promise<Sto
 }
 export async function deleteSaleRemote(sale: Sale): Promise<StoreData> {
   return callBackend<StoreData>('deleteSale', { sale })
+}
+export async function editSaleRemote(request: SaleEdit): Promise<StoreData> {
+  return callBackend<StoreData>('editSale', request)
 }
 
 export async function watchAccess(uid: string, callback: (role: Role | null) => void, failure: () => void) {

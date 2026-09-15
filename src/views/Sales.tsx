@@ -1,14 +1,16 @@
-import { useEffect, useRef, useState } from 'react'
-import { Plus, X, CheckCircle2, Trash2, ClipboardPaste, ShoppingCart, History, UserRound } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { Plus, X, CheckCircle2, Trash2, ClipboardPaste, ShoppingCart, History, UserRound, Pencil, Save } from 'lucide-react'
 import { Product, Customer, Sale, SaleItem, LOW_STOCK_THRESHOLD, CHANNELS, PAYMENTS, fmtBRL, uid } from '../types'
 import { StatusBadge } from './Dashboard'
 import { usePasswordGuard } from '../components/PasswordGate'
 import { readSalesDraft } from '../sales-draft'
 import { QuickSaleView } from './QuickSale'
 import { ConfirmDialog } from '../components/ConfirmDialog'
+import { editSale, saleEditOperationId, type SaleEdit, type SaleEditFields } from '../edit-sale'
+import { sameData } from '../store-merge'
 
-export function SalesView({ products, customers, sales, onSaleAdded, onSaleDeleted, onSalesImported, pushToast, draftKey }: {
-  draftKey?: string; products: Product[]; customers: Customer[]; sales: Sale[]; onSaleAdded: (s: Sale) => boolean; onSaleDeleted: (sale: Sale) => Promise<boolean>; onSalesImported: (sales: Sale[], customers: Customer[]) => boolean; pushToast: (m: string, t?: 'success' | 'error') => void
+export function SalesView({ products, customers, sales, onSaleAdded, onSaleDeleted, onSaleEdited, onSalesImported, pushToast, draftKey }: {
+  draftKey?: string; products: Product[]; customers: Customer[]; sales: Sale[]; onSaleAdded: (s: Sale) => boolean; onSaleDeleted: (sale: Sale) => Promise<boolean>; onSaleEdited: (request: SaleEdit) => Promise<void>; onSalesImported: (sales: Sale[], customers: Customer[]) => boolean; pushToast: (m: string, t?: 'success' | 'error') => void
 }) {
   const { guard } = usePasswordGuard()
   const [mode, setMode] = useState<'manual' | 'paste'>(() => readSalesDraft(draftKey).text ? 'paste' : 'manual')
@@ -22,6 +24,7 @@ export function SalesView({ products, customers, sales, onSaleAdded, onSaleDelet
   const [historyOpen, setHistoryOpen] = useState(false)
   const [pendingDeletion, setPendingDeletion] = useState<Sale | null>(null)
   const [deleting, setDeleting] = useState(false)
+  const [editingSale, setEditingSale] = useState<Sale | null>(null)
 
   const addLine = () => { if (products.length) setLines(l => [...l, { productId: products[0].id, qty: 1 }]) }
   const updateLine = (idx: number, patch: Partial<SaleItem>) => setLines(l => l.map((x, i) => i === idx ? { ...x, ...patch } : x))
@@ -54,6 +57,7 @@ export function SalesView({ products, customers, sales, onSaleAdded, onSaleDelet
     setError('')
   })
   const requestDeletion = (sale: Sale) => guard('Excluir venda', () => setPendingDeletion(sale), 'admin')
+  const requestEdit = (sale: Sale) => guard('Editar venda', () => setEditingSale(sale), 'admin')
   const confirmDeletion = async () => {
     if (!pendingDeletion || deleting) return
     setDeleting(true)
@@ -165,7 +169,8 @@ export function SalesView({ products, customers, sales, onSaleAdded, onSaleDelet
         </div>
       )}
 
-      {historyOpen && <SaleHistory sales={sales} customers={customers} onDelete={requestDeletion} onClose={() => setHistoryOpen(false)} />}
+      {historyOpen && <SaleHistory sales={sales} customers={customers} onEdit={requestEdit} onDelete={requestDeletion} onClose={() => setHistoryOpen(false)} />}
+      {editingSale && <SaleEditorDialog sale={editingSale} products={products} customers={customers} sales={sales} onClose={() => setEditingSale(null)} onSave={async request => { await onSaleEdited(request); setEditingSale(null) }} />}
       {pendingDeletion && <ConfirmDialog titleId="delete-sale-title" busy={deleting} onCancel={() => setPendingDeletion(null)}>
         <h2 id="delete-sale-title">Excluir esta venda?</h2>
         <p><strong>{customerNameForSale(pendingDeletion, customers)}</strong> · {new Date(pendingDeletion.date).toLocaleDateString('pt-BR')} · {fmtBRL(pendingDeletion.total)}</p>
@@ -181,7 +186,7 @@ export function customerNameForSale(sale: Sale, customers: Customer[]) {
   return sale.customerId ? customers.find(customer => customer.id === sale.customerId)?.name || 'Sem cliente' : 'Sem cliente'
 }
 
-function SaleHistory({ sales, customers, onDelete, onClose }: { sales: Sale[]; customers: Customer[]; onDelete: (sale: Sale) => void; onClose: () => void }) {
+function SaleHistory({ sales, customers, onEdit, onDelete, onClose }: { sales: Sale[]; customers: Customer[]; onEdit: (sale: Sale) => void; onDelete: (sale: Sale) => void; onClose: () => void }) {
   const dialogRef = useRef<HTMLDialogElement>(null)
   useEffect(() => {
     const dialog = dialogRef.current
@@ -209,7 +214,7 @@ function SaleHistory({ sales, customers, onDelete, onClose }: { sales: Sale[]; c
                   <td><span className="badge badge-brand">{s.channel}</span></td>
                   <td><StatusBadge status={s.status} /></td>
                   <td className="text-right" style={{ fontWeight: 700 }}>{fmtBRL(s.total)}</td>
-                  <td><button className="btn btn-ghost btn-sm" aria-label={`Excluir venda de ${customerNameForSale(s, customers)}`} onClick={() => onDelete(s)}><Trash2 size={15} /></button></td>
+                  <td><div className="sale-history-actions"><button className="btn btn-ghost btn-sm" title="Editar venda" aria-label={`Editar venda de ${customerNameForSale(s, customers)}`} onClick={() => onEdit(s)}><Pencil size={15} /></button><button className="btn btn-ghost btn-sm" title="Excluir venda" aria-label={`Excluir venda de ${customerNameForSale(s, customers)}`} onClick={() => onDelete(s)}><Trash2 size={15} /></button></div></td>
                 </tr>
               ))}
             </tbody>
@@ -217,7 +222,7 @@ function SaleHistory({ sales, customers, onDelete, onClose }: { sales: Sale[]; c
         </div>
         <div className="sale-history-cards">
           {sales.map(s => <article className="sale-history-card" key={s.id}>
-            <div className="sale-history-card-top"><div><span className="sale-history-label">Cliente</span><strong><UserRound size={15} /> {customerNameForSale(s, customers)}</strong></div><button className="btn btn-ghost btn-sm" aria-label={`Excluir venda de ${customerNameForSale(s, customers)}`} onClick={() => onDelete(s)}><Trash2 size={15} /></button></div>
+            <div className="sale-history-card-top"><div><span className="sale-history-label">Cliente</span><strong><UserRound size={15} /> {customerNameForSale(s, customers)}</strong></div><div className="sale-history-actions"><button className="btn btn-ghost btn-sm" title="Editar venda" aria-label={`Editar venda de ${customerNameForSale(s, customers)}`} onClick={() => onEdit(s)}><Pencil size={15} /></button><button className="btn btn-ghost btn-sm" title="Excluir venda" aria-label={`Excluir venda de ${customerNameForSale(s, customers)}`} onClick={() => onDelete(s)}><Trash2 size={15} /></button></div></div>
             <p className="sale-history-date">{new Date(s.date).toLocaleDateString('pt-BR') + ' · ' + new Date(s.date).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
             <p className="sale-history-items">{s.items.map(i => `${i.name} x${i.qty}`).join(', ')}</p>
             <div className="sale-history-meta"><span className="badge badge-neutral">{s.payment}</span><span className="badge badge-brand">{s.channel}</span><StatusBadge status={s.status} /><strong>{fmtBRL(s.total)}</strong></div>
@@ -228,4 +233,63 @@ function SaleHistory({ sales, customers, onDelete, onClose }: { sales: Sale[]; c
       </div>
     </dialog>
   )
+}
+
+const localDateTime = (value: string) => {
+  const date = new Date(value)
+  return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 19)
+}
+
+function SaleEditorDialog({ sale, products, customers, sales, onClose, onSave }: { sale: Sale; products: Product[]; customers: Customer[]; sales: Sale[]; onClose: () => void; onSave: (request: SaleEdit) => Promise<void> }) {
+  const [form, setForm] = useState<SaleEditFields>(() => ({
+    customerId: sale.customerId || '', date: localDateTime(sale.date), payment: sale.payment,
+    channel: sale.channel, status: sale.status || 'Pago', items: sale.items.map(item => ({ productId: item.productId, qty: item.qty })),
+  }))
+  const [operationId] = useState(saleEditOperationId)
+  const [busy, setBusy] = useState(false)
+  const [submitError, setSubmitError] = useState('')
+  const calculation = useMemo(() => {
+    try {
+      const source = { products, customers, sales }
+      const next = editSale(source, sale, form)
+      return { reviewed: next.sales.find(item => item.id === sale.id)!, changed: !sameData(source, next), error: '' }
+    } catch (error) {
+      return { reviewed: null, changed: false, error: (error as Error).message }
+    }
+  }, [products, customers, sales, sale, form])
+  const patch = (change: Partial<SaleEditFields>) => { setForm(current => ({ ...current, ...change })); setSubmitError('') }
+  const patchItem = (index: number, change: Partial<SaleItem>) => patch({ items: form.items.map((item, current) => current === index ? { ...item, ...change } : item) })
+  const save = async (event: React.FormEvent) => {
+    event.preventDefault()
+    if (!calculation.reviewed) { setSubmitError(calculation.error); return }
+    if (!calculation.changed) { setSubmitError('Faça alguma alteração antes de salvar.'); return }
+    if (busy) return
+    setBusy(true); setSubmitError('')
+    try { await onSave({ sale, changes: form, reviewed: calculation.reviewed, operationId }) }
+    catch (error) { setSubmitError((error as Error).message) }
+    finally { setBusy(false) }
+  }
+  return <ConfirmDialog titleId="edit-sale-title" busy={busy} onCancel={onClose} className="sale-editor-dialog">
+    <form className="sale-editor" onSubmit={save}>
+      <div className="sale-editor-heading"><div><span className="sale-history-label">Correção segura</span><h2 id="edit-sale-title">Editar venda</h2><p>{customerNameForSale(sale, customers)} · {fmtBRL(sale.total)}</p></div><button type="button" className="modal-close" aria-label="Fechar edição" disabled={busy} onClick={onClose}><X size={20}/></button></div>
+      <div className="sale-editor-scroll">
+        <div className="sale-editor-fields">
+          <label>Cliente<select value={form.customerId} onChange={event => patch({ customerId: event.target.value })}><option value="">Sem cliente</option>{customers.map(customer => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</select></label>
+          <label>Data e hora<input type="datetime-local" step="1" value={form.date} onChange={event => patch({ date: event.target.value })}/></label>
+          <label>Pagamento<select value={form.payment} onChange={event => patch({ payment: event.target.value as Sale['payment'] })}>{PAYMENTS.map(value => <option key={value} value={value}>{value[0].toUpperCase() + value.slice(1)}</option>)}</select></label>
+          <label>Canal<select value={form.channel} onChange={event => patch({ channel: event.target.value as Sale['channel'] })}>{CHANNELS.map(value => <option key={value} value={value}>{value[0].toUpperCase() + value.slice(1)}</option>)}</select></label>
+          <label>Situação<select value={form.status} onChange={event => patch({ status: event.target.value as SaleEditFields['status'] })}>{['Pago', 'Pendente', 'Debitado', 'Presente'].map(value => <option key={value}>{value}</option>)}</select></label>
+        </div>
+        <div className="sale-editor-items-heading"><div><strong>Itens da venda</strong><small>O estoque será ajustado somente pela diferença.</small></div><button type="button" className="btn btn-secondary btn-sm" disabled={!products.length || form.items.length >= 100} onClick={() => patch({ items: [...form.items, { productId: products[0]?.id || '', qty: 1 }] })}><Plus size={14}/> Item</button></div>
+        <div className="sale-editor-items">{form.items.map((item, index) => {
+          const product = products.find(current => current.id === item.productId)
+          const legacy = sale.items.find(current => current.productId === item.productId)
+          const originalQty = sale.items.filter(current => current.productId === item.productId).reduce((sum, current) => sum + current.qty, 0)
+          return <div className="sale-editor-item" key={`${index}-${item.productId}`}><label>Produto<select value={item.productId} onChange={event => patchItem(index, { productId: event.target.value })}>{!product && legacy && <option value={legacy.productId}>{legacy.name} · removido do cadastro</option>}{products.map(current => <option key={current.id} value={current.id}>{current.emoji} {current.name} — {fmtBRL(current.price)}</option>)}</select></label><label>Qtd.<input type="number" inputMode="numeric" min="1" max="100000" step="1" value={item.qty} onChange={event => patchItem(index, { qty: Number(event.target.value) })}/>{product && <small>Disponível: {product.stock + originalQty}</small>}</label><button type="button" className="btn btn-ghost btn-sm" aria-label={`Remover item ${index + 1}`} disabled={form.items.length === 1} onClick={() => patch({ items: form.items.filter((_, current) => current !== index) })}><Trash2 size={15}/></button></div>
+        })}</div>
+        {(submitError || calculation.error) && <p className="sale-editor-error" role="alert">{submitError || calculation.error}</p>}
+      </div>
+      <div className="sale-editor-footer"><div><small>Novo total</small><strong>{calculation.reviewed ? fmtBRL(calculation.reviewed.total) : '—'}</strong></div><div><button type="button" className="btn btn-secondary" disabled={busy} onClick={onClose}>Cancelar</button><button className="btn btn-primary" disabled={busy || !calculation.reviewed}><Save size={16}/>{busy ? 'Salvando…' : 'Salvar alterações'}</button></div></div>
+    </form>
+  </ConfirmDialog>
 }

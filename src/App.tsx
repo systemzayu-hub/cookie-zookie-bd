@@ -564,6 +564,7 @@ export default function App() {
               } catch { pushToast('Exportação da cópia de recuperação cancelada.', 'error') }
             }}><Download size={16} /> Cópia do último conflito</button>}
           </div>
+          <div className="sidebar-version">Versão do app · 1.1.3</div>
         </div>
       </aside>
 

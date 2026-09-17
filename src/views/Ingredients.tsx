@@ -2,7 +2,7 @@ import { migratePurchases, watchPurchases, commitPurchases } from '../purchase-c
 import { useRole } from '../auth'
 import { useEffect, useRef, useState } from 'react'
 import { get, set } from 'idb-keyval'
-import { IngredientPurchase, parseIngredients, purchaseTotal, validPurchase, purchasesSummary, purchaseDue, groupDebts, normalizeIngredient, creditorName, replacePurchase, deletePurchase, readPurchasesBackup } from '../ingredients'
+import { IngredientPurchase, parseIngredients, purchaseTotal, purchasePaid, validPurchase, purchasesSummary, purchaseDue, groupDebts, normalizeIngredient, creditorName, replacePurchase, deletePurchase, readPurchasesBackup } from '../ingredients'
 import { Sale, fmtBRL, uid } from '../types'
 import { PurchaseEditor, PurchaseDraft } from './PurchaseEditor'
 import { PurchasePrices } from './PurchasePrices'
@@ -97,7 +97,16 @@ function OwnerPurchases({ owner, sales = [] }: { owner: string; sales?: Sale[] }
   const savePurchase = async () => {
     if (lock.current) return
     if (draft.photo && !draft.scanConfirmed) { setMessage('Confira a lista com a foto e marque a confirmação antes de salvar.'); return }
-    const { text, quickPaid, quickDue, photoKind, editingBefore, expectedTotal, scanConfidence, scanConfirmed, ...purchase } = draft
+    const { text, quickPaid, quickDue, photoKind, editingBefore, paymentToAdd, expectedTotal, scanConfidence, scanConfirmed, ...purchase } = draft
+    if (editingBefore && paymentToAdd && paymentToAdd > 0) {
+      const previousPaid = purchasePaid(editingBefore)
+      const legacyPayments = editingBefore.payments?.length ? editingBefore.payments : previousPaid > 0 ? [{ id: `legacy-${editingBefore.id}`, date: editingBefore.date, amount: previousPaid }] : []
+      const updatedPaid = Math.round((previousPaid + paymentToAdd) * 100) / 100
+      purchase.payments = [...legacyPayments, { id: uid(), date: today(), amount: paymentToAdd }]
+      purchase.paidAmount = updatedPaid
+      purchase.paymentStatus = updatedPaid >= purchaseTotal(purchase) ? 'paid' : 'pending'
+      if (purchase.paymentStatus === 'paid') purchase.paidAmount = undefined
+    }
     if (purchase.paymentStatus === 'paid') purchase.paidAmount = undefined
     if (!validPurchase(purchase)) { setMessage('Confira data, produtos, valores e quantidades. O valor já pago deve ficar entre zero e o total da compra.'); return }
     if (purchase.paymentStatus === 'pending' && purchaseDue(purchase) === 0) { purchase.paymentStatus = 'paid'; purchase.paidAmount = undefined; purchase.paidAt = today() }
@@ -128,7 +137,7 @@ function OwnerPurchases({ owner, sales = [] }: { owner: string; sales?: Sale[] }
   }
   const edit = (p: IngredientPurchase) => {
     if ((draft.text || draft.items.length || draft.photo) && !confirm('Abrir esta compra substituirá o rascunho atual. Continuar?')) return
-    change({ ...p, text: '', editingBefore: p }); setEditor(true); setArea('compras'); setIgnored([])
+    change({ ...p, text: '', paymentToAdd: undefined, editingBefore: p }); setEditor(true); setArea('compras'); setIgnored([])
     requestAnimationFrame(() => document.querySelector('.purchase-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }
   const backup = async (original = false) => {

@@ -2,7 +2,7 @@ import { migratePurchases, watchPurchases, commitPurchases } from '../purchase-c
 import { useRole } from '../auth'
 import { useEffect, useRef, useState } from 'react'
 import { get, set } from 'idb-keyval'
-import { IngredientPurchase, parseIngredients, purchaseTotal, purchasePaid, validPurchase, purchasesSummary, purchaseDue, groupDebts, normalizeIngredient, creditorName, replacePurchase, deletePurchase, readPurchasesBackup } from '../ingredients'
+import { IngredientPurchase, parseIngredients, purchaseTotal, purchasePaid, validPurchase, purchasesSummary, purchaseDue, settlePurchase, groupDebts, normalizeIngredient, creditorName, replacePurchase, deletePurchase, readPurchasesBackup } from '../ingredients'
 import { Sale, fmtBRL, uid } from '../types'
 import { PurchaseEditor, PurchaseDraft } from './PurchaseEditor'
 import { PurchasePrices } from './PurchasePrices'
@@ -107,12 +107,17 @@ function OwnerPurchases({ owner, sales = [] }: { owner: string; sales?: Sale[] }
       purchase.paymentStatus = updatedPaid >= purchaseTotal(purchase) ? 'paid' : 'pending'
       if (purchase.paymentStatus === 'paid') purchase.paidAmount = undefined
     }
-    if (purchase.paymentStatus === 'paid') purchase.paidAmount = undefined
-    if (!validPurchase(purchase)) { setMessage('Confira data, produtos, valores e quantidades. O valor já pago deve ficar entre zero e o total da compra.'); return }
-    if (purchase.paymentStatus === 'pending' && purchaseDue(purchase) === 0) { purchase.paymentStatus = 'paid'; purchase.paidAmount = undefined; purchase.paidAt = today() }
+    let savedPurchase: IngredientPurchase = purchase
+    if (purchase.paymentStatus === 'paid') {
+      savedPurchase = editingBefore && (editingBefore.paymentStatus === 'pending' || purchaseDue(purchase) > 0)
+        ? settlePurchase(purchase, today(), uid())
+        : { ...purchase, paidAmount: undefined }
+    }
+    if (!validPurchase(savedPurchase)) { setMessage('Confira data, produtos, valores e quantidades. O valor já pago deve ficar entre zero e o total da compra.'); return }
+    if (savedPurchase.paymentStatus === 'pending' && purchaseDue(savedPurchase) === 0) savedPurchase = settlePurchase(savedPurchase, today(), uid())
     lock.current = true; setBusy(true)
     try {
-      await persist(old => editingBefore ? replacePurchase(old, editingBefore, purchase) : old.some(p => p.id === purchase.id) ? (() => { throw Error('Esta compra já foi salva. Atualize a aba.') })() : [...old, purchase])
+      await persist(old => editingBefore ? replacePurchase(old, editingBefore, savedPurchase) : old.some(p => p.id === savedPurchase.id) ? (() => { throw Error('Esta compra já foi salva. Atualize a aba.') })() : [...old, savedPurchase])
       change(empty()); setEditor(false); setIgnored([]); setMessage('Compra salva.')
     } catch (e) { setMessage(e instanceof Error ? e.message : 'Falha ao salvar. Rascunho preservado.') }
     finally { lock.current = false; setBusy(false) }
@@ -165,7 +170,7 @@ function OwnerPurchases({ owner, sales = [] }: { owner: string; sales?: Sale[] }
   const matchesSearch = (p: IngredientPurchase) => normalizeIngredient(`${p.shop} ${creditorName(p)} ${p.items.map(i => i.name).join(' ')}`).includes(normalizeIngredient(search))
   const filtered = period.filter(p => !!p.archived === archived && matchesSearch(p) && (status === 'all' || (purchaseDue(p) > 0 ? 'pending' : 'paid') === status)).sort((a,b) => b.date.localeCompare(a.date))
   const debts = groupDebts(period.filter(matchesSearch))
-  const renderEntry = (p: IngredientPurchase) => <PurchaseEntry key={p.id} purchase={p} busy={busy} remove={() => void removePurchase(p)} today={today()} edit={() => edit(p)} pay={() => void action(p, { ...p, paymentStatus: 'paid', paidAmount: undefined, paidAt: today() }, 'Pagamento integral registrado.')} archive={() => {
+  const renderEntry = (p: IngredientPurchase) => <PurchaseEntry key={p.id} purchase={p} busy={busy} remove={() => void removePurchase(p)} today={today()} edit={() => edit(p)} pay={() => void action(p, settlePurchase(p, today(), uid()), 'Pagamento integral registrado.')} archive={() => {
     if (!p.archived && !confirm('Arquivar retira esta compra dos totais e das pendências. Você poderá restaurá-la. Continuar?')) return
     void action(p, { ...p, archived: !p.archived }, p.archived ? 'Compra restaurada.' : 'Compra arquivada. Você pode restaurá-la pelo filtro Arquivadas.')
   }} />

@@ -8,11 +8,17 @@ export type IngredientPurchase = {
 export const cents = (value: number) => Math.round((value + Number.EPSILON) * 100)
 export const purchaseTotal = (p: { items: IngredientItem[] }) => p.items.reduce((sum, item) => sum + cents(item.total), 0) / 100
 export const purchasePaid = (p: IngredientPurchase) => {
-  if (p.paymentStatus !== 'pending' && !p.payments?.length) return purchaseTotal(p)
-  const recorded = p.payments?.length ? p.payments.reduce((sum, payment) => sum + cents(payment.amount), 0) / 100 : (p.paidAmount || 0)
+  const recorded = p.payments?.length ? p.payments.reduce((sum, payment) => sum + cents(payment.amount), 0) / 100 : p.paidAmount ?? (p.paymentStatus === 'pending' ? 0 : purchaseTotal(p))
   return Math.min(purchaseTotal(p), Math.max(0, cents(recorded) / 100))
 }
 export const purchaseDue = (p: IngredientPurchase) => Math.max(0, cents(purchaseTotal(p)) - cents(purchasePaid(p))) / 100
+export function settlePurchase(p: IngredientPurchase, date: string, paymentId: string): IngredientPurchase {
+  const due = purchaseDue(p)
+  if (!due) return { ...p, paymentStatus: 'paid', paidAmount: undefined, paidAt: p.paidAt || date }
+  const paid = purchasePaid(p)
+  const previous = p.payments?.length ? p.payments : paid > 0 ? [{ id: `legacy-${p.id}`, date: p.date, amount: paid }] : []
+  return { ...p, paymentStatus: 'paid', paidAmount: undefined, paidAt: date, payments: [...previous, { id: paymentId, date, amount: due }] }
+}
 export const paymentLabel = (p: IngredientPurchase) => purchaseDue(p) > 0 ? '○ A pagar' : '✓ Pago'
 export const normalizeIngredient = (s: string) => s.normalize('NFD').replace(/[\u0300-\u036f]/g, '').trim().replace(/\s+/g, ' ').toLocaleLowerCase('pt-BR')
 export const creditorName = (p: IngredientPurchase) => p.creditor?.trim() || p.shop.trim() || 'Local/pessoa não informado'

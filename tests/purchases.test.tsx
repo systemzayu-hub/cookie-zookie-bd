@@ -4,7 +4,7 @@ import test from 'node:test'
 import assert from 'node:assert/strict'
 import { create, act } from 'react-test-renderer'
 import { useState } from 'react'
-import { IngredientPurchase, parseIngredients, parseProductScreenshot, purchaseTotal, purchasePaid, purchaseDue, purchasesSummary, groupDebts, normalizedPrice, priceStats, validPurchase, replacePurchase, deletePurchase, readPurchasesBackup } from '../src/ingredients'
+import { IngredientPurchase, parseIngredients, parseProductScreenshot, purchaseTotal, purchasePaid, purchaseDue, settlePurchase, purchasesSummary, groupDebts, normalizedPrice, priceStats, validPurchase, replacePurchase, deletePurchase, readPurchasesBackup } from '../src/ingredients'
 import { PurchaseEditor, PurchaseDraft } from '../src/views/PurchaseEditor'
 const old: IngredientPurchase = { id: 'legacy', date: '2026-09-08', shop: 'Mercado X', items: [{ name: 'Farinha', total: 100 }], photo: 'data:image/png;base64,YQ==' }
 const pending: IngredientPurchase = { ...old, id: 'pending', paymentStatus: 'pending', paidAmount: 15, dueDate: '2026-09-20', creditor: 'Mercado X', note: 'Entregar comprovante' }
@@ -31,6 +31,20 @@ test('paying a purchase preserves receipt, note, purchase date and identity', ()
  assert.equal(result[0].photo,pending.photo); assert.equal(result[0].note,pending.note); assert.equal(result[0].date,pending.date)
  assert.throws(() => replacePurchase(result,pending,{...pending,shop:'Changed'}),/outra aba/)
  assert.throws(() => replacePurchase([pending],pending,{...pending,id:'different'}))
+})
+test('settling a purchase records only the remaining payment and clears the balance', () => {
+ const withHistory: IngredientPurchase = { ...pending, paidAmount: undefined, payments: [{ id: 'first', date: '2026-09-09', amount: 15 }] }
+ const settled = settlePurchase(withHistory, '2026-09-17', 'last')
+ assert.deepEqual(settled.payments, [...withHistory.payments!, { id: 'last', date: '2026-09-17', amount: 85 }])
+ assert.equal(settled.paymentStatus, 'paid')
+ assert.equal(settled.paidAt, '2026-09-17')
+ assert.equal(purchasePaid(settled), 100)
+ assert.equal(purchaseDue(settled), 0)
+ assert.equal(validPurchase(settled), true)
+ assert.equal(purchaseDue(withHistory), 85)
+ const legacy = settlePurchase(pending, '2026-09-17', 'legacy-last')
+ assert.deepEqual(legacy.payments?.map(payment => payment.amount), [15, 85])
+ assert.equal(purchaseDue(legacy), 0)
 })
 test('pending amounts and optional quantities/dates validate without deleting legacy records', () => {
  assert.equal(validPurchase(pending),true)
@@ -64,7 +78,9 @@ test('editor creates and updates an accumulated partial payment without settling
  act(()=>amount.props.onChange({target:{value:'70'}}))
  assert.equal(latest.paidAmount,70); assert.equal(purchasePaid(latest),70); assert.equal(purchaseDue(latest),30)
  act(()=>tree.root.findAllByType('select').find(s => s.props.value === 'pending')!.props.onChange({target:{value:'paid'}}))
- assert.equal(purchasePaid(latest),100); assert.equal(purchaseDue(latest),0)
+ assert.equal(purchasePaid(latest),70); assert.equal(purchaseDue(latest),30)
+ const completed = settlePurchase(latest,'2026-09-17','final')
+ assert.equal(purchasePaid(completed),100); assert.equal(purchaseDue(completed),0)
  act(()=>tree.unmount())
 })
 

@@ -2,7 +2,7 @@ import { combineCustomers, type CustomerMerge } from './combine-customers'
 import { payCustomer, transferSale, type CustomerPayment, type SaleTransfer } from './sale-adjustments'
 import type { SaleEdit } from './edit-sale'
 import { useEffect, useRef, useState, Suspense, lazy } from 'react'
-import { LayoutDashboard, ShoppingCart, Package, BarChart3, Users, Sun, Moon, Download, Upload, LogIn, LogOut, Percent, ShieldCheck, Menu, X, Cloud, CloudOff, RefreshCw, WalletCards, TrendingDown, MoreHorizontal } from 'lucide-react'
+import { LayoutDashboard, ShoppingCart, Package, BarChart3, Users, Sun, Moon, Download, Upload, LogIn, LogOut, Percent, ShieldCheck, Menu, X, Cloud, CloudOff, RefreshCw, WalletCards, TrendingDown, MoreHorizontal, ShoppingBag } from 'lucide-react'
 import { Product, Sale, Customer, Tab, Pendencia, fmtBRL } from './types'
 import { seedProducts, seedCustomers, seedSales, load, save, STORAGE_ERROR_EVENT } from './data'
 import { baixarBackup, aplicarBackup } from './db'
@@ -18,6 +18,7 @@ import { OwnerKeyLogin } from './components/OwnerKeyLogin'
 import { InstallApp } from './components/InstallApp'
 import { OwnerAuditGate } from './components/OwnerAuditGate'
 import { VisitorDashboard } from './views/VisitorDashboard'
+import { SiteOrdersView } from './views/SiteOrders'
 import { EmployeeSales } from './views/EmployeeSales'
 import { configureUndoStore, setUndoOwner } from './undo'
 import { useStoreSync } from './useStoreSync'
@@ -40,7 +41,7 @@ const AuditView = lazy(() => import('./views/Audit').then(m => ({ default: m.Aud
 export default function App() {
   const appShell = getAppShell()
   const isMobileApp = appShell === 'mobile'
-  const tabs: Tab[] = ['dashboard', 'vendas', 'produtos', 'relatorios', 'clientes', 'financeiro', 'ingredientes', 'pagamentos', 'lucro', 'audit']
+  const tabs: Tab[] = ['dashboard', 'vendas', 'produtos', 'relatorios', 'clientes', 'financeiro', 'ingredientes', 'pagamentos', 'lucro', 'audit', 'pedidos-site']
   const [tab, setTab] = useState<Tab>(() => {
     const hash = window.location.hash.slice(1) as Tab
     return tabs.includes(hash) ? hash : 'dashboard'
@@ -72,6 +73,7 @@ export default function App() {
   }, online)
   const [loginBusy, setLoginBusy] = useState(false)
   const [loginError, setLoginError] = useState('')
+  const isSiteOwner = role === 'owner'
 
   useEffect(() => {
     if (!isMobileApp || !window.visualViewport) return
@@ -156,12 +158,17 @@ export default function App() {
   }, [])
 
   const navigate = (next: Tab) => {
+    if (next === 'pedidos-site' && !isSiteOwner) return
     setTab(next); setIsMenuOpen(false); setIsMoreOpen(false)
     window.location.hash = next
     window.scrollTo({ top: 0, left: 0, behavior: 'auto' })
     document.querySelector<HTMLElement>('#main-content')?.scrollTo({ top: 0, left: 0, behavior: 'auto' })
     document.getElementById('main-content')?.focus()
   }
+
+  useEffect(() => {
+    if (tab === 'pedidos-site' && !authLoading && user && role && !isSiteOwner) navigate('dashboard')
+  }, [tab, authLoading, user, role, isSiteOwner])
 
   useEffect(() => {
     if (appShell === 'browser') return
@@ -405,6 +412,7 @@ export default function App() {
       { id: 'lucro', label: 'Lucro líquido', icon: <TrendingDown className="icon" /> },
       { id: 'financeiro', label: 'Financeiro', icon: <Percent className="icon" /> },
       { id: 'audit', label: 'Auditoria', icon: <ShieldCheck className="icon" /> },
+      ...(isSiteOwner ? [{ id: 'pedidos-site' as Tab, label: 'Pedidos do site', icon: <ShoppingBag className="icon" /> }] : []),
     ]
   const availableNav = nav.filter(n => {
     if (n.id === 'ingredientes' || n.id === 'lucro') return role === 'owner'
@@ -625,6 +633,7 @@ export default function App() {
           {tab === 'lucro' && role === 'owner' && <SensitiveData label="Desbloquear lucro"><ProfitView owner={user.email || ''} sales={sales} customers={customers} /></SensitiveData>}
           {tab === 'financeiro' && <FinanceiroView />}
           {tab === 'audit' && <OwnerAuditGate key={user.email}><AuditView /></OwnerAuditGate>}
+          {tab === 'pedidos-site' && isSiteOwner && <SiteOrdersView key={user.email} />}
         </Suspense>
         </ErrorBoundary>}
       </main>

@@ -8,7 +8,8 @@ import assert from 'node:assert/strict'
 import { act, create } from 'react-test-renderer'
 import { customerCandidates } from '../src/customer-matching'
 import { recordSalesBatch } from '../src/record-sale'
-import { QuickSaleView, parseText } from '../src/views/QuickSale'
+import { QuickSaleView, parseText, importPaymentError } from '../src/views/QuickSale'
+import { salesReadingToText } from '../src/sales-image-reading'
 import { CustomersView } from '../src/views/Customers'
 import { CobrancaView } from '../src/views/Cobranca'
 import { PasswordProvider } from '../src/components/PasswordGate'
@@ -171,6 +172,51 @@ test('paste supports optional quantities, x notation, full statuses, spreadsheet
 test('linhas sem marcação permanecem pendentes mesmo com um rascunho antigo em Pago', () => {
   const lines = parseText('1 Kinder - Ana\n1\tKinder\tBruno\n1 Kinder - Carla - C\n1 Kinder - Davi - P', products, [], { status: 'Pago' })
   assert.deepEqual(lines.map(line => line.status), ['Pendente', 'Pendente', 'Pago', 'Pendente'])
+})
+
+test('leitura estruturada preserva turma, linhas repetidas, vazio pendente e recebimento parcial', () => {
+  const response = salesReadingToText(JSON.stringify({ rows: [
+    { quantity: '1', product: 'Kinder', customer: 'Pedro F 6º', paymentMark: 'vazio', receivedAmount: '5,00', uncertain: false },
+    { quantity: '1', product: 'Kinder', customer: 'Clarisse', paymentMark: 'C', receivedAmount: '', uncertain: false },
+    { quantity: '2', product: 'Kinder', customer: 'Pedro F 6º', paymentMark: 'vazio', receivedAmount: '', uncertain: false },
+  ] }))
+  const parsed = parseText(response.text, products, [])
+  assert.equal(response.count, 3)
+  assert.equal(response.uncertain, 0)
+  assert.equal(parsed[0].customerNameRaw, 'Pedro F 6º')
+  assert.equal(parsed[0].paidAmount, 5)
+  assert.deepEqual(parsed.map(line => line.status), ['Pendente', 'Pago', 'Pendente'])
+  assert.equal(importPaymentError(parsed[0]), '')
+  assert.equal(parseText('1 Kinder - Pedro F 6º - deu 5 reais', products, [])[0].paidAmount, 5)
+})
+
+test('campos incertos da IA bloqueiam importação e recebimentos inválidos exigem revisão', () => {
+  for (const patch of [{ uncertain: true }, { paymentMark: 'incerto' }, { quantity: '0' }, { receivedAmount: '-5' }]) {
+    const response = salesReadingToText(JSON.stringify({ rows: [{ quantity: '1', product: 'Kinder', customer: 'Ana', paymentMark: 'vazio', receivedAmount: '', uncertain: false, ...patch }] }))
+    assert.equal(response.uncertain, 1)
+    assert.ok(parseText(response.text, products, [])[0].error)
+  }
+  assert.throws(() => salesReadingToText('{"rows":[]}'))
+  assert.throws(() => salesReadingToText('Resposta não estruturada'))
+  for (const value of ['11', '-5', '5,555', 'incerto']) {
+    const parsed = parseText(`1 Kinder - Ana - P - recebido ${value}`, products, [])[0]
+    assert.ok(parsed.error || importPaymentError(parsed))
+  }
+  assert.ok(importPaymentError(parseText('1 Kinder - Ana - C - recebido 5', products, [])[0]))
+})
+
+test('importação salva pagamento parcial sem considerar a venda quitada', () => {
+  setRole('owner')
+  let root: any, payload: any
+  act(() => { root = create(<PasswordProvider><QuickSaleView products={products} customers={[]} pushToast={() => {}} onSalesImported={(sales, customers) => { payload = { sales, customers }; return true }} /></PasswordProvider>) })
+  act(() => root.root.findByType('textarea').props.onChange({ target: { value: '1 Kinder - Pedro F 6º - P - recebido 5,00' } }))
+  act(() => button(root, 'Processar texto').props.onClick())
+  assert.equal(button(root, 'Confirmar e criar').props.disabled, false)
+  act(() => button(root, 'Confirmar e criar').props.onClick())
+  assert.equal(payload.sales[0].status, 'Pendente')
+  assert.equal(payload.sales[0].paidAmount, 5)
+  assert.equal(payload.sales[0].total, 10)
+  act(() => root.unmount())
 })
 
 test('ambiguous product names are not silently assigned to the first product', () => {

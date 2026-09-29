@@ -54,7 +54,7 @@ export function validImportDate(date: string): boolean {
   return /^\d{4}-\d{2}-\d{2}$/.test(date) && Number.isFinite(timestamp) && dayKey(timestamp) === date
 }
 
-function saleParts(line: string, products: Product[]): { qty: number; product: string; customer: string; status?: string } | null {
+function saleParts(line: string, products: Product[]): { qty: number; product: string; customer: string; status?: string; paidAmount?: number } | null {
   // Spreadsheet columns: quantity, product, customer, optional status.
   const columns = line.split('\t').map(value => value.trim())
   if (columns.length >= 3 && columns.length <= 4 && /^\d+$/.test(columns[0])) {
@@ -76,11 +76,15 @@ function saleParts(line: string, products: Product[]): { qty: number; product: s
     }
   }
   if (!product || !customer) return null
+  const receipt = customer.match(/\s+[-–—]\s+(?:recebido|deu|pagou)\s*(?:R\$\s*)?(\d+(?:[,.]\d{1,2})?)\s*(?:reais)?\s*$/i)
+  if (!receipt && /\s+[-–—]\s+(?:recebido|deu|pagou)\b/i.test(customer)) return null
+  const paidAmount = receipt ? Number(receipt[1].replace(',', '.')) : undefined
+  if (receipt) customer = customer.slice(0, receipt.index).trim()
   const statusMatch = customer.match(/\s*[-–—]\s*(C|D|P|pago|paga|pendente|debitado|debitada|presente|brinde|--|—|-)\s*$/i)
   if (statusMatch && customer.slice(0, statusMatch.index).trim()) {
-    return { qty, product, customer: customer.slice(0, statusMatch.index).trim(), status: statusMatch[1] }
+    return { qty, product, customer: customer.slice(0, statusMatch.index).trim(), status: statusMatch[1], paidAmount }
   }
-  return { qty, product, customer }
+  return { qty, product, customer, paidAmount }
 
 }
 
@@ -102,10 +106,21 @@ export interface ParsedLine {
   error: string | null
   unitPrice: number | null
   total: number | null
+  paidAmount?: number
 }
 
 const STATUS_LABEL: Record<string, string> = {
   Pago: 'Pago (C)', Pendente: 'Pendente', Debitado: 'Debitado (D)', Presente: 'Presente (--)',
+}
+
+export function importPaymentError(line: ParsedLine): string {
+  if (line.paidAmount === undefined) return ''
+  const amount = line.paidAmount
+  if (!Number.isFinite(amount) || amount < 0 || line.total === null || amount > line.total || Math.abs(amount * 100 - Math.round(amount * 100)) > 0.000001) return 'Confira o valor recebido: use até duas casas decimais e não ultrapasse o total.'
+  if (line.status === 'Pendente' && amount === line.total && amount > 0) return 'O recebimento quita esta linha. Selecione Pago.'
+  if (line.status === 'Pago' && amount !== line.total) return 'O recebimento não quita esta linha. Selecione Pendente e confira o valor recebido.'
+  if ((line.status === 'Debitado' || line.status === 'Presente') && amount > 0) return 'Esta situação não permite recebimento. Confira o pagamento.'
+  return ''
 }
 
 export function parseText(text: string, products: Product[], customers: Customer[], options: { date?: string; status?: Sale['status'] } = {}): ParsedLine[] {
@@ -139,7 +154,7 @@ export function parseText(text: string, products: Product[], customers: Customer
       result.push({ lineNum: i + 1, date: currentDate, dateAutomatic, qty: 0, productNameRaw: line, productNameMatched: null, productId: null, customerNameRaw: line, customerNameMatched: null, customerId: null, status: 'Pendente', statusLabel: '', error: 'Formato não reconhecido. Use: 2 Kinder - Nome - C', unitPrice: null, total: null })
       continue
     }
-    const { qty, product: rawProduct, customer: rawCustomer, status: rawStatus } = parts
+    const { qty, product: rawProduct, customer: rawCustomer, status: rawStatus, paidAmount } = parts
     const prodMatch = matchProduct(rawProduct, products)
     const candidates = customerCandidates(rawCustomer, customers)
     const custMatch = candidates.length === 1 && normalizeCustomerName(candidates[0].name) === normalizeCustomerName(rawCustomer) ? candidates[0] : null
@@ -170,6 +185,7 @@ export function parseText(text: string, products: Product[], customers: Customer
       error,
       unitPrice,
       total,
+      paidAmount,
     })
   }
   return result
@@ -202,7 +218,7 @@ export function QuickSaleView({ products, customers, onSalesImported, pushToast,
 
   const doConfirm = () => guard('Confirmar vendas importadas', () => {
     if (step !== 'preview' || confirming.current) return
-    if (parsed.some(line => line.error || !line.customerChoice || !line.productId || !Number.isSafeInteger(line.qty) || line.qty <= 0)) {
+    if (parsed.some(line => line.error || importPaymentError(line) || !line.customerChoice || !line.productId || !Number.isSafeInteger(line.qty) || line.qty <= 0)) {
       pushToast('Corrija todas as linhas antes de importar.', 'error'); return
     }
     const quantities = new Map<string, number>()
@@ -247,7 +263,7 @@ export function QuickSaleView({ products, customers, onSalesImported, pushToast,
         total,
         customerId: customerId || undefined,
         status: status as Sale['status'],
-        paidAmount: status === 'Pago' ? total : 0,
+        paidAmount: status === 'Pago' ? total : status === 'Pendente' ? lines.reduce((sum, line) => sum + Math.round((line.paidAmount || 0) * 100), 0) / 100 : 0,
       }
       sales.push(sale)
     })
@@ -268,8 +284,8 @@ export function QuickSaleView({ products, customers, onSalesImported, pushToast,
   }
 
   const parseStats = useMemo(() => {
-    const valid = new Set(parsed.filter(l => l.productId && l.customerChoice && !l.error && validImportDate(l.date || '')).map(l => `${l.date || dayKey(Date.now())}|${l.customerChoice === 'new' ? 'new:' + normalizeCustomerName(l.customerNameRaw) : l.customerChoice}|${l.status}`)).size
-    const warnings = parsed.filter(l => l.error || !l.customerChoice || !validImportDate(l.date || '')).length
+    const valid = new Set(parsed.filter(l => l.productId && l.customerChoice && !l.error && !importPaymentError(l) && validImportDate(l.date || '')).map(l => `${l.date || dayKey(Date.now())}|${l.customerChoice === 'new' ? 'new:' + normalizeCustomerName(l.customerNameRaw) : l.customerChoice}|${l.status}`)).size
+    const warnings = parsed.filter(l => l.error || importPaymentError(l) || !l.customerChoice || !validImportDate(l.date || '')).length
     const total = parsed.filter(l => l.total).reduce((a, l) => a + (l.total || 0), 0)
     return { valid, warnings, total, count: parsed.length }
   }, [parsed])
@@ -312,7 +328,7 @@ export function QuickSaleView({ products, customers, onSalesImported, pushToast,
               </div>
               <p role="note">Sem marcação de pagamento, a venda fica sempre Pendente. Para marcar como paga, escreva C ou Pago no final da linha.</p>
             </div>
-            <SalesImage onText={value => setText(text.trim() ? text.trimEnd() + "\n" + value : value)} />
+            <SalesImage productNames={products.map(product => product.name)} onText={value => setText(text.trim() ? text.trimEnd() + "\n" + value : value)} />
             <textarea
               aria-label="Texto das vendas"
               className="paste-textarea"
@@ -340,6 +356,7 @@ export function QuickSaleView({ products, customers, onSalesImported, pushToast,
                 <strong style={{ color: 'var(--tx-1)' }}>2. Venda</strong>
                 <p><code>2 Kinder - Lukas - C</code></p>
                 <p>Também aceita <code>2x Kinder - Lukas</code> e <code>Kinder - Lukas</code> (1 unidade). Pode colar colunas de uma planilha: quantidade, produto, cliente e status.</p>
+                <p>Pagamento parcial: <code>1 Kinder - Pedro F 6º - P - recebido 5,00</code>. O restante fica pendente.</p>
               </div>
               <div>
                 <strong style={{ color: 'var(--tx-1)' }}>3. Status</strong>
@@ -423,10 +440,10 @@ export function QuickSaleView({ products, customers, onSalesImported, pushToast,
                           </select>
                         </fieldset>}
                       </td>
-                      <td><select aria-label={`Situação da linha ${l.lineNum}`} value={l.status} onChange={event => setParsed(lines => lines.map((line, index) => index === i ? { ...line, status: event.target.value as Sale['status'], statusLabel: STATUS_LABEL[event.target.value] } : line))}>{Object.entries(STATUS_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></td>
+                      <td><select aria-label={`Situação da linha ${l.lineNum}`} value={l.status} onChange={event => setParsed(lines => lines.map((line, index) => index === i ? { ...line, status: event.target.value as Sale['status'], statusLabel: STATUS_LABEL[event.target.value], paidAmount: event.target.value === 'Pendente' ? line.paidAmount : undefined } : line))}>{Object.entries(STATUS_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>{l.status === 'Pendente' && <label className="hint">Recebido (R$)<input aria-label={`Valor recebido na linha ${l.lineNum}`} type="number" min="0" step="0.01" inputMode="decimal" value={l.paidAmount ?? 0} onChange={event => setParsed(lines => lines.map((line, index) => index === i ? { ...line, paidAmount: event.target.value === '' ? NaN : Number(event.target.value) } : line))}/></label>}</td>
                       <td style={{ fontWeight: 700 }}>{l.total !== null ? fmtBRL(l.total) : '—'}</td>
                       <td style={{ fontSize: '0.8em', color: l.error ? 'var(--warn-500)' : 'var(--tx-2)' }}>
-                        {l.error || (!validImportDate(l.date || '') ? 'Confira a data desta linha' : '') || (!l.customerChoice ? 'Selecione o cliente' : l.customerChoice === 'new' ? 'Novo cliente · número não informado' : '✓ OK')}
+                        {l.error || importPaymentError(l) || (!validImportDate(l.date || '') ? 'Confira a data desta linha' : '') || (!l.customerChoice ? 'Selecione o cliente' : l.customerChoice === 'new' ? 'Novo cliente · número não informado' : '✓ OK')}
                       </td>
                     </tr>
                   ))}

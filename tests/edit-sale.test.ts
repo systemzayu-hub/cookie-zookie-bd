@@ -35,3 +35,24 @@ test('correção de classificação redefine recebimento sem afetar outras venda
   assert.equal(result.sales[0].status, 'Debitado')
   assert.match(saleEditOperationId(), /^v2-[a-f0-9-]{36}$/)
 })
+
+test('corrige venda quitada indevidamente para pendente com recebimento parcial', () => {
+  const paid: Sale = { ...sale, status: 'Pago', paidAmount: 12 }
+  const result = editSale({ ...store, sales: [paid, { ...sale, id: 'other' }] }, paid, fields({ paidAmount: 5 }))
+  assert.equal(result.sales[0].status, 'Pendente')
+  assert.equal(result.sales[0].paidAmount, 5)
+  assert.equal(result.sales[0].items[0].paid, false)
+  assert.equal(result.products[0].stock, store.products[0].stock)
+  assert.deepEqual(result.sales[1], { ...sale, id: 'other' })
+  for (const paidAmount of [-1, 12, 13, 1.001, NaN]) assert.throws(() => editSale(store, sale, fields({ paidAmount })))
+})
+
+test('corrige pagamento de importação antiga com linhas repetidas sem alterar estoque e preços', () => {
+  const legacy: Sale = { ...sale, status: 'Pago', paidAmount: 12, items: [{ ...sale.items[0], qty: 1 }, { ...sale.items[0], qty: 1 }] }
+  const result = editSale({ ...store, sales: [legacy] }, legacy, fields({ items: legacy.items.map(({ productId, qty }) => ({ productId, qty })) }))
+  assert.equal(result.sales[0].paidAmount, 0)
+  assert.equal(result.sales[0].status, 'Pendente')
+  assert.equal(result.sales[0].total, 12)
+  assert.equal(result.products[0].stock, 8)
+  assert.equal(result.sales[0].items.length, 2)
+})

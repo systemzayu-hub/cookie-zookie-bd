@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, X, CheckCircle2, Trash2, ClipboardPaste, ShoppingCart, History, UserRound, Pencil, Save } from 'lucide-react'
-import { Product, Customer, Sale, SaleItem, LOW_STOCK_THRESHOLD, CHANNELS, PAYMENTS, fmtBRL, uid } from '../types'
+import { Product, Customer, Sale, SaleItem, LOW_STOCK_THRESHOLD, CHANNELS, PAYMENTS, fmtBRL, fmtDate, salePaidAmount, saleOutstanding, uid } from '../types'
+import { dayKey } from '../analytics'
+import { normalizeCustomerName } from '../customer-matching'
 import { StatusBadge } from './Dashboard'
 import { usePasswordGuard } from '../components/PasswordGate'
 import { readSalesDraft } from '../sales-draft'
@@ -187,6 +189,13 @@ export function customerNameForSale(sale: Sale, customers: Customer[]) {
 }
 
 function SaleHistory({ sales, customers, onEdit, onDelete, onClose }: { sales: Sale[]; customers: Customer[]; onEdit: (sale: Sale) => void; onDelete: (sale: Sale) => void; onClose: () => void }) {
+  const [search, setSearch] = useState('')
+  const [date, setDate] = useState('')
+  const [status, setStatus] = useState('')
+  const [limit, setLimit] = useState(50)
+  const filtered = useMemo(() => sales.filter(sale => (!date || dayKey(sale.date) === date) && (!status || (sale.status || 'Pago') === status) && normalizeCustomerName(customerNameForSale(sale, customers) + ' ' + sale.items.map(item => item.name).join(' ')).includes(normalizeCustomerName(search))).sort((a, b) => Date.parse(b.date) - Date.parse(a.date)), [sales, customers, date, status, search])
+  const visibleSales = filtered.slice(0, limit)
+  useEffect(() => setLimit(50), [date, status, search])
   const dialogRef = useRef<HTMLDialogElement>(null)
   useEffect(() => {
     const dialog = dialogRef.current
@@ -197,22 +206,30 @@ function SaleHistory({ sales, customers, onEdit, onDelete, onClose }: { sales: S
     <dialog ref={dialogRef} className="history-modal" aria-labelledby="sale-history-title" onCancel={event => { event.preventDefault(); onClose() }}>
       <div className="history-modal-header"><div><h2 id="sale-history-title">Histórico de Vendas</h2><p>{sales.length} {sales.length === 1 ? 'venda registrada' : 'vendas registradas'}</p></div><button className="modal-close" aria-label="Fechar histórico de vendas" onClick={onClose}><X size={20} /></button></div>
       <div className="history-modal-body">
-      {sales.length === 0 ? (
-        <div className="empty-state"><Trash2 className="icon" size={40} /><p>Histórico vazio.</p></div>
+      <div className="sale-history-filters">
+        <label>Buscar cliente ou produto<input type="search" value={search} onChange={event => setSearch(event.target.value)} /></label>
+        <label>Data da venda<input type="date" value={date} onChange={event => setDate(event.target.value)} /></label>
+        <label>Situação<select value={status} onChange={event => setStatus(event.target.value)}><option value="">Todas</option>{['Pago', 'Pendente', 'Debitado', 'Presente'].map(value => <option key={value}>{value}</option>)}</select></label>
+        <button className="btn btn-secondary btn-sm" onClick={() => setDate(dayKey(Date.now() - 86400000))}>Ontem</button>
+        <button className="btn btn-ghost btn-sm" onClick={() => { setSearch(''); setDate(''); setStatus('') }}>Limpar filtros</button>
+      </div>
+      <p role="status">{filtered.length} venda(s) encontrada(s) · recebido {fmtBRL(filtered.reduce((sum, sale) => sum + salePaidAmount(sale), 0))} · a receber {fmtBRL(filtered.filter(sale => sale.status === 'Pendente').reduce((sum, sale) => sum + saleOutstanding(sale), 0))}</p>
+      {filtered.length === 0 ? (
+        <div className="empty-state"><Trash2 className="icon" size={40} /><p>{sales.length ? 'Nenhuma venda corresponde aos filtros.' : 'Histórico vazio.'}</p></div>
       ) : (
         <>
         <div className="table-wrap sale-history-table-wrap">
           <table className="table">
             <thead><tr><th>Data</th><th>Cliente</th><th>Itens</th><th>Pagamento</th><th>Canal</th><th>Status</th><th className="text-right">Total</th><th><span className="sr-only">Ações</span></th></tr></thead>
             <tbody>
-              {sales.map(s => (
+              {visibleSales.map(s => (
                 <tr key={s.id}>
-                  <td>{new Date(s.date).toLocaleDateString('pt-BR') + ' ' + new Date(s.date).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</td>
+                  <td>{fmtDate(s.date)}</td>
                   <td>{customerNameForSale(s, customers)}</td>
                   <td>{s.items.map(i => `${i.name} x${i.qty}`).join(', ')}</td>
                   <td><span className="badge badge-neutral">{s.payment}</span></td>
                   <td><span className="badge badge-brand">{s.channel}</span></td>
-                  <td><StatusBadge status={s.status} /></td>
+                  <td><StatusBadge status={s.status} />{s.status === 'Pendente' && <small className="sale-payment-detail">Recebido {fmtBRL(salePaidAmount(s))} · falta {fmtBRL(saleOutstanding(s))}</small>}</td>
                   <td className="text-right" style={{ fontWeight: 700 }}>{fmtBRL(s.total)}</td>
                   <td><div className="sale-history-actions"><button className="btn btn-ghost btn-sm" title="Editar venda" aria-label={`Editar venda de ${customerNameForSale(s, customers)}`} onClick={() => onEdit(s)}><Pencil size={15} /></button><button className="btn btn-ghost btn-sm" title="Excluir venda" aria-label={`Excluir venda de ${customerNameForSale(s, customers)}`} onClick={() => onDelete(s)}><Trash2 size={15} /></button></div></td>
                 </tr>
@@ -221,15 +238,17 @@ function SaleHistory({ sales, customers, onEdit, onDelete, onClose }: { sales: S
           </table>
         </div>
         <div className="sale-history-cards">
-          {sales.map(s => <article className="sale-history-card" key={s.id}>
+          {visibleSales.map(s => <article className="sale-history-card" key={s.id}>
             <div className="sale-history-card-top"><div><span className="sale-history-label">Cliente</span><strong><UserRound size={15} /> {customerNameForSale(s, customers)}</strong></div><div className="sale-history-actions"><button className="btn btn-ghost btn-sm" title="Editar venda" aria-label={`Editar venda de ${customerNameForSale(s, customers)}`} onClick={() => onEdit(s)}><Pencil size={15} /></button><button className="btn btn-ghost btn-sm" title="Excluir venda" aria-label={`Excluir venda de ${customerNameForSale(s, customers)}`} onClick={() => onDelete(s)}><Trash2 size={15} /></button></div></div>
-            <p className="sale-history-date">{new Date(s.date).toLocaleDateString('pt-BR') + ' · ' + new Date(s.date).toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' })}</p>
+            <p className="sale-history-date">{fmtDate(s.date)}</p>
             <p className="sale-history-items">{s.items.map(i => `${i.name} x${i.qty}`).join(', ')}</p>
             <div className="sale-history-meta"><span className="badge badge-neutral">{s.payment}</span><span className="badge badge-brand">{s.channel}</span><StatusBadge status={s.status} /><strong>{fmtBRL(s.total)}</strong></div>
+            {s.status === 'Pendente' && <small className="sale-payment-detail">Recebido {fmtBRL(salePaidAmount(s))} · falta {fmtBRL(saleOutstanding(s))}</small>}
           </article>)}
         </div>
         </>
       )}
+      {filtered.length > visibleSales.length && <button className="btn btn-secondary" onClick={() => setLimit(current => current + 50)}>Mostrar mais 50 vendas</button>}
       </div>
     </dialog>
   )
@@ -279,6 +298,7 @@ function SaleEditorDialog({ sale, products, customers, sales, onClose, onSave }:
           <label>Pagamento<select value={form.payment} onChange={event => patch({ payment: event.target.value as Sale['payment'] })}>{PAYMENTS.map(value => <option key={value} value={value}>{value[0].toUpperCase() + value.slice(1)}</option>)}</select></label>
           <label>Canal<select value={form.channel} onChange={event => patch({ channel: event.target.value as Sale['channel'] })}>{CHANNELS.map(value => <option key={value} value={value}>{value[0].toUpperCase() + value.slice(1)}</option>)}</select></label>
           <label>Situação<select value={form.status} onChange={event => patch({ status: event.target.value as SaleEditFields['status'] })}>{['Pago', 'Pendente', 'Debitado', 'Presente'].map(value => <option key={value}>{value}</option>)}</select></label>
+          {form.status === 'Pendente' && <label>Valor já recebido (R$)<input type="number" inputMode="decimal" min="0" step="0.01" value={form.paidAmount ?? (sale.status === 'Pendente' ? salePaidAmount(sale) : 0)} onChange={event => patch({ paidAmount: event.target.value === '' ? NaN : Number(event.target.value) })}/><small>Deixe 0 quando nenhum pagamento foi recebido.</small></label>}
         </div>
         <div className="sale-editor-items-heading"><div><strong>Itens da venda</strong><small>O estoque será ajustado somente pela diferença.</small></div><button type="button" className="btn btn-secondary btn-sm" disabled={!products.length || form.items.length >= 100} onClick={() => patch({ items: [...form.items, { productId: products[0]?.id || '', qty: 1 }] })}><Plus size={14}/> Item</button></div>
         <div className="sale-editor-items">{form.items.map((item, index) => {
@@ -289,7 +309,7 @@ function SaleEditorDialog({ sale, products, customers, sales, onClose, onSave }:
         })}</div>
         {(submitError || calculation.error) && <p className="sale-editor-error" role="alert">{submitError || calculation.error}</p>}
       </div>
-      <div className="sale-editor-footer"><div><small>Novo total</small><strong>{calculation.reviewed ? fmtBRL(calculation.reviewed.total) : '—'}</strong></div><div><button type="button" className="btn btn-secondary" disabled={busy} onClick={onClose}>Cancelar</button><button className="btn btn-primary" disabled={busy || !calculation.reviewed}><Save size={16}/>{busy ? 'Salvando…' : 'Salvar alterações'}</button></div></div>
+      <div className="sale-editor-footer"><div><small>Novo total</small><strong>{calculation.reviewed ? fmtBRL(calculation.reviewed.total) : '—'}</strong>{calculation.reviewed?.status === 'Pendente' && <small>Falta {fmtBRL(saleOutstanding(calculation.reviewed))}</small>}</div><div><button type="button" className="btn btn-secondary" disabled={busy} onClick={onClose}>Cancelar</button><button className="btn btn-primary" disabled={busy || !calculation.reviewed || !calculation.changed}><Save size={16}/>{busy ? 'Salvando…' : 'Salvar alterações'}</button></div></div>
     </form>
   </ConfirmDialog>
 }

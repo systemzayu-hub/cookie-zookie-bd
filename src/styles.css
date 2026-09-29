@@ -629,6 +629,10 @@ table.table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
 .history-modal-header h2 { margin:0; font-family:var(--font-display); font-size:var(--fs-2xl); }
 .history-modal-header p { margin:var(--sp-1) 0 0; color:var(--tx-2); font-size:var(--fs-sm); }
 .history-modal-body { max-height:calc(min(84vh, 820px) - 110px); overflow-y:auto; padding:var(--sp-5) var(--sp-7) var(--sp-7); }
+.sale-history-filters { display:flex; flex-wrap:wrap; align-items:end; gap:10px; margin-bottom:14px; }
+.sale-history-filters label { display:flex; flex-direction:column; gap:6px; flex:1 1 150px; min-width:0; font-size:var(--fs-sm); }
+.sale-history-filters input,.sale-history-filters select { width:100%; box-sizing:border-box; }
+.sale-payment-detail { display:block; margin-top:6px; color:var(--tx-2); }
 .sale-history-table-wrap { overflow-x:auto; }
 .sale-history-cards { display:none; }
 .sale-history-card { border:1px solid var(--border); border-radius:var(--r-lg); background:var(--bg-soft); padding:var(--sp-4); transition:border-color var(--tr), transform var(--tr), background var(--tr); }

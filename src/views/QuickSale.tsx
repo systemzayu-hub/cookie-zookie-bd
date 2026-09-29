@@ -144,7 +144,7 @@ export function parseText(text: string, products: Product[], customers: Customer
     const candidates = customerCandidates(rawCustomer, customers)
     const custMatch = candidates.length === 1 && normalizeCustomerName(candidates[0].name) === normalizeCustomerName(rawCustomer) ? candidates[0] : null
     const customerChoice = custMatch?.id || (candidates.length ? '' : 'new')
-    const status = rawStatus ? STATUS_CODES[rawStatus.toLowerCase()] || options.status || 'Pendente' : options.status || 'Pendente'
+    const status = rawStatus ? STATUS_CODES[rawStatus.toLowerCase()] || 'Pendente' : 'Pendente'
     const unitPrice = prodMatch?.price ?? null
     const total = unitPrice !== null ? qty * unitPrice : null
 
@@ -184,7 +184,6 @@ export function QuickSaleView({ products, customers, onSalesImported, pushToast,
   const { text, date: defaultDate, status: defaultStatus, automaticDate } = savedDraft
   const setText = (text: string) => updateDraft({ text })
   const setDefaultDate = (date: string) => updateDraft({ date })
-  const setDefaultStatus = (status: Sale['status']) => updateDraft({ status })
   const draft = useMemo(() => parseText(text, products, customers, { date: defaultDate || automaticDate, status: defaultStatus }), [text, products, customers, defaultDate, defaultStatus, automaticDate])
   const { guard } = usePasswordGuard()
   const [parsed, setParsed] = useState<ParsedLine[]>([])
@@ -233,12 +232,11 @@ export function QuickSaleView({ products, customers, onSalesImported, pushToast,
     const sales: Sale[] = []
     saleDateMap.forEach((lines, key) => {
       const [date, customerId, status] = key.split('|')
-      const items = lines.map(l => ({
-        productId: l.productId!,
-        name: l.productNameMatched!,
-        qty: l.qty,
-        unitPrice: l.unitPrice!,
-      }))
+      const items = Array.from(lines.reduce((grouped, line) => {
+        const previous = grouped.get(line.productId!)
+        grouped.set(line.productId!, { productId: line.productId!, name: line.productNameMatched!, qty: (previous?.qty || 0) + line.qty, unitPrice: line.unitPrice! })
+        return grouped
+      }, new Map<string, Sale['items'][number]>()).values())
       const total = items.reduce((a, i) => a + i.qty * i.unitPrice, 0)
       const sale: Sale = {
         id: uid(),
@@ -304,7 +302,7 @@ export function QuickSaleView({ products, customers, onSalesImported, pushToast,
             <h3 className="card-title">Cole o texto das vendas</h3>
             <p style={{ color: 'var(--tx-2)', fontSize: '0.85em', marginBottom: 'var(--sp-4)' }}>
               Cada linha de venda no formato: <code style={{ color: 'var(--cz-600)' }}>Qtd Produto - Cliente - Status</code><br />
-              Status: <code>C</code> = Pago · <code>D</code> = Debitado · <code>--</code> = Presente · vazio = status escolhido abaixo
+              Status: <code>C</code> = Pago · <code>D</code> = Debitado · <code>--</code> = Presente · vazio = Pendente
             </p>
             <div className="form-grid" style={{ marginBottom: 'var(--sp-4)' }}>
               <div className="field">
@@ -312,12 +310,7 @@ export function QuickSaleView({ products, customers, onSalesImported, pushToast,
                 <input id="import-default-date" type="date" value={defaultDate} onChange={event => setDefaultDate(event.target.value)} />
                 <span className="hint">{defaultDate ? 'A data escolhida vale para as linhas sem data.' : `Data automática: ${(automaticDate || dayKey(Date.now())).split('-').reverse().join('/')}. Não precisa preencher.`}</span>
               </div>
-              <div className="field">
-                <label htmlFor="import-default-status">Quando o status não estiver no texto</label>
-                <select id="import-default-status" value={defaultStatus} onChange={event => setDefaultStatus(event.target.value as Sale['status'])}>
-                  {Object.keys(STATUS_LABEL).map(status => <option key={status} value={status}>{status}</option>)}
-                </select>
-              </div>
+              <p role="note">Sem marcação de pagamento, a venda fica sempre Pendente. Para marcar como paga, escreva C ou Pago no final da linha.</p>
             </div>
             <SalesImage onText={value => setText(text.trim() ? text.trimEnd() + "\n" + value : value)} />
             <textarea
@@ -354,7 +347,7 @@ export function QuickSaleView({ products, customers, onSalesImported, pushToast,
                   <li><code>C</code> = Pago</li>
                   <li><code>D</code> = Debitado</li>
                   <li><code>--</code> = Presente</li>
-                  <li>Vazio = status escolhido (começa em Pendente)</li><li>Também aceita Pago, Pendente, Debitado e Presente por extenso</li>
+                  <li>Vazio = Pendente, sempre</li><li>Também aceita Pago, Pendente, Debitado e Presente por extenso</li>
                 </ul>
               </div>
               <div>
@@ -430,7 +423,7 @@ export function QuickSaleView({ products, customers, onSalesImported, pushToast,
                           </select>
                         </fieldset>}
                       </td>
-                      <td><span className={`badge badge-${l.status === 'Pago' ? 'success' : l.status === 'Pendente' ? 'warning' : l.status === 'Debitado' ? 'danger' : 'neutral'}`}>{l.statusLabel}</span></td>
+                      <td><select aria-label={`Situação da linha ${l.lineNum}`} value={l.status} onChange={event => setParsed(lines => lines.map((line, index) => index === i ? { ...line, status: event.target.value as Sale['status'], statusLabel: STATUS_LABEL[event.target.value] } : line))}>{Object.entries(STATUS_LABEL).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></td>
                       <td style={{ fontWeight: 700 }}>{l.total !== null ? fmtBRL(l.total) : '—'}</td>
                       <td style={{ fontSize: '0.8em', color: l.error ? 'var(--warn-500)' : 'var(--tx-2)' }}>
                         {l.error || (!validImportDate(l.date || '') ? 'Confira a data desta linha' : '') || (!l.customerChoice ? 'Selecione o cliente' : l.customerChoice === 'new' ? 'Novo cliente · número não informado' : '✓ OK')}

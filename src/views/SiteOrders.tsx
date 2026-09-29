@@ -87,6 +87,8 @@ export function SiteOrdersView() {
     requestRef.current?.abort()
     const controller = new AbortController()
     requestRef.current = controller
+    let timedOut = false
+    const timeout = window.setTimeout(() => { timedOut = true; controller.abort() }, 20_000)
     if (quiet) setRefreshing(true)
     else { setLoading(true); setRefreshing(false) }
     setError('')
@@ -106,9 +108,11 @@ export function SiteOrdersView() {
       const data = parseFeed(await response.json(), nextOffset)
       if (!controller.signal.aborted) { setPage(data); setOffset(data.offset); offsetRef.current = data.offset; setError('') }
     } catch (cause) {
-      if (!controller.signal.aborted) setError(cause instanceof Error ? cause.message : 'Não foi possível consultar os pedidos.')
+      if (timedOut) setError('O serviço de pedidos demorou para responder. Tente atualizar em instantes.')
+      else if (!controller.signal.aborted) setError(cause instanceof TypeError ? 'Não foi possível conectar ao serviço de pedidos. Confira a conexão e tente atualizar em instantes.' : cause instanceof Error ? cause.message : 'Não foi possível consultar os pedidos.')
     } finally {
-      if (!controller.signal.aborted) { setLoading(false); setRefreshing(false) }
+      window.clearTimeout(timeout)
+      if (requestRef.current === controller && (!controller.signal.aborted || timedOut)) { setLoading(false); setRefreshing(false) }
     }
   }, [])
 
@@ -150,7 +154,7 @@ export function SiteOrdersView() {
       <label className="site-orders-filter">Etapa<select value={statusFilter} onChange={event => setStatusFilter(event.target.value)}><option value="all">Todas</option>{statuses.map(status => <option key={status} value={status}>{statusLabel(status, page?.orders.find(order => order.status === status)?.fulfillment || '')}</option>)}</select></label>
     </div>
     <div className="site-orders-meta" aria-live="polite">
-      <span>{page ? `${first}–${last} de ${page.total} pedidos` : 'Carregando pedidos…'}</span>
+      <span>{page ? `${first}–${last} de ${page.total} pedidos` : loading ? 'Carregando pedidos…' : error ? 'Consulta indisponível' : 'Nenhum pedido carregado'}</span>
       <span>{page ? `Atualizado ${dateTime(page.fetchedAt)}` : ''}</span>
     </div>
     {error && <div className="site-orders-alert" role="alert"><AlertCircle size={18} /><span>{error}{page && <small> · Os dados exibidos são da consulta de {dateTime(page.fetchedAt)}.</small>}</span></div>}
@@ -166,7 +170,7 @@ export function SiteOrdersView() {
         </dl>}
         <div className="site-order-bottom"><span>{order.fulfillment === 'pickup' ? 'Retirada' : order.fulfillment === 'delivery' ? 'Entrega' : order.fulfillment} · {paymentLabel(order.paymentMethod)} · Pagamento: <strong>Não confirmado</strong></span><strong>{brl(order.totalCents)}</strong></div>
       </article>)}</div>
-      : <div className="site-orders-empty"><ShoppingBag size={24} /><span>{page?.orders.length ? 'Nenhum pedido corresponde a estes filtros nesta página.' : error ? 'Entre com a conta Google verificada do dono para carregar os pedidos.' : 'Ainda não há pedidos do site.'}</span></div>}
+      : <div className="site-orders-empty"><ShoppingBag size={24} /><span>{page?.orders.length ? 'Nenhum pedido corresponde a estes filtros nesta página.' : error ? 'Os pedidos não puderam ser carregados. Veja o aviso acima e tente Atualizar.' : 'Ainda não há pedidos do site.'}</span></div>}
     <nav className="site-orders-pagination" aria-label="Paginação de pedidos">
       <button className="btn btn-secondary" disabled={!page || page.offset <= 0 || loading} onClick={() => void refresh(Math.max(0, offset - PAGE_SIZE))}><ChevronLeft size={17} /> Anterior</button>
       <span>{page ? `Página ${Math.floor(page.offset / PAGE_SIZE) + 1}` : '—'}</span>

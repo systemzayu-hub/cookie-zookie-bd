@@ -6,6 +6,7 @@ import './SiteOrders.css'
 const FEED_URL = 'https://cookie-zookie-gestao.onrender.com/api/integration/orders'
 const PAGE_SIZE = 50
 const REFRESH_MS = 30_000
+const REQUEST_TIMEOUT_MS = 90_000
 
 type SiteOrder = {
   id: number
@@ -77,6 +78,7 @@ export function SiteOrdersView() {
   const [mode, setMode] = useState<'all' | 'test' | 'real'>('all')
   const [statusFilter, setStatusFilter] = useState('all')
   const requestRef = useRef<AbortController | null>(null)
+  const timeoutRef = useRef<number | null>(null)
   const offsetRef = useRef(0)
   const canUseGoogleOwnerSession = () => {
     const currentUser = authCurrentUser()
@@ -84,11 +86,15 @@ export function SiteOrdersView() {
   }
 
   const refresh = useCallback(async (nextOffset: number, quiet = false) => {
+    // Never let the 30-second background poll cancel a slow Render cold start.
+    if (quiet && requestRef.current) return
     requestRef.current?.abort()
+    if(timeoutRef.current!==null)window.clearTimeout(timeoutRef.current)
     const controller = new AbortController()
     requestRef.current = controller
     let timedOut = false
-    const timeout = window.setTimeout(() => { timedOut = true; controller.abort() }, 20_000)
+    const timeoutId = window.setTimeout(() => { timedOut = true; controller.abort() }, REQUEST_TIMEOUT_MS)
+    timeoutRef.current = timeoutId
     if (quiet) setRefreshing(true)
     else { setLoading(true); setRefreshing(false) }
     setError('')
@@ -96,23 +102,30 @@ export function SiteOrdersView() {
       if (!canUseGoogleOwnerSession()) throw new Error('Entre com a conta Google verificada do dono para ver os pedidos do site.')
       const currentUser = authCurrentUser()
       if (!currentUser) throw new Error('Sessão encerrada. Entre novamente.')
-      const token = await currentUser.getIdToken()
-      const response = await fetch(`${FEED_URL}?offset=${nextOffset}&limit=${PAGE_SIZE}`, {
-        method: 'GET', credentials: 'omit', headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
-        cache: 'no-store', signal: controller.signal,
+      const url=`${FEED_URL}?offset=${nextOffset}&limit=${PAGE_SIZE}`
+      const request=async(token:string)=>fetch(url,{
+        method:'GET',credentials:'omit',headers:{Authorization:`Bearer ${token}`,Accept:'application/json'},
+        cache:'no-store',signal:controller.signal,
       })
+      let response=await request(await currentUser.getIdToken())
+      if(response.status===401)response=await request(await currentUser.getIdToken(true))
       if (!response.ok) {
-        if (response.status === 401 || response.status === 403) throw new Error('Acesso ao painel de pedidos não autorizado para esta conta.')
-        throw new Error(response.status === 429 ? 'Muitas consultas em sequência. Aguarde e tente novamente.' : `Falha ao carregar pedidos (HTTP ${response.status}).`)
+        if(response.status===401)throw new Error('Sessão expirada ou conta não autorizada. Entre novamente com a conta Google verificada do dono.')
+        if(response.status===403)throw new Error('Esta conta não tem acesso ao painel de pedidos do site.')
+        if(response.status===429)throw new Error('Muitas consultas em sequência. Aguarde e tente novamente.')
+        if([502,503,504].includes(response.status))throw new Error(`O serviço de pedidos está temporariamente indisponível (HTTP ${response.status}). Tente novamente em instantes.`)
+        throw new Error(`Falha ao carregar pedidos (HTTP ${response.status}).`)
       }
       const data = parseFeed(await response.json(), nextOffset)
       if (!controller.signal.aborted) { setPage(data); setOffset(data.offset); offsetRef.current = data.offset; setError('') }
     } catch (cause) {
-      if (timedOut) setError('O serviço de pedidos demorou para responder. Tente atualizar em instantes.')
-      else if (!controller.signal.aborted) setError(cause instanceof TypeError ? 'Não foi possível conectar ao serviço de pedidos. Confira a conexão e tente atualizar em instantes.' : cause instanceof Error ? cause.message : 'Não foi possível consultar os pedidos.')
+      if (requestRef.current === controller) {
+        if (timedOut) setError('A consulta demorou mais de 90 segundos. O serviço pode estar iniciando; tente atualizar novamente.')
+        else if (!controller.signal.aborted) setError(cause instanceof TypeError ? 'Não foi possível conectar ao serviço de pedidos. Confira a conexão e tente atualizar em instantes.' : cause instanceof Error ? cause.message : 'Não foi possível consultar os pedidos.')
+      }
     } finally {
-      window.clearTimeout(timeout)
-      if (requestRef.current === controller && (!controller.signal.aborted || timedOut)) { setLoading(false); setRefreshing(false) }
+      window.clearTimeout(timeoutId)
+      if (requestRef.current === controller) { requestRef.current = null; timeoutRef.current = null; setLoading(false); setRefreshing(false) }
     }
   }, [])
 
@@ -128,7 +141,7 @@ export function SiteOrdersView() {
     }, REFRESH_MS)
     const onVisible = () => { if (document.visibilityState === 'visible') void refresh(offsetRef.current, true) }
     document.addEventListener('visibilitychange', onVisible)
-    return () => { requestRef.current?.abort(); window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisible) }
+    return () => { requestRef.current?.abort(); if(timeoutRef.current!==null)window.clearTimeout(timeoutRef.current); window.clearInterval(timer); document.removeEventListener('visibilitychange', onVisible) }
   }, [refresh])
 
   const shown = useMemo(() => (page?.orders ?? []).filter(order => {

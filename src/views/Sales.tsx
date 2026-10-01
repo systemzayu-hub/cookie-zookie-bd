@@ -48,6 +48,10 @@ export function SalesView({ products, customers, sales, onSaleAdded, onSaleDelet
     return items
   }, new Map<string, Sale['items'][number]>()).values())
   const total = finalItems.reduce((a, i) => a + i.unitPrice * i.qty, 0)
+  const productOptions = products.map(product => ({
+    id: product.id,
+    name: `${product.emoji ? `${product.emoji} ` : ''}${product.name} — ${fmtBRL(product.price)} · Estoque: ${product.stock}`,
+  }))
 
   const submit = () => guard('Registrar venda', () => {
     if (finalItems.length === 0 || finalItems.some(i => !i.productId || !Number.isSafeInteger(i.qty) || i.qty <= 0)) { setError('Selecione produto e quantidade válida.'); return }
@@ -111,10 +115,7 @@ export function SalesView({ products, customers, sales, onSaleAdded, onSaleDelet
             return (
               <div key={idx} className="sale-item-row">
                 <div className="field">
-                  <label htmlFor={`sale-product-${idx}`}>Produto</label>
-                  <select id={`sale-product-${idx}`} value={line.productId} onChange={e => updateLine(idx, { productId: e.target.value })}>
-                    {products.map(p => <option key={p.id} value={p.id}>{p.emoji} {p.name} — {fmtBRL(p.price)}</option>)}
-                  </select>
+                  <SearchableSelect label="Produto" value={line.productId} onChange={value => updateLine(idx, { productId: value })} options={productOptions} />
                   {p && p.stock <= LOW_STOCK_THRESHOLD && <span className="hint" style={{ color: 'var(--warn-600)' }}>Estoque baixo: {p.stock}</span>}
                 </div>
                 <div className="field">

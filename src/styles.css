@@ -1396,6 +1396,12 @@ table.table { width: 100%; border-collapse: collapse; font-size: var(--fs-sm); }
 .audit-event > .audit-event-summary { appearance:none; border:0; background:transparent; color:inherit; cursor:pointer; font:inherit; padding:0; text-align:left; flex:1 1 360px; min-width:0; display:flex; align-items:center; justify-content:space-between; gap:16px; }
 .audit-event-summary-copy { min-width:0; display:block; }
 .audit-event-description { display:block; margin-top:8px; overflow-wrap:anywhere; }
+.audit-event-account { display:block; margin-top:5px; color:var(--tx-2); font-size:.78rem; overflow-wrap:anywhere; }
+.audit-history-hint { margin:0 0 16px; color:var(--tx-2); font-size:.85rem; }
+.audit-record-info { margin:0 0 14px; color:var(--tx-2); font-size:.78rem; }
+.audit-record-info div { display:flex; gap:8px; flex-wrap:wrap; }
+.audit-record-info dt { font-weight:700; }
+.audit-record-info dd { margin:0; overflow-wrap:anywhere; }
 .audit-event-expand { color:var(--cz-600); display:flex; align-items:center; gap:5px; flex:none; font-size:.8rem; font-weight:700; }
 .audit-event-expand svg { transition:transform .18s ease; }
 .audit-event.is-expanded .audit-event-expand svg { transform:rotate(180deg); }

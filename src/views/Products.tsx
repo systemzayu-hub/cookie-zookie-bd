@@ -89,7 +89,7 @@ export function ProductsView({ products, setProducts, sales, pushToast }: {
         <button className="btn btn-primary" onClick={openNew}><Plus size={16} /> Novo Produto</button>
       </div>
 
-      <div className="list-toolbar card"><SearchInput label="Buscar produto" value={search} onChange={setSearch} placeholder="Nome ou categoria…" /><label>Categoria<select value={category} onChange={e => setCategory(e.target.value)}><option value="all">Todas as categorias</option>{CATEGORIES.map(c => <option key={c} value={c}>{CAT_LABEL[c]}</option>)}</select></label><label>Ordenar<select value={sort} onChange={e => setSort(e.target.value)}><option value="name">Nome A–Z</option><option value="stock">Menor estoque</option><option value="price">Menor preço</option></select></label><span className="result-count" role="status">{visible.length} de {products.length} produtos</span>{(search || category !== 'all') && <button className="btn btn-ghost" onClick={() => {setSearch(''); setCategory('all')}}>Limpar filtros</button>}</div>
+      <div className="list-toolbar card"><SearchInput label="Buscar produto" value={search} onChange={setSearch} placeholder="Nome ou categoria…" /><label htmlFor="products-category-filter">Categoria<select id="products-category-filter" value={category} onChange={e => setCategory(e.target.value)}><option value="all">Todas as categorias</option>{CATEGORIES.map(c => <option key={c} value={c}>{CAT_LABEL[c]}</option>)}</select></label><label htmlFor="products-sort-filter">Ordenar<select id="products-sort-filter" value={sort} onChange={e => setSort(e.target.value)}><option value="name">Nome A–Z</option><option value="stock">Menor estoque</option><option value="price">Menor preço</option></select></label><span className="result-count" role="status">{visible.length} de {products.length} produtos</span>{(search || category !== 'all') && <button className="btn btn-ghost" onClick={() => {setSearch(''); setCategory('all')}}>Limpar filtros</button>}</div>
       {visible.length === 0 ? (
         <div className="card empty-state"><Package className="icon" size={48} /><p>{products.length ? 'Nenhum produto corresponde aos filtros.' : 'Nenhum produto cadastrado.'}</p></div>
       ) : (
@@ -117,19 +117,19 @@ export function ProductsView({ products, setProducts, sales, pushToast }: {
                     <button className="modal-close" aria-label="Fechar" onClick={() => setShowModal(false)}><X size={20} /></button>
                   </div>
                   <div className="form">
-                    <div className="field"><label>Nome do cookie</label><input aria-label="Nome do cookie" value={form.name} maxLength={100} onChange={e => changeName(e.target.value)} placeholder="ex: Chocolate, Aveia, Red Velvet" /></div>
+                    <div className="field"><label htmlFor="product-name-input">Nome do cookie</label><input id="product-name-input" aria-label="Nome do cookie" value={form.name} maxLength={100} onChange={e => changeName(e.target.value)} placeholder="ex: Chocolate, Aveia, Red Velvet" /></div>
                     <div className="form-grid">
-                      <div className="field"><label>Preço (R$)</label><input aria-label="Preço (R$)" type="number" min={0} step="0.01" className="num-input" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} /></div>
-                      <div className="field"><label>{editing ? "Estoque atual" : "Estoque inicial"}</label><input aria-label={editing ? "Estoque atual" : "Estoque inicial"} type="number" min={0} className="num-input" value={form.stock} onChange={e => setForm(f => ({ ...f, stock: e.target.value }))} /></div>
+                      <div className="field"><label htmlFor="product-price-input">Preço (R$)</label><input id="product-price-input" aria-label="Preço (R$)" type="number" min={0} step="0.01" className="num-input" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} /></div>
+                      <div className="field"><label htmlFor="product-stock-input">{editing ? "Estoque atual" : "Estoque inicial"}</label><input id="product-stock-input" aria-label={editing ? "Estoque atual" : "Estoque inicial"} type="number" min={0} className="num-input" value={form.stock} onChange={e => setForm(f => ({ ...f, stock: e.target.value }))} /></div>
                     </div>
                     <div className="form-grid">
                       <div className="field">
-                        <label>Categoria</label>
-                        <select aria-label="Categoria" value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}>
+                        <label htmlFor="product-category-input">Categoria</label>
+                        <select id="product-category-input" aria-label="Categoria" value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}>
                           {CATEGORIES.map(c => <option key={c} value={c}>{CAT_LABEL[c]}</option>)}
                         </select>
                       </div>
-                      <div className="field"><label>Emoji</label><input aria-label="Emoji" value={form.emoji} onChange={e => setForm(f => ({ ...f, emoji: e.target.value }))} maxLength={4} /></div>
+                      <div className="field"><label htmlFor="product-emoji-input">Emoji</label><input id="product-emoji-input" aria-label="Emoji" value={form.emoji} onChange={e => setForm(f => ({ ...f, emoji: e.target.value }))} maxLength={4} /></div>
                     </div>
                     <div className="modal-actions">
                       <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancelar</button>

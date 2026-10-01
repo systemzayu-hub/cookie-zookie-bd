@@ -100,6 +100,7 @@ export function PaymentsView({ owner, sales, customers, pushToast, onDebitChange
       await onDebitChanged({sale, payment: record, reopen: true, operationId: saleEditOperationId()}); pushToast('Débito reaberto.')
     })
   }
+  const invalidPeriod = !!from && !!to && from > to
   const cashTotal = cashPaymentsTotal(payments), cookieTotal = cookieDebits.reduce((sum, item) => sum + item.amount, 0)
   const disabled = busy || !cloudReady
   if (!ready) return <p role="status">Abrindo pagamentos…</p>
@@ -117,13 +118,15 @@ export function PaymentsView({ owner, sales, customers, pushToast, onDebitChange
         <div className="payment-actions"><button className="btn btn-primary" disabled={disabled}>{busy ? 'Salvando…' : editing ? 'Salvar alterações' : 'Adicionar pagamento'}</button>{editing && <button type="button" className="btn btn-ghost" disabled={busy} onClick={() => {setEditing(null); setForm(blank())}}>Cancelar</button>}</div>
       </form>
     </section>
-    <div className="list-toolbar card"><SearchInput label="Buscar nos pagamentos" value={search} onChange={setSearch} placeholder="Pessoa, produto ou descrição…" /><label>De<input type="date" value={from} onChange={e => setFrom(e.target.value)} /></label><label>Até<input type="date" value={to} onChange={e => setTo(e.target.value)} /></label><button className="btn btn-ghost" onClick={() => {setSearch(''); setFrom(''); setTo('')}}>Limpar filtros</button><span className="result-count" role="status">{cashRows.length + debits.length + history.length + archived.length} registros encontrados · os totais acima incluem todo o histórico ativo</span></div>
-    {from && to && from > to && <p role="alert">A data inicial deve ser anterior à final.</p>}
+    <div className="list-toolbar card"><SearchInput label="Buscar nos pagamentos" value={search} onChange={setSearch} placeholder="Pessoa, produto ou descrição…" /><label>De<input type="date" value={from} onChange={e => setFrom(e.target.value)} /></label><label>Até<input type="date" value={to} onChange={e => setTo(e.target.value)} /></label><button className="btn btn-ghost" onClick={() => {setSearch(''); setFrom(''); setTo('')}}>Limpar filtros</button><span className="result-count" role="status">{invalidPeriod ? 'Corrija o intervalo para consultar os registros.' : `${cashRows.length + debits.length + history.length + archived.length} registros encontrados · os totais acima incluem todo o histórico ativo`}</span></div>
+    {invalidPeriod && <p role="alert">A data inicial deve ser anterior ou igual à final. Os totais acima continuam representando todo o histórico ativo.</p>}
+    {!invalidPeriod && <>
     <DebitSummary rows={debitsByPerson} />
     <PaymentList title="Pagamentos em dinheiro" empty="Nenhum pagamento em dinheiro corresponde aos filtros." rows={cashRows} cash busy={disabled} onEdit={p => {setForm(p); setEditing(p.id)}} onDelete={p => void remove(p)} />
     <PaymentList title="Cookies debitados" empty="Nenhum cookie debitado corresponde aos filtros." rows={debits} busy={disabled} onMarkPaid={id => {const row = cookieDebits.find(item => item.id === id); if (row) void settleDebit(row)}} />
     <DebitHistory rows={history} busy={disabled} onReopen={p => void reopenDebit(p)} />
     <details className="payment-card"><summary>Histórico de pagamentos excluídos · {archived.length}</summary><PaymentList title="Pagamentos excluídos" empty="Nenhum pagamento excluído corresponde aos filtros." rows={archived} cash busy={disabled} /></details>
+    </>}
   </div>
 }
 

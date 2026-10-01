@@ -422,7 +422,7 @@ export default function App() {
       { id: 'clientes', label: 'Clientes & Cobrança', icon: <Users className="icon" /> },
       { id: 'ingredientes', label: 'Compras', icon: <ShoppingCart className="icon" /> },
       { id: 'pagamentos', label: 'Pagamentos', icon: <WalletCards className="icon" /> },
-      { id: 'lucro', label: 'Lucro líquido', icon: <TrendingDown className="icon" /> },
+      { id: 'lucro', label: 'Resultado estimado', icon: <TrendingDown className="icon" /> },
       { id: 'financeiro', label: 'Financeiro', icon: <Percent className="icon" /> },
       { id: 'audit', label: 'Auditoria', icon: <ShieldCheck className="icon" /> },
       ...(isSiteOwner ? [{ id: 'pedidos-site' as Tab, label: 'Pedidos do site', icon: <ShoppingBag className="icon" /> }] : []),
@@ -594,7 +594,7 @@ export default function App() {
           </div>
           <InstallApp />
           </details>
-          <div className="sidebar-version">Versão do app · 1.1.5</div>
+          <div className="sidebar-version">Versão do app · 1.1.6</div>
         </div>
       </aside>
 
@@ -652,7 +652,7 @@ export default function App() {
           {tab === 'clientes' && <CustomersBillingView onCustomersCombined={handleCustomersCombined} onCustomerPayment={handleCustomerPayment} onSaleTransfer={handleSaleTransfer} customers={customers} setCustomers={setCustomers} sales={sales} setSales={setSales} pushToast={pushToast} />}
           {tab === 'ingredientes' && role === 'owner' && <SensitiveData label="Desbloquear compras"><IngredientsView key={user.email} owner={user.email || ''} sales={sales} /></SensitiveData>}
           {tab === 'pagamentos' && (role === 'owner' || role === 'admin') && <SensitiveData label="Desbloquear pagamentos"><PaymentsView owner={user.email || ''} sales={sales} customers={customers} pushToast={pushToast} onDebitChanged={handleDebitChanged} /></SensitiveData>}
-          {tab === 'lucro' && role === 'owner' && <SensitiveData label="Desbloquear lucro"><ProfitView owner={user.email || ''} sales={sales} customers={customers} /></SensitiveData>}
+          {tab === 'lucro' && role === 'owner' && <SensitiveData label="Desbloquear resultado"><ProfitView owner={user.email || ''} sales={sales} customers={customers} /></SensitiveData>}
           {tab === 'financeiro' && <FinanceiroView />}
           {tab === 'audit' && <OwnerAuditGate key={user.email}><AuditView /></OwnerAuditGate>}
           {tab === 'pedidos-site' && isSiteOwner && <SiteOrdersView key={user.email} />}

@@ -1,7 +1,8 @@
 import { billingMessage, billingWhatsApp } from '../billing-message'
 import { SearchInput } from '../components/SearchInput'
+import { useConfirmation } from '../components/useConfirmation'
 import { matchesSearch } from '../search'
-import { useState, useMemo } from 'react'
+import { useRef, useState, useMemo } from 'react'
 import { MessageSquare, CheckCircle2, Copy, ChevronDown, ChevronUp, DollarSign, Users, AlertCircle, Calendar, Minus, Check, ChevronRight, ArrowLeftRight } from 'lucide-react'
 import { Sale, Customer, fmtBRL, saleOutstanding } from '../types'
 import { CookieArt } from '../components/CookieArt'
@@ -12,6 +13,7 @@ import { normalizeCustomerName } from '../customer-matching'
 import { logAction } from '../audit'
 import { SaleTransferDialog } from '../components/SaleTransferDialog'
 import type { CustomerPayment, SaleTransfer } from '../sale-adjustments'
+import { sameData } from '../store-merge'
 
 interface CobrancaViewProps {
   sales: Sale[]
@@ -30,8 +32,21 @@ type CustomerGroup = {
   totalQty: number
 }
 
+const saleOrder = (a: Sale, b: Sale) => Date.parse(a.date) - Date.parse(b.date) || a.id.localeCompare(b.id)
+const samePendingSales = (left: Sale[], right: Sale[]) => sameData([...left].sort(saleOrder), [...right].sort(saleOrder))
+const parsePaymentCents = (raw: string) => {
+  const normalized = raw.trim().replace(',', '.')
+  if (!/^\d+(?:\.\d{1,2})?$/.test(normalized)) return null
+  const value = Number(normalized)
+  const cents = Math.round(value * 100)
+  return Number.isSafeInteger(cents) ? cents : null
+}
+
 export function CobrancaView({ sales, setSales, customers, pushToast, onCustomerPayment, onSaleTransfer }: CobrancaViewProps) {
   const { guard } = usePasswordGuard()
+  const { confirm, confirmation } = useConfirmation()
+  const salesRef = useRef(sales)
+  salesRef.current = sales
   const [search, setSearch] = useState('')
   const [sortBy, setSortBy] = useState<'total' | 'nome' | 'qtd' | 'data'>('total')
   const [sortDesc, setSortDesc] = useState(true)
@@ -131,8 +146,18 @@ export function CobrancaView({ sales, setSales, customers, pushToast, onCustomer
 
   // Partial payment
   const applyPartialPayment = (group: CustomerGroup) => {
-    const amount = Number((partialAmounts[group.customerId] || '0').replace(',', '.'))
-    if (!Number.isFinite(amount) || amount <= 0) { pushToast('Valor inválido', 'error'); return }
+    const pendingBalance = group.sales.reduce((sum, sale) => sum + saleOutstanding(sale), 0)
+    const pendingCents = Math.max(0, Math.round(pendingBalance * 100))
+    const amountCents = parsePaymentCents(partialAmounts[group.customerId] || '')
+    if (amountCents === null || amountCents <= 0) {
+      pushToast(`Informe um valor positivo com até duas casas decimais (máximo ${fmtBRL(pendingCents / 100)}).`, 'error')
+      return
+    }
+    if (amountCents > pendingCents) {
+      pushToast(`O valor não pode superar o saldo pendente de ${fmtBRL(pendingCents / 100)}.`, 'error')
+      return
+    }
+    const amount = amountCents / 100
     guard('Aplicar pagamento parcial', () => {
       if (!onCustomerPayment({ customerId: group.customerId, amount, sales: group.sales })) return
       setPartialAmounts(prev => ({ ...prev, [group.customerId]: '' }))
@@ -141,14 +166,35 @@ export function CobrancaView({ sales, setSales, customers, pushToast, onCustomer
   }
 
   // Mark all items of a sale as paid
-  const markAllPaid = (saleIds: string[]) => {
-    const before = sales.filter(s => saleIds.includes(s.id))
+  const markAllPaid = (group: CustomerGroup) => {
     guard('Marcar tudo como pago', () => {
-      setSales(prev => prev.map(s =>
-        saleIds.includes(s.id) ? { ...s, items: s.items.map(i => ({ ...i, paid: true })), paidAmount: s.total, status: 'Pago' as const } : s
-      ))
-      logAction('cobranca', `Quitou ${saleIds.length} venda(s)`, () => setSales(prev => prev.map(s => before.find(old => old.id === s.id) || s)))
-      pushToast(saleIds.length > 1 ? 'Pendências do cliente quitadas!' : 'Venda quitada!', 'success')
+      const customerName = group.customer?.name || 'cliente'
+      const saleCount = group.sales.length
+      const requestedSales = group.sales.map(sale => ({ ...sale, items: sale.items.map(item => ({ ...item })) }))
+      const requestedBalance = group.sales.reduce((sum, sale) => sum + saleOutstanding(sale), 0)
+      void (async () => {
+        const accepted = await confirm(
+          `Conta de ${customerName}: ${saleCount} ${saleCount === 1 ? 'venda' : 'vendas'}, saldo pendente de ${fmtBRL(requestedBalance)}. Confirmar quitação?`,
+          'Confirmar quitação',
+        )
+        if (!accepted) return
+
+        // The modal can stay open while another update changes the current debt.
+        // Re-read and compare the pending sales before asking the store to settle.
+        const currentPending = salesRef.current.filter(sale => sale.customerId === group.customerId && sale.status === 'Pendente')
+        if (!samePendingSales(currentPending, requestedSales)) {
+          pushToast('As pendências mudaram. Confira o saldo e tente novamente.', 'error')
+          return
+        }
+        const currentBalance = currentPending.reduce((sum, sale) => sum + saleOutstanding(sale), 0)
+        const amount = Math.round(currentBalance * 100) / 100
+        if (!Number.isFinite(amount) || amount <= 0) {
+          pushToast('Não há saldo pendente para quitar.', 'error')
+          return
+        }
+        if (!onCustomerPayment({ customerId: group.customerId, amount, sales: currentPending })) return
+        pushToast(saleCount > 1 ? 'Pendências do cliente quitadas!' : 'Venda quitada!', 'success')
+      })()
     })
   }
 
@@ -322,7 +368,7 @@ export function CobrancaView({ sales, setSales, customers, pushToast, onCustomer
                 <button className="btn btn-secondary btn-sm" onClick={(e) => { e.stopPropagation(); copyMessage(g) }} title="Copiar mensagem">
                   <Copy size={14} /> Copiar
                 </button>
-                <button className="btn btn-success btn-sm" onClick={(e) => { e.stopPropagation(); markAllPaid(g.sales.map(s => s.id)) }} title="Marcar todas as compras como pagas">
+                <button className="btn btn-success btn-sm" onClick={(e) => { e.stopPropagation(); markAllPaid(g) }} title="Marcar todas as compras como pagas">
                   <CheckCircle2 size={14} /> Quitar tudo
                 </button>
               </div>
@@ -463,6 +509,7 @@ export function CobrancaView({ sales, setSales, customers, pushToast, onCustomer
         })}
       </div>
       {transfer && <SaleTransferDialog key={transfer.sale.id} customer={transfer.customer} initialSale={transfer.sale} customers={customers} sales={sales} onTransfer={onSaleTransfer} onClose={() => setTransfer(null)} />}
+      {confirmation}
     </>
   )
 }

@@ -11,6 +11,7 @@ import { diffRows, reversePatches } from './undo-model'
 import { changesFromPatches } from './audit-changes'
 import { can, type Role } from './roles'
 import type { Sale } from './types'
+import { summarizeSale, summarizeStoreChange, summarizeTeam } from './audit-summary'
 
 export const dashboardSale = ({ id, date, items, status }: Sale) => ({ id, date, items, status: status || 'Pago' })
 export const FREE_MAX_FLAVORS = 5
@@ -65,8 +66,7 @@ export function createFreeStore(db: Firestore, currentUser: () => User | null) {
         const before = core((await tx.get(shop)).data())
         const after = core(mergeStore(core(base), core(local), before))
         if (!sameData(before, after)) {
-          const names = { products: 'produto(s)', sales: 'venda(s)', customers: 'cliente(s)' }
-          const detail = (['products', 'sales', 'customers'] as const).map(source => ({ source, count: diffRows(source, before[source], after[source]).length })).filter(item => item.count).map(item => item.count + ' ' + names[item.source]).join(' · ')
+          const detail = summarizeStoreChange(before, after)
           writeStore(tx, user, id, before, after, 'alteracao', detail)
         }
         return after
@@ -97,7 +97,7 @@ export function createFreeStore(db: Firestore, currentUser: () => User | null) {
         tx.update(doc(db, 'dashboard', 'public'), { sales: arrayUnion(dashboardSale(sale)), revision: id })
         tx.update(doc(db, 'saleRegistry', 'ids'), { ids: arrayUnion(sale.id), revision: id })
         tx.set(doc(db, 'catalog', 'products'), { products: after.products, revision: id })
-        tx.set(doc(db, 'auditV2', id), { ...header(user, id, 'venda', 'Venda registrada'), saleId: sale.id, sale, beforeProducts: products, afterProducts: after.products })
+        tx.set(doc(db, 'auditV2', id), { ...header(user, id, 'venda', summarizeSale(sale, operational)), saleId: sale.id, sale, beforeProducts: products, afterProducts: after.products })
         return { id: sale.id, repeated: false }
       })
     },
@@ -114,7 +114,7 @@ export function createFreeStore(db: Firestore, currentUser: () => User | null) {
         const before = core(store.data())
         const after = core(editSale(before, sale, changes))
         if (!sameData(after.sales.find(s => s.id === sale.id), reviewed)) throw new Error('Os preços ou os dados mudaram. Revise novamente a edição antes de salvar.')
-        if (!sameData(before, after)) writeStore(tx, user, operationId, before, after, 'alteracao', `Venda ${sale.id} editada; valores recalculados e estoque ajustado pela diferença.`)
+        if (!sameData(before, after)) writeStore(tx, user, operationId, before, after, 'alteracao', summarizeStoreChange(before, after, `Venda ${sale.id} editada`))
         return after
       })
     },
@@ -135,7 +135,7 @@ export function createFreeStore(db: Firestore, currentUser: () => User | null) {
         const before = core(store.data())
         const changed = changeDebit(before, request)
         const after = core(changed.store)
-        writeStore(tx, user, request.operationId, before, after, 'alteracao', `Pagamento de débito: venda ${request.sale.id} ${request.reopen ? 'reaberta como debitada' : 'marcada como paga'}; histórico de pagamento atualizado na mesma operação.`)
+        writeStore(tx, user, request.operationId, before, after, 'alteracao', summarizeStoreChange(before, after, `Pagamento de débito: venda ${request.sale.id} ${request.reopen ? 'reaberta como debitada' : 'marcada como paga'}; histórico de pagamento atualizado na mesma operação`))
         tx.set(paymentRef, {data: JSON.parse(JSON.stringify(changed.payment)), deleted: false, updatedAt: serverTimestamp()})
         return after
       })
@@ -151,7 +151,7 @@ export function createFreeStore(db: Firestore, currentUser: () => User | null) {
         if (!can(access.data()?.role, 'manage')) throw new Error('Seu cargo não permite excluir vendas.')
         const before = core(store.data())
         const after = core(removeSale(before, sale))
-        const detail = `Venda ${sale.id} excluída; estoque recomposto.`
+        const detail = summarizeStoreChange(before, after, `Venda ${sale.id} excluída; estoque recomposto`)
         writeStore(tx, user, id, before, after, 'alteracao', detail)
         return after
       })
@@ -174,14 +174,14 @@ export function createFreeStore(db: Firestore, currentUser: () => User | null) {
       if (!entry.exists()) return { changes: [], unavailable: true }
       const event = entry.data()
       if (event.action === 'equipe') return { changes: [{ entity: `Acesso: ${event.targetEmail || 'conta'}`, field: 'role', before: event.beforeRole, after: event.afterRole }] }
-      try {
-        const [before, after] = event.action === 'venda'
-          ? [{ data: () => ({ products: event.beforeProducts || [], sales: [], customers: [] }) }, { data: () => ({ products: event.afterProducts || [], sales: event.sale ? [event.sale] : [], customers: [] }) }]
-          : await Promise.all([getDocFromServer(doc(db, 'auditSnapshots', id, 'versions', 'before')), getDocFromServer(doc(db, 'auditSnapshots', id, 'versions', 'after'))])
-        const left = core(before.data()), right = core(after.data())
-        const patches = (['products', 'sales', 'customers'] as const).flatMap(source => diffRows(source, left[source], right[source]))
-        return { changes: changesFromPatches(patches), unavailable: !patches.length }
-      } catch { return { changes: [], unavailable: true } }
+      // A failed request must remain retryable, rather than look like missing history.
+      const [before, after] = event.action === 'venda'
+        ? [{ data: () => ({ products: event.beforeProducts || [], sales: [], customers: [] }) }, { data: () => ({ products: event.afterProducts || [], sales: event.sale ? [event.sale] : [], customers: [] }) }]
+        : await Promise.all([getDocFromServer(doc(db, 'auditSnapshots', id, 'versions', 'before')), getDocFromServer(doc(db, 'auditSnapshots', id, 'versions', 'after'))])
+      const left = validateStoreData(before.data()), right = validateStoreData(after.data())
+      if (!left || !right) return { changes: [], unavailable: true }
+      const patches = (['products', 'sales', 'customers'] as const).flatMap(source => diffRows(source, left[source], right[source]))
+      return { changes: changesFromPatches(patches, { beforeCustomers: left.customers, afterCustomers: right.customers }), unavailable: !patches.length }
     },
     async undoAction({ id }: { id: string }) {
       const user = identity(), nextId = auditId()
@@ -204,7 +204,7 @@ export function createFreeStore(db: Firestore, currentUser: () => User | null) {
         const current = core(store.data())
         const patches = (['products', 'sales', 'customers'] as const).flatMap(source => diffRows(source, originalBefore[source], originalAfter[source]))
         const after = core(reversePatches({ ...current, custos: [], perdas: [] }, patches))
-        writeStore(tx, user, nextId, current, after, 'desfazer', 'Reversão de ' + id, id)
+        writeStore(tx, user, nextId, current, after, 'desfazer', summarizeStoreChange(current, after, 'Reversão do registro ' + id), id)
         tx.set(doc(db, 'auditReversals', id), { auditId: nextId, actorUid: user.uid, createdAt: serverTimestamp() })
         return { done: true }
       })
@@ -222,7 +222,8 @@ export function createFreeStore(db: Firestore, currentUser: () => User | null) {
         const previous = await tx.get(ref)
         if (previous.data()?.role === 'owner') throw new Error('O acesso do dono não pode ser alterado.')
         tx.set(ref, { email: target, role, updatedAt: serverTimestamp(), auditId: id })
-        tx.set(doc(db, 'auditV2', id), { ...header(user, id, 'equipe', 'Acesso da equipe atualizado', false), targetEmail: target, beforeRole: previous.data()?.role || 'blocked', afterRole: role })
+        const beforeRole = (previous.data()?.role || 'blocked') as Role
+        tx.set(doc(db, 'auditV2', id), { ...header(user, id, 'equipe', summarizeTeam(target, beforeRole, role), false), targetEmail: target, beforeRole, afterRole: role })
         return { done: true }
       })
     },

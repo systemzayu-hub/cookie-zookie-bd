@@ -1,4 +1,4 @@
-import { auditPullDB, type AuditEntryDB } from './sync'
+import { auditPullPage, type AuditEntryDB, type AuditPage, type AuditPageCursor } from './sync'
 import { captureUndo, performUndo, undoStatus } from './undo'
 import { isUnlocked } from './auth'
 export type AuditEntry = AuditEntryDB
@@ -11,7 +11,11 @@ export function loadAudit(): AuditEntry[] {
   try { const rows = JSON.parse(localStorage.getItem(key()) || '[]'); return Array.isArray(rows) ? rows.filter(e => e && typeof e.id === 'string' && typeof e.detail === 'string' && Number.isFinite(e.ts)).slice(0, 500) : [] } catch { return [] }
 }
 export async function loadAuditRemote(): Promise<AuditEntry[]> {
-  return [...await auditPullDB(), ...loadAudit()].sort((a,b) => b.ts - a.ts)
+  return [...(await auditPullPage()).entries, ...loadAudit()].sort((a,b) => b.ts - a.ts || a.id.localeCompare(b.id))
+}
+export async function loadAuditRemotePage(cursor?: AuditPageCursor): Promise<AuditPage> {
+  const page = await auditPullPage(cursor, cursor ? undefined : { v2: 500, legacy: 100 })
+  return { ...page, entries: [...page.entries, ...(!cursor ? loadAudit() : [])].sort((a,b) => b.ts - a.ts || a.id.localeCompare(b.id)) }
 }
 export function logAction(action: string, detail: string, _legacyUndo?: () => void): AuditEntry {
   const entry: AuditEntry = { id: crypto.randomUUID(), ts: Date.now(), actor: actor || 'Conta local', action, detail, local: true, ...(actorEmail ? { email: actorEmail } : {}) }

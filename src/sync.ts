@@ -1,5 +1,5 @@
 import { initializeApp, getApps, type FirebaseApp } from 'firebase/app'
-import { getFirestore, doc, onSnapshot, collection, query, orderBy, limit, getDocs, type Firestore } from 'firebase/firestore'
+import { getFirestore, doc, onSnapshot, collection, query, orderBy, documentId, limit, getDocs, startAfter, type Firestore, type QueryDocumentSnapshot, type DocumentData } from 'firebase/firestore'
 import { getAuth, setPersistence, browserLocalPersistence, inMemoryPersistence, signInWithEmailAndPassword, signInWithPopup, reauthenticateWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut, type Auth, type User } from 'firebase/auth'
 import { FIREBASE_APP_CHECK_SITE_KEY, FIREBASE_CONFIG } from './firebase-config'
 import { validateStoreData, type StoreData } from './validation'
@@ -172,6 +172,7 @@ export type AuditEntryDB = {
   id: string
   ts: number
   actor: string
+  actorUid?: string
   email?: string
   action: string
   detail: string
@@ -184,6 +185,13 @@ export type AuditEntryDB = {
   afterRole?: string
 }
 export type AuditDetails = { changes: AuditChange[]; unavailable?: boolean }
+export type AuditPageCursor = {
+  v2: QueryDocumentSnapshot<DocumentData> | null
+  legacy: QueryDocumentSnapshot<DocumentData> | null
+  v2Done: boolean
+  legacyDone: boolean
+}
+export type AuditPage = { entries: AuditEntryDB[]; cursor: AuditPageCursor; hasMore: boolean }
 
 
 function readAudit(value: Record<string, any>): AuditEntryDB {
@@ -195,10 +203,31 @@ export async function auditPullDB(max = 1000): Promise<AuditEntryDB[]> {
     getDocs(query(collection(db, 'auditV2'), orderBy('createdAt', 'desc'), limit(max))),
     getDocs(query(collection(db, 'audit'), orderBy('ts', 'desc'), limit(max))),
   ])
-  return [...recent.docs.map(d => readAudit(d.data())), ...legacy.docs.map(d => ({ ...readAudit(d.data()), hasUndo: false }))]
+  return [...recent.docs.map(d => readAudit({ ...d.data(), id: d.id })), ...legacy.docs.map(d => ({ ...readAudit({ ...d.data(), id: d.id }), hasUndo: false }))]
+}
+/** Carrega uma página de cada fonte, mantendo cursores independentes e estáveis. */
+export async function auditPullPage(cursor?: AuditPageCursor, pageSizes: { v2: number; legacy: number } = { v2: 100, legacy: 100 }): Promise<AuditPage> {
+  if (!await firebaseReady() || !db) throw new Error('Auditoria indisponível.')
+  const current = cursor || { v2: null, legacy: null, v2Done: false, legacyDone: false }
+  const [recent, legacy] = await Promise.all([
+    current.v2Done ? Promise.resolve(null) : getDocs(query(collection(db, 'auditV2'), orderBy('createdAt', 'desc'), orderBy(documentId(), 'desc'), ...(current.v2 ? [startAfter(current.v2)] : []), limit(pageSizes.v2))),
+    current.legacyDone ? Promise.resolve(null) : getDocs(query(collection(db, 'audit'), orderBy('ts', 'desc'), orderBy(documentId(), 'desc'), ...(current.legacy ? [startAfter(current.legacy)] : []), limit(pageSizes.legacy))),
+  ])
+  const v2Docs = recent?.docs || [], legacyDocs = legacy?.docs || []
+  const next: AuditPageCursor = {
+    v2: v2Docs[v2Docs.length - 1] || current.v2,
+    legacy: legacyDocs[legacyDocs.length - 1] || current.legacy,
+    v2Done: current.v2Done || v2Docs.length < pageSizes.v2,
+    legacyDone: current.legacyDone || legacyDocs.length < pageSizes.legacy,
+  }
+  return {
+    entries: [...v2Docs.map(d => readAudit({ ...d.data(), id: d.id })), ...legacyDocs.map(d => ({ ...readAudit({ ...d.data(), id: d.id }), hasUndo: false }))],
+    cursor: next,
+    hasMore: !next.v2Done || !next.legacyDone,
+  }
 }
 export function onAuditChanges(cb: (entries: AuditEntryDB[]) => void, failure?: () => void): () => void {
   if (!db) return () => {}
   return onSnapshot(query(collection(db, 'auditV2'), orderBy('createdAt', 'desc'), limit(500)),
-    snap => cb(snap.docs.map(d => readAudit(d.data()))), () => failure?.())
+    snap => cb(snap.docs.map(d => readAudit({ ...d.data(), id: d.id }))), () => failure?.())
 }

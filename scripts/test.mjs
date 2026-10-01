@@ -12,6 +12,7 @@ try {
     define: { 'import.meta.env': '{}' },
     external: ['react', 'react/*', 'react-dom/*', 'react-test-renderer'],
     plugins: [{ name: 'mock-firestore-for-hook-tests', setup(builder) {
+      builder.onResolve({ filter: /^\.\.\/(sync|audit|undo)$/ }, args => /[\\/]views[\\/]Audit\.tsx$/.test(args.importer) ? { path: resolve('tests/audit-view-mock.ts') } : undefined)
       builder.onResolve({ filter: /^(firebase-admin\/|firebase-functions\/)/ }, args => args.importer.endsWith('functions/src/index.ts') || args.importer.endsWith('functions\\src\\index.ts') ? { path: resolve('tests/backend-mock.ts') } : undefined)
       builder.onResolve({ filter: /^\.\/sync$/ }, args => args.importer.endsWith('useStoreSync.ts') ? { path: resolve('tests/sync-mock.ts') } : undefined)
     } }],

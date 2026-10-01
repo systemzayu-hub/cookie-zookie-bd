@@ -1,136 +1,53 @@
-# Guia do Usuário — Cookie Zookie (cookie-app-v2)
+# Guia do usuário — Cookie Zookie
 
----
+## Acesso e sincronização
 
-## 📋 Visão Geral
-Este é o sistema de vendas **Cookie Zookie** — um app React + TypeScript + Vite que roda 100% no navegador.  
-Hoje todos os dados ficam no **localStorage** do seu notebook (offline, sem nuvem).
+Entre com a conta Google autorizada. O cargo recebido da equipe define as telas e ações disponíveis: o dono administra acessos e auditoria; administradores podem operar e gerenciar a loja; funcionários registram operações permitidas; contas **viewer** ficam em modo de consulta e acessos bloqueados não operam.
 
----
+O indicador no menu mostra o estado da conexão:
 
-## 1️⃣ Como enviar o site para os funcionários
+- **Sincronizado com a equipe**: a loja foi confirmada no servidor.
+- **Sincronizando**: há uma atualização em andamento; aguarde antes de editar ou excluir registros sensíveis.
+- **Offline · salvo neste aparelho**: a conexão caiu e a cópia local foi preservada. Reconecte para enviar as alterações.
+- **Conflito entre aparelhos**: outro aparelho alterou o mesmo registro. Exporte a cópia solicitada na tela e siga a orientação para carregar a versão da equipe.
 
-### ⚠️ O que acontece hoje (localStorage)
-- Os dados **só existem no navegador deste notebook**.
-- Se você abrir o site em outro computador/celular, **não verá as vendas, produtos nem clientes** cadastrados aqui.
-- Limpar o cache do navegador **apaga tudo**.
+Os dados compartilhados são separados por área:
 
-### ✅ Opção A — Backup manual (JSON) — **Já funciona hoje**
-Use os botões no **rodapé da sidebar** (menu lateral esquerdo):
+| Área | Fonte compartilhada | Cópia e limites locais |
+|---|---|---|
+| Produtos, vendas e clientes | Firestore da loja | O navegador mantém uma cópia operacional para carregar a tela e trabalhar durante falhas de conexão. |
+| Compras e ingredientes | Firestore próprio de compras | Há uma cópia local no navegador. Rascunhos e fotos continuam neste aparelho; fotos não são sincronizadas entre aparelhos. |
+| Pagamentos | Firestore próprio de pagamentos | Há uma cópia local no navegador. |
+| Custos e perdas | Não são compartilhados pelo Firestore da loja | Permanecem neste navegador. |
+| Tema, rascunhos e preferências | Configuração local | Podem desaparecer se os dados do navegador forem apagados. |
 
-| Botão | Para que serve |
-|-------|----------------|
-| **Exportar backup** | Baixa um arquivo `cookie-zookie-backup-YYYY-MM-DD.json` com **todos** os produtos, vendas e clientes. |
-| **Importar backup** | Seleciona um `.json` exportado anteriormente e restaura tudo no app. |
+## Rotina de uso
 
-**Passo a passo para compartilhar com um funcionário:**
-1. Abra o app no seu notebook.
-2. Clique em **Exportar backup** → salve o `.json` no WhatsApp / e-mail / Google Drive.
-3. Mande o arquivo para o funcionário.
-4. O funcionário abre o app no **seu** notebook → clica **Importar backup** → escolhe o `.json` → pronto.
+Em **Produtos & Estoque**, cadastre sabor, preço, categoria e quantidade. Ajustes de estoque e alterações de produtos entram na sincronização da loja.
 
-> ⚠️ Isso cria uma **cópia** dos dados no momento da exportação. Alterações futuras de um lado **não sincronizam** automaticamente.
+Em **Vendas**, registre uma venda manualmente ou cole uma lista. Para uma venda pendente, selecione o cliente. Em **Clientes & Cobrança**, consulte o saldo por cliente, registre pagamentos parciais ou confirme a quitação depois de conferir o valor.
 
----
+Em **Compras**, registre ingredientes, quantidades, preços e vencimentos. A foto anexada serve para conferência e fica no aparelho que a recebeu. Use **Exportar compras e fotos** para transportar esses registros e imagens; o backup próprio de compras preserva registros já existentes ao importar e não duplica IDs.
 
-### ✅ Opção B — Hospedagem com backend (nuvem) — **Para sincronismo real**
-Para que todos vejam os mesmos dados em tempo real, você precisa de um backend. O código já tem o ponto de extensão preparado em `src/db.ts` (comentário `PLUGUE O FIREBASE AQUI`).
+Em **Pagamentos**, registre saídas em dinheiro e acompanhe cookies debitados. A quitação ou reabertura de um débito deve ser confirmada nessa área para manter a venda e o histórico consistentes. Essa tela só permite alterações quando os dados estão confirmados pelo servidor.
 
-**Caminho recomendado (baixo custo, rápido):**
-1. Crie um projeto no **Firebase Console** (console.firebase.google.com).
-2. Ative **Firestore Database** (modo teste para começar).
-3. Copie o `firebaseConfig` (apiKey, projectId, etc.).
-4. Em `src/db.ts`, preencha `FIREBASE_CONFIG` com esse objeto e mude `ready: true`.
-5. Adicione a lógica de `syncFirebase` (ler/gravar em `doc(db, 'loja', 'dados')`).
-6. Faça o deploy no **Vercel**, **Netlify** ou **Firebase Hosting** (grátis).
-7. Compartilhe a **URL pública** com a equipe — todos acessam os mesmos dados.
+## Backups
 
-> 💡 O backup JSON (Opção A) serve também para **migrar** seus dados atuais para o Firebase na primeira sincronização.
+No menu **Backup e instalação**, **Exportar backup** gera o backup da loja depois de uma nova confirmação Google. Ele inclui:
 
----
+- produtos, vendas e clientes da loja;
+- custos e perdas locais.
 
-## 2️⃣ Como rodar o projeto
+Esse arquivo não inclui compras nem pagamentos. Compras têm os botões próprios **Exportar compras e fotos**, **Backup anterior à sincronização** e **Importar backup** na tela Compras. O histórico de pagamentos permanece na área Pagamentos e não é incluído no backup da loja.
 
-### Pré-requisitos
-- **Node.js 18+** instalado (verifique com `node -v`).
-- Terminal (PowerShell, Git Bash ou CMD).
+Antes de importar um backup da loja, confira a confirmação com a quantidade de produtos, clientes e vendas. Faça uma exportação atual antes de restaurar uma versão antiga.
 
-### Passo a passo
+## Auditoria do dono
 
-```bash
-# 1. Entre na pasta do projeto
-cd "C:\Users\Admin\Documents\Default Project\cookie-app-v2"
+Abra **Auditoria** com o acesso do dono. O histórico compartilhado mostra autor, horário, conta, ação, origem e descrição. Abra **Ver detalhes** para consultar o ID do registro e a comparação **Antes/Depois** quando esses dados estiverem disponíveis. Use **Carregar mais registros** para paginar o histórico do Firestore; busca, filtros e exportação consideram os registros carregados.
 
-# 2. Instale as dependências (só na primeira vez)
-npm install
+As operações da loja e da equipe usam o histórico compartilhado, para que as ações de diferentes aparelhos possam ser conferidas. A auditoria não é um extrato financeiro completo: pagamentos têm histórico próprio e custos/perdas permanecem locais, portanto essas áreas devem ser conferidas nas telas correspondentes.
 
-# 3. Rode em modo desenvolvimento (hot reload)
-npm run dev
-# → Abre em http://localhost:5173 (ou porta indicada no terminal)
+## Cuidados com cópias locais
 
-# 4. Para testar a build de produção localmente
-npm run build
-npm run preview
-# → Abre em http://localhost:4173
-```
-
-**Scripts disponíveis (`package.json`):**
-| Comando | Descrição |
-|---------|-----------|
-| `npm run dev` | Servidor de dev com Vite (recarrega ao salvar). |
-| `npm run build` | Compila TypeScript + gera pasta `dist/` pronta para deploy. |
-| `npm run preview` | Serve a pasta `dist/` localmente para testar o build. |
-
----
-
-## 3️⃣ Onde estão os dados
-
-### No navegador (localStorage)
-As chaves usadas (visíveis no DevTools → Application → LocalStorage):
-
-| Chave | Conteúdo |
-|-------|----------|
-| `cc_products` | Array de produtos (nome, preço, categoria, estoque, emoji). |
-| `cc_sales` | Array de vendas (itens, pagamento, canal, status, total, cliente, data). |
-| `cc_customers` | Array de clientes (nome, contato, data de cadastro). |
-| `cc_theme` | `true`/`false` — tema escuro/claro. |
-
-### No código-fonte
-- **Dados iniciais (seeds):** `src/data.ts` → `seedProducts`, `seedCustomers`, `seedSales`.
-- **Persistência:** `src/data.ts` → funções `load()` / `save()` (wrappers do localStorage).
-- **Backup JSON:** `src/db.ts` → `exportarDados()`, `baixarBackup()`, `aplicarBackup()`.
-- **Ponto de integração Firebase:** `src/db.ts` → constante `FIREBASE_CONFIG` + comentários.
-
-### No build de produção
-- A pasta `dist/` contém apenas arquivos estáticos (HTML, JS, CSS).  
-- **Não há banco de dados** no `dist/` — os dados continuam no localStorage de quem abre o site.
-
----
-
-## 📌 Resumo rápido para o dia a dia
-
-| Ação | Como fazer |
-|------|------------|
-| Abrir o app | `npm run dev` → clique no link do terminal |
-| Fazer backup antes de formatar o PC | Sidebar → **Exportar backup** → guarde o `.json` na nuvem |
-| Passar dados para novo notebook | Sidebar → **Importar backup** → selecione o `.json` salvo |
-| Compartilhar com a equipe (manual) | Exportar backup → enviar arquivo → cada um importa |
-| Compartilhar com a equipe (automático) | Implementar Firebase + deploy (ver Opção B acima) |
-| Ver dados no navegador | F12 → Application → LocalStorage → chaves `cc_*` |
-
----
-
-## 🆘 Problemas comuns
-
-| Sintoma | Causa provável | Solução |
-|---------|----------------|---------|
-| "Dados sumiram" | Limpeza de cache / modo anônimo | Importar backup anterior |
-| `npm run dev` falha | `node_modules` corrompido | `rm -rf node_modules package-lock.json && npm install` |
-| Porta 5173 ocupada | Outro Vite rodando | `npm run dev -- --port 3000` |
-| Build falha no TypeScript | Erro de tipo novo | Rode `npx tsc --noEmit` para ver o erro exato |
-
----
-
-**Versão do guia:** 1.0  
-**Projeto:** `C:\Users\Admin\Documents\Default Project\cookie-app-v2`  
-**Dono:** Cookie Zookie
+Limpar os dados do navegador pode remover tema, rascunhos, fotos, custos, perdas e cópias locais de compras ou pagamentos. Para compras e pagamentos, o Firestore continua sendo a fonte compartilhada; custos, perdas e fotos dependem dos registros e backups locais. Mantenha os backups próprios quando precisar recuperar dados locais ou imagens.

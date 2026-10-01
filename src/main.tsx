@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import App from './App'
 import './styles.css'
+import './usability.css'
 import { DesktopWindowFrame, isDesktopApp } from './components/DesktopWindowFrame'
 import { getAppShell } from './app-environment'
 

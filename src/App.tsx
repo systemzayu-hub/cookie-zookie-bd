@@ -1,12 +1,14 @@
 import { combineCustomers, type CustomerMerge } from './combine-customers'
 import { payCustomer, transferSale, type CustomerPayment, type SaleTransfer } from './sale-adjustments'
 import type { SaleEdit } from './edit-sale'
+import type { DebitChange } from './debit-change'
 import { useEffect, useRef, useState, Suspense, lazy } from 'react'
 import { LayoutDashboard, ShoppingCart, Package, BarChart3, Users, Sun, Moon, Download, Upload, LogIn, LogOut, Percent, ShieldCheck, Menu, X, Cloud, CloudOff, RefreshCw, WalletCards, TrendingDown, MoreHorizontal, ShoppingBag } from 'lucide-react'
 import { Product, Sale, Customer, Tab, Pendencia, fmtBRL } from './types'
 import { seedProducts, seedCustomers, seedSales, load, save, STORAGE_ERROR_EVENT } from './data'
 import { baixarBackup, aplicarBackup } from './db'
-import { authLoginGoogle, authLogout, authOnChange, authReauthenticateGoogle, deleteSaleRemote, editSaleRemote, firebaseReady } from './sync'
+import { useConfirmation } from './components/useConfirmation'
+import { authLoginGoogle, authLogout, authOnChange, authReauthenticateGoogle, deleteSaleRemote, editSaleRemote, firebaseReady, callBackend } from './sync'
 import { PasswordProvider } from './components/PasswordGate'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { SensitiveData } from './components/SensitiveData'
@@ -39,6 +41,7 @@ const ProfitView = lazy(() => import('./views/Profit').then(m => ({ default: m.P
 const AuditView = lazy(() => import('./views/Audit').then(m => ({ default: m.AuditView })))
 
 export default function App() {
+  const { confirm, confirmation } = useConfirmation()
   const appShell = getAppShell()
   const isMobileApp = appShell === 'mobile'
   const tabs: Tab[] = ['dashboard', 'vendas', 'produtos', 'relatorios', 'clientes', 'financeiro', 'ingredientes', 'pagamentos', 'lucro', 'audit', 'pedidos-site']
@@ -272,21 +275,32 @@ export default function App() {
 
   useEffect(() => {
     if (!isMoreOpen) return
-    const close = (event: KeyboardEvent) => { if (event.key === 'Escape') setIsMoreOpen(false) }
+    const previous = document.activeElement as HTMLElement | null
+    const sheet = document.getElementById('mobile-more-menu')
+    const buttons = Array.from(sheet?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') || [])
+    buttons[0]?.focus()
+    const close = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setIsMoreOpen(false)
+      if (event.key !== 'Tab' || !buttons.length) return
+      const first = buttons[0], last = buttons[buttons.length - 1]
+      if (event.shiftKey && (document.activeElement === first || !sheet?.contains(document.activeElement))) { event.preventDefault(); last.focus() }
+      else if (!event.shiftKey && (document.activeElement === last || !sheet?.contains(document.activeElement))) { event.preventDefault(); first.focus() }
+    }
     document.addEventListener('keydown', close)
-    return () => document.removeEventListener('keydown', close)
+    return () => { document.removeEventListener('keydown', close); if (previous?.isConnected && (document.activeElement === document.body || sheet?.contains(document.activeElement))) previous.focus() }
   }, [isMoreOpen])
 
   useEffect(() => {
     if (!isMenuOpen || !sidebarRef.current) return
-    const focusable = Array.from(sidebarRef.current.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled)'))
-    focusable[0]?.focus()
+    const getFocusable = () => Array.from(sidebarRef.current!.querySelectorAll<HTMLElement>('button:not(:disabled), a[href], input:not(:disabled), select:not(:disabled), summary')).filter(element => element.getClientRects().length > 0)
+    getFocusable()[0]?.focus()
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         setIsMenuOpen(false)
         menuButtonRef.current?.focus()
         return
       }
+      const focusable = getFocusable()
       if (event.key !== 'Tab' || focusable.length === 0) return
       const first = focusable[0]
       const last = focusable[focusable.length - 1]
@@ -376,11 +390,10 @@ export default function App() {
   const onImport = async (file: File) => {
     if (!can(role, 'backup')) return
     try {
-      await authReauthenticateGoogle()
-      await aplicarBackup(file, (data) => {
-        setProducts(data.products)
-        setSales(data.sales)
-        setCustomers(data.customers)
+      await aplicarBackup(file, async (data) => {
+        if (!await confirm(`Este arquivo contém ${data.products.length} produtos, ${data.customers.length} clientes e ${data.sales.length} vendas. A restauração substituirá os registros atuais. Exporte um backup antes de continuar.`, 'Restaurar backup?')) return false
+        await authReauthenticateGoogle()
+        await transact(() => callBackend('commitStore', { base: saleState.current, local: { products: data.products, sales: data.sales, customers: data.customers } }))
         logAction('backup', `Restaurou backup com ${data.sales.length} vendas, ${data.customers.length} clientes e ${data.products.length} produtos`)
         pushToast('Backup restaurado com sucesso!')
       })
@@ -500,11 +513,17 @@ export default function App() {
     await transact(() => editSaleRemote(request))
     pushToast('Venda atualizada e estoque ajustado.')
   }
+  const handleDebitChanged = async (request: DebitChange) => {
+    if (!can(role, 'manage')) throw Error('Seu cargo não permite alterar pagamentos.')
+    if (!online || syncState !== 'synced') throw Error('Aguarde a conexão e a sincronização antes de alterar o débito.')
+    await transact(() => callBackend('changeDebit', request))
+  }
   if (role === 'viewer') return <VisitorDashboard name={user.name || user.email || ''} onLogout={doLogout}/>
   if (role === 'employee') return <EmployeeSales name={user.name || user.email || 'Funcionário'} onLogout={doLogout}/>
 
   return (
       <PasswordProvider>
+      {confirmation}
       <div className="app">
         <a className="skip-link" href="#main-content">Pular para o conteúdo</a>
         <button ref={menuButtonRef} className={`menu-toggle ${isMenuOpen ? 'is-open' : ''}`} aria-label={isMenuOpen ? 'Fechar menu' : 'Abrir menu'} aria-expanded={isMenuOpen} aria-controls="main-navigation" onClick={() => setIsMenuOpen(!isMenuOpen)}>
@@ -557,6 +576,7 @@ export default function App() {
             {dark ? <Sun size={18} /> : <Moon size={18} />}
             {dark ? 'Tema claro' : 'Tema escuro'}
           </button>
+          <details className="sidebar-tools"><summary>Backup e instalação</summary>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-2)', marginTop: 'var(--sp-2)' }}>
             <button className="theme-toggle" onClick={() => void exportBackup()}>
               <Download size={16} /> Exportar backup
@@ -572,7 +592,9 @@ export default function App() {
               } catch { pushToast('Exportação da cópia de recuperação cancelada.', 'error') }
             }}><Download size={16} /> Cópia do último conflito</button>}
           </div>
-          <div className="sidebar-version">Versão do app · 1.1.4</div>
+          <InstallApp />
+          </details>
+          <div className="sidebar-version">Versão do app · 1.1.5</div>
         </div>
       </aside>
 
@@ -626,10 +648,10 @@ export default function App() {
           {tab === 'dashboard' && <Dashboard sales={sales} products={products} customers={customers} onNewSale={() => navigate('vendas')} onNavigate={navigate} />}
           {tab === 'vendas' && <SensitiveData label="Desbloquear vendas"><SalesView draftKey={user?.email ? `cc_sales_draft:${encodeURIComponent(user.email.toLowerCase())}` : undefined} products={products} customers={customers} sales={sales} onSaleAdded={handleSaleAdded} onSaleDeleted={handleSaleDeleted} onSaleEdited={handleSaleEdited} onSalesImported={handleSalesImported} pushToast={pushToast} /></SensitiveData>}
           {tab === 'produtos' && <ProductsStockView products={products} setProducts={setProducts} sales={sales} pushToast={pushToast} />}
-          {tab === 'relatorios' && (role === 'owner' || role === 'admin') && <ReportsView sales={sales} />}
+          {tab === 'relatorios' && (role === 'owner' || role === 'admin') && <ReportsView sales={sales} customers={customers} />}
           {tab === 'clientes' && <CustomersBillingView onCustomersCombined={handleCustomersCombined} onCustomerPayment={handleCustomerPayment} onSaleTransfer={handleSaleTransfer} customers={customers} setCustomers={setCustomers} sales={sales} setSales={setSales} pushToast={pushToast} />}
           {tab === 'ingredientes' && role === 'owner' && <SensitiveData label="Desbloquear compras"><IngredientsView key={user.email} owner={user.email || ''} sales={sales} /></SensitiveData>}
-          {tab === 'pagamentos' && (role === 'owner' || role === 'admin') && <SensitiveData label="Desbloquear pagamentos"><PaymentsView owner={user.email || ''} sales={sales} customers={customers} pushToast={pushToast} onSaleStatusChange={(id, status) => { const sale = sales.find(item => item.id === id); if (!sale) return; setSales(current => current.map(item => item.id === id ? { ...item, status, ...(status === 'Pago' ? { paidAmount: item.total } : {}) } : item)); logAction('venda', `${sale.items.map(item => `${item.qty}x ${item.name}`).join(' + ')} — alterou de ${sale.status || 'Pago'} para ${status}`); pushToast('Classificação atualizada.') }} /></SensitiveData>}
+          {tab === 'pagamentos' && (role === 'owner' || role === 'admin') && <SensitiveData label="Desbloquear pagamentos"><PaymentsView owner={user.email || ''} sales={sales} customers={customers} pushToast={pushToast} onDebitChanged={handleDebitChanged} /></SensitiveData>}
           {tab === 'lucro' && role === 'owner' && <SensitiveData label="Desbloquear lucro"><ProfitView owner={user.email || ''} sales={sales} customers={customers} /></SensitiveData>}
           {tab === 'financeiro' && <FinanceiroView />}
           {tab === 'audit' && <OwnerAuditGate key={user.email}><AuditView /></OwnerAuditGate>}
@@ -637,7 +659,6 @@ export default function App() {
         </Suspense>
         </ErrorBoundary>}
       </main>
-      <InstallApp floating />
 
       {toasts.length > 0 && (
         <div className="toast-container" aria-live="polite" aria-atomic="true">

@@ -1,3 +1,6 @@
+import { useState } from 'react'
+import { SearchInput } from '../components/SearchInput'
+import { matchesSearch } from '../search'
 import { Plus, Minus, AlertTriangle, Boxes } from 'lucide-react'
 import { Product, LOW_STOCK_THRESHOLD, CAT_LABEL } from '../types'
 import { usePasswordGuard } from '../components/PasswordGate'
@@ -6,6 +9,9 @@ import { logAction } from '../audit'
 export function StockView({ products, setProducts, pushToast }: {
   products: Product[]; setProducts: React.Dispatch<React.SetStateAction<Product[]>>; pushToast: (m: string, t?: 'success' | 'error') => void
 }) {
+  const [search, setSearch] = useState('')
+  const [stockFilter, setStockFilter] = useState('all')
+  const visible = products.filter(p => matchesSearch(search, p.name, CAT_LABEL[p.category]) && (stockFilter === 'all' || (stockFilter === 'empty' ? p.stock === 0 : p.stock <= LOW_STOCK_THRESHOLD))).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
   const { guard } = usePasswordGuard()
   const adjust = (id: string, delta: number) => {
     const p = products.find(x => x.id === id)
@@ -36,15 +42,16 @@ export function StockView({ products, setProducts, pushToast }: {
         </div>
       )}
 
-      {products.length === 0 ? (
-        <div className="card empty-state"><Boxes className="icon" size={48} /><p>Sem produtos.</p></div>
+      <div className="list-toolbar card"><SearchInput label="Buscar no estoque" value={search} onChange={setSearch} placeholder="Nome do sabor…" /><label>Disponibilidade<select value={stockFilter} onChange={e => setStockFilter(e.target.value)}><option value="all">Todos os produtos</option><option value="low">Estoque baixo</option><option value="empty">Esgotados</option></select></label><span className="result-count" role="status">{visible.length} produtos · {visible.reduce((total, p) => total + p.stock, 0)} unidades</span>{(search || stockFilter !== 'all') && <button className="btn btn-ghost" onClick={() => {setSearch(''); setStockFilter('all')}}>Limpar filtros</button>}</div>
+      {visible.length === 0 ? (
+        <div className="card empty-state"><Boxes className="icon" size={48} /><p>{products.length ? 'Nenhum produto corresponde aos filtros.' : 'Sem produtos cadastrados.'}</p></div>
       ) : (
         <div className="card">
           <div className="table-wrap">
             <table className="table">
               <thead><tr><th>Sabor</th><th>Categoria</th><th>Estoque</th><th>Status</th><th className="text-right">Ações</th></tr></thead>
               <tbody>
-                {products.map(p => (
+                {visible.map(p => (
                   <tr key={p.id}>
                     <td>{p.emoji} {p.name}</td>
                     <td><span className="badge badge-neutral">{CAT_LABEL[p.category]}</span></td>

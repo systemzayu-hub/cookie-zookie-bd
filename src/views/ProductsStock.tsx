@@ -12,10 +12,10 @@ export function ProductsStockView({ products, setProducts, sales, pushToast }: {
   return (
     <>
       <div style={{ display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap', marginBottom: 'var(--sp-4)' }}>
-        <button className={`btn ${section === 'catalogo' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setSection('catalogo')} style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
+        <button aria-pressed={section === 'catalogo'} className={`btn ${section === 'catalogo' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setSection('catalogo')} style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
           <Package size={16} /> Catálogo de produtos
         </button>
-        <button className={`btn ${section === 'estoque' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setSection('estoque')} style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
+        <button aria-pressed={section === 'estoque'} className={`btn ${section === 'estoque' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setSection('estoque')} style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
           <Boxes size={16} /> Controle de estoque
         </button>
       </div>

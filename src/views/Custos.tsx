@@ -1,3 +1,5 @@
+import { SearchInput } from '../components/SearchInput'
+import { matchesSearch } from '../search'
 import { useTrackedState } from '../useTrackedState'
 import { useState, useEffect, useMemo } from 'react'
 import { Edit2, Package, TrendingUp, Calculator } from 'lucide-react'
@@ -20,6 +22,8 @@ export function CustosView() {
   const [custos, setCustos] = useTrackedState<CustoProducao>("custos", () =>
     load('cc_custos', CUSTOS_PRODUCAO as unknown as CustoProducao[]) as CustoProducao[]
   )
+  const [search, setSearch] = useState('')
+  const [error, setError] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
   const { guard } = usePasswordGuard()
@@ -48,7 +52,8 @@ export function CustosView() {
 
   const saveEdit = (id: string) => {
     const novoCusto = Number(editValue.replace(',', '.'))
-    if (!Number.isFinite(novoCusto) || novoCusto < 0) return
+    if (!editValue.trim() || !Number.isFinite(novoCusto) || novoCusto < 0) {setError('Informe um custo válido, maior ou igual a zero.'); return}
+    setError('')
     const c = custos.find(x => x.id === id)
     guard('Alterar custo de produção', () => {
       setCustos(prev => prev.map(cc => {
@@ -97,6 +102,8 @@ export function CustosView() {
         </div>
       </div>
 
+      <div className="list-toolbar card"><SearchInput label="Buscar custo de produção" placeholder="Nome do produto…" value={search} onChange={setSearch} /></div>
+      {error && <p role="alert" className="login-error">{error}</p>}
       <div className="card">
         <div className="table-wrap">
           <table className="table">
@@ -110,13 +117,13 @@ export function CustosView() {
               </tr>
             </thead>
             <tbody>
-              {custos.map(c => (
+              {custos.filter(c => matchesSearch(search, c.name)).map(c => (
                 <tr key={c.id}>
                   <td style={{ fontWeight: 600 }}>{c.name}</td>
                   <td className="text-right" style={{ fontWeight: 600 }}><MaskedMoney value={c.precoVenda} /></td>
                   <td>
                     {editingId === c.id ? (
-                      <input
+                      <div className="cost-edit"><input
                         type="number"
                         min={0}
                         step="0.01"
@@ -124,21 +131,22 @@ export function CustosView() {
                         style={{ width: '100%', minWidth: '100px' }}
                         value={editValue}
                         onChange={e => setEditValue(e.target.value)}
-                        onBlur={() => saveEdit(c.id)}
-                        onKeyDown={e => e.key === 'Enter' && saveEdit(c.id)}
+                        aria-label={`Custo unitário de ${c.name}`}
+                        onKeyDown={e => {if (e.key === 'Enter') saveEdit(c.id); if (e.key === 'Escape') cancelEdit()}}
                         autoFocus
-                      />
+                      /><button className="btn btn-primary btn-sm" onClick={() => saveEdit(c.id)}>Salvar</button><button className="btn btn-ghost btn-sm" onClick={cancelEdit}>Cancelar</button></div>
                     ) : (
-                      <span style={{ cursor: 'pointer' }} onClick={() => startEdit(c)}>
+                      <button className="btn btn-ghost btn-sm" aria-label={`Editar custo de ${c.name}`} onClick={() => startEdit(c)}>
                         {fmtBRL(c.custoUnitario)}
                         <Edit2 size={14} style={{ marginLeft: 'var(--sp-2)', verticalAlign: 'middle', opacity: 0.5 }} />
-                      </span>
+                      </button>
                     )}
                   </td>
                   <td className="text-right" style={{ fontWeight: 700, color: 'var(--ok-600)' }}><MaskedMoney value={c.lucroUnitario} /></td>
                   <td className="text-right" style={{ fontWeight: 700, color: 'var(--cz-600)' }}>{fmtPct(c.margem)}</td>
                 </tr>
               ))}
+              {!custos.some(c => matchesSearch(search, c.name)) && <tr><td colSpan={5}>Nenhum produto corresponde à busca.</td></tr>}
             </tbody>
           </table>
         </div>
@@ -147,7 +155,7 @@ export function CustosView() {
       <div className="card" style={{ marginTop: 'var(--sp-6)' }}>
         <h3 className="card-title"><Calculator size={18} /> Como funciona</h3>
         <ul style={{ color: 'var(--tx-2)', lineHeight: 1.8, paddingLeft: 'var(--sp-6)' }}>
-          <li>Clique no custo unitário para editar</li>
+          <li>Clique no custo unitário para editar e confirme em Salvar</li>
           <li>O <strong>Lucro Unitário</strong> = Preço de Venda − Custo Unitário (recalcula automaticamente)</li>
           <li>A <strong>Margem %</strong> = Lucro Unitário ÷ Preço de Venda (recalcula automaticamente)</li>
           <li>As alterações são salvas automaticamente no navegador</li>

@@ -1,0 +1,57 @@
+/* Shared controls follow the existing brand, themes and installed app layout. */
+.installed-app { --ok-bg: #0e2a1a; --warn-bg: #2a1e08; --danger-bg: #2e0c1a; --info-bg: #0c1a2e; }
+.search-control { display: grid; gap: 6px; min-width: 0; flex: 1 1 240px; color: var(--tx-2); font-size: var(--fs-sm); }
+.search-control > label, .list-toolbar > label, .searchable-select > label { font-weight: 600; }
+.search-control-field { display: flex; gap: 9px; align-items: center; min-height: 44px; border: 1px solid var(--border-strong); border-radius: var(--r-sm); background: var(--card); padding: 0 12px; color: var(--tx-2); transition: border-color var(--tr), box-shadow var(--tr); }
+.search-control-field:focus-within { border-color: var(--cz-600); box-shadow: 0 0 0 3px var(--cz-200); }
+[data-theme="dark"] .search-control-field:focus-within { box-shadow: 0 0 0 3px var(--cz-900); }
+.search-control-field input { width: 100%; min-width: 0; border: 0; border-radius: 0; outline: none; box-shadow: none; background: transparent; padding: 10px 0; color: var(--tx-1); font: inherit; }
+.search-control-field input:focus { outline: none; box-shadow: none; }
+.search-control-field input::-webkit-search-cancel-button { display: none; }
+.search-clear { display: grid; place-items: center; flex-shrink: 0; width: 32px; min-height: 32px; padding: 0; border: 0; border-radius: var(--r-sm); background: transparent; color: var(--tx-2); cursor: pointer; }
+.search-clear:hover { background: var(--bg-soft); color: var(--tx-1); }
+.list-toolbar { display: flex; align-items: end; gap: 16px; flex-wrap: wrap; margin-bottom: var(--sp-5); }
+.list-toolbar.card { padding: 20px; }
+.sidebar-tools { margin-top: 8px; color: var(--n-100); font-size: var(--fs-sm); }
+.sidebar-tools summary { padding: 10px 12px; cursor: pointer; border-radius: var(--r-sm); }
+.sidebar-tools summary:hover { background: rgba(255,255,255,.08); }
+.sidebar-tools .install-app-button { color: var(--n-100); border-color: rgba(255,255,255,.2); }
+.sidebar-tools .install-app-button:hover { background: rgba(255,255,255,.08); }
+.sidebar-tools .install-app-help { color: var(--n-300); }
+.list-toolbar > label { display: grid; gap: 6px; flex: 0 1 180px; font-size: var(--fs-sm); color: var(--tx-2); }
+.list-toolbar select, .searchable-select select { min-height: 44px; width: 100%; border: 1px solid var(--border-strong); border-radius: var(--r-sm); background: var(--card); color: var(--tx-1); font: inherit; padding: 9px 12px; }
+.result-count { padding-bottom: 10px; color: var(--tx-2); font-size: var(--fs-sm); }
+.searchable-select { display: grid; align-content: start; gap: 6px; min-width: 0; }
+.searchable-select .search-control { flex: none; }
+.searchable-select > label { margin-top: 6px; font-size: var(--fs-sm); color: var(--tx-2); }
+.searchable-select small { color: var(--tx-2); }
+.cost-edit { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+.cost-edit input { flex: 1 0 100px; }
+.delete-acknowledge { display: flex; align-items: center; gap: 12px; margin: 20px 0; font-size: var(--fs-sm); }
+.delete-acknowledge input { width: 18px; height: 18px; flex-shrink: 0; }
+.delete-item-name { font-weight: 700; color: var(--tx-1); overflow-wrap: anywhere; }
+.form-dialog { margin: auto; color: var(--tx-1); max-width: min(560px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); }
+.form-dialog::backdrop { background: rgba(20,12,6,.6); backdrop-filter: blur(6px); }
+.site-orders-toolbar .search-control { flex: 1 1 300px; }
+.report-toolbar .search-control { flex: 1 1 250px; }
+.payment-card .search-control { margin-bottom: 16px; }
+.payment-table td { overflow-wrap: anywhere; }
+.payment-table button:disabled { opacity: .55; cursor: wait; }
+.payment-actions { flex-wrap: wrap; }
+.table-wrap:focus-visible, button:focus-visible, select:focus-visible, summary:focus-visible { outline: 3px solid var(--cz-500); outline-offset: 3px; }
+.empty-state { color: var(--tx-2); }
+.table th { white-space: nowrap; }
+.product-card .p-name { overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  .list-toolbar { gap: 12px; }
+  .list-toolbar .search-control { flex-basis: 100%; }
+  .list-toolbar > label { flex: 1 1 120px; }
+  .result-count { flex: 1 1 100%; padding: 0; }
+  .search-control-field input, .searchable-select select, .list-toolbar select { font-size: 16px; }
+  .page-row .page-title { min-width: 0; }
+  .page-row > .btn { max-width: 100%; white-space: normal; }
+  .pw-modal .pw-buttons { flex-wrap: wrap; }
+}
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { scroll-behavior: auto !important; animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}

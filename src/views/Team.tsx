@@ -1,3 +1,5 @@
+import { SearchInput } from '../components/SearchInput'
+import { matchesSearch } from '../search'
 import { ConfirmDialog } from '../components/ConfirmDialog'
 import { useEffect, useState } from 'react'
 import { authCurrentUser, callBackend, watchTeam, type TeamMember } from '../sync'
@@ -5,6 +7,9 @@ import { useRole } from '../auth'
 import { can, canChangeRole, ROLE_LABEL, type Role } from '../roles'
 export function TeamView() {
   const role = useRole()
+  const [ready, setReady] = useState(false)
+  const [loadError, setLoadError] = useState(false)
+  const [attempt, setAttempt] = useState(0)
   const [members, setMembers] = useState<TeamMember[]>([])
   const [search, setSearch] = useState('')
   const [email, setEmail] = useState('')
@@ -14,8 +19,9 @@ export function TeamView() {
   const [message, setMessage] = useState('')
   useEffect(() => {
     if (!can(role, 'team')) return
-    return watchTeam(setMembers, () => setMessage('Não foi possível carregar a equipe.'))
-  }, [role])
+    setLoadError(false)
+    return watchTeam(rows => {setMembers(rows); setReady(true); setLoadError(false)}, () => {setReady(true); setLoadError(true); setMessage('Não foi possível atualizar a equipe. Os cargos exibidos podem estar desatualizados.')})
+  }, [role, attempt])
   if (!can(role, 'team')) return <p>Apenas o dono pode gerenciar a equipe.</p>
   const confirm = async () => {
     if (!pending || busy) return
@@ -38,7 +44,7 @@ export function TeamView() {
       <button className="btn btn-primary" disabled={busy}>Definir acesso</button>
     </form></details>
     {message && <p className="card" role="status">{message}</p>}
-    <div className="card"><h2 className="card-title">Pessoas que entraram no site</h2><label>Buscar por nome ou e-mail<input className="input" value={search} onChange={e => setSearch(e.target.value)} placeholder="Digite parte do nome"/></label>{!members.length ? <p>Carregando equipe…</p> : members.filter(m => ((m.name || "") + " " + m.email).toLocaleLowerCase().includes(search.toLocaleLowerCase())).map(member => {
+    <div className="card"><h2 className="card-title">Pessoas que entraram no site</h2><SearchInput label="Buscar por nome ou e-mail" value={search} onChange={setSearch} />{loadError && <button className="btn btn-secondary" onClick={() => setAttempt(n => n + 1)}>Tentar novamente</button>}{!ready ? <p role="status">Carregando equipe…</p> : !members.some(m => matchesSearch(search, m.name, m.email)) ? <p role="status">{members.length ? "Nenhuma pessoa corresponde à busca." : "Nenhum membro carregado."}</p> : members.filter(m => matchesSearch(search, m.name, m.email)).map(member => {
       const self = member.email === authCurrentUser()?.email?.toLowerCase()
       return <div className="team-member" key={member.email}><div><strong>{member.name || member.email}</strong><small>{member.name ? member.email + ' · ' : ''}{member.invited ? 'Aguardando primeiro acesso' : ROLE_LABEL[member.role]}</small></div>
         {canChangeRole(role!, member.role, 'employee', self) ? <select className="input" aria-label={`Cargo de ${member.email}`} value={member.role} disabled={busy} onChange={e => setPending({ email: member.email, role: e.target.value as Role })}><option value="owner">Dono</option><option value="employee">Funcionário</option><option value="admin">Administrador</option><option value="viewer">Sem cargo · somente leitura</option><option value="blocked">Bloqueado</option></select> : <span className="badge badge-brand">{ROLE_LABEL[member.role]}{self ? ' · você' : ''}</span>}

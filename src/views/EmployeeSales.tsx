@@ -1,3 +1,6 @@
+import { SearchableSelect } from '../components/SearchableSelect'
+import { SearchInput } from '../components/SearchInput'
+import { matchesSearch } from '../search'
 import { OwnerKeyLogin } from '../components/OwnerKeyLogin'
 import { FREE_MAX_FLAVORS } from '../free-store'
 import { useEffect, useRef, useState } from 'react'
@@ -6,6 +9,7 @@ import { CHANNELS, PAYMENTS, fmtBRL, uid, type Product, type Sale } from '../typ
 import { CookieArt } from '../components/CookieArt'
 type Catalog = { products: Product[]; customers: { id: string; name: string }[] }
 export function EmployeeSales({ name, onLogout }: { name: string; onLogout: () => void }) {
+  const [search, setSearch] = useState('')
   const [catalog, setCatalog] = useState<Catalog | null>(null)
   const [quantities, setQuantities] = useState<Record<string, number>>({})
   const [customer, setCustomer] = useState('')
@@ -55,19 +59,20 @@ export function EmployeeSales({ name, onLogout }: { name: string; onLogout: () =
     {message && <p className="card" role={failed ? 'alert' : 'status'}>{message}</p>}
     {!catalog ? <button className="btn btn-secondary" onClick={() => void reload().catch(() => setMessage('Não foi possível atualizar.'))}>Carregar catálogo</button> : <form onSubmit={e => { e.preventDefault(); void submit() }}>
       <fieldset disabled={busy || !!pendingSale.current} style={{ border: 0, padding: 0 }}>
-        <div className="product-grid">{catalog.products.map(p => <label className="card" key={p.id}>
+        <div className="list-toolbar card"><SearchInput label="Buscar sabor" value={search} onChange={setSearch} />{!catalog.products.some(p => matchesSearch(search, p.name)) && <p role="status">Nenhum sabor encontrado.</p>}</div>
+        <div className="product-grid">{catalog.products.filter(p => matchesSearch(search, p.name)).map(p => <label className="card" key={p.id}>
           <CookieArt name={p.name} size={48}/><strong>{p.name}</strong><p>{fmtBRL(p.price)} · {p.stock} disponíveis</p>
           <span>Quantidade de {p.name}</span><input className="input" type="number" min={0} max={p.stock} step={1} value={quantities[p.id] || 0} onChange={e => setQuantities(q => ({ ...q, [p.id]: Number(e.target.value) }))}/>
         </label>)}</div>
         <section className="card checkout-fields">
-          <label>Cliente<select className="input" value={customer} onChange={e => setCustomer(e.target.value)} required={status === 'Pendente'}><option value="">Sem cliente</option>{catalog.customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></label>
+          <SearchableSelect label="Cliente" value={customer} onChange={setCustomer} options={catalog.customers} emptyLabel="Sem cliente" required={status === "Pendente"} />
           <label>Status<select className="input" value={status} onChange={e => setStatus(e.target.value as typeof status)}><option>Pago</option><option>Pendente</option></select></label>
           <label>Pagamento<select className="input" value={payment} onChange={e => setPayment(e.target.value as Sale['payment'])}>{PAYMENTS.map(p => <option key={p}>{p}</option>)}</select></label>
           <label>Canal<select className="input" value={channel} onChange={e => setChannel(e.target.value as Sale['channel'])}>{CHANNELS.map(c => <option key={c}>{c}</option>)}</select></label>
         </section>
       </fieldset>
       {items.length > FREE_MAX_FLAVORS && <p role="alert">Selecione até {FREE_MAX_FLAVORS} sabores diferentes por venda.</p>}
-      <div className="page-row card"><strong>Total: {fmtBRL(total)}</strong><button className="btn btn-primary" disabled={busy || !items.length || items.length > FREE_MAX_FLAVORS || status === 'Pendente' && !customer}>{busy ? 'Registrando…' : pendingSale.current ? 'Verificar e tentar novamente' : 'Registrar venda'}</button></div>
+      <div className="page-row card"><div>{items.map(item => <p key={item.productId}>{item.qty} × {item.name}</p>)}<strong>Total: {fmtBRL(total)}</strong></div><button className="btn btn-primary" disabled={busy || !items.length || items.length > FREE_MAX_FLAVORS || status === 'Pendente' && !customer}>{busy ? 'Registrando…' : pendingSale.current ? 'Verificar e tentar novamente' : 'Registrar venda'}</button></div>
     </form>}
   </main>
 }

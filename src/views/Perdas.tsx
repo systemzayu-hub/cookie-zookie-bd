@@ -1,3 +1,7 @@
+import { Modal } from '../components/Modal'
+import { DeleteConfirmation } from '../components/DeleteConfirmation'
+import { SearchInput } from '../components/SearchInput'
+import { matchesSearch } from '../search'
 import { useTrackedState } from '../useTrackedState'
 import { useState, useEffect, useMemo } from 'react'
 import { Plus, Trash2, AlertTriangle, Package, X } from 'lucide-react'
@@ -8,41 +12,6 @@ import { logAction } from '../audit'
 import { MaskedMoney } from '../components/MaskedMoney'
 import { MaskedPII } from '../components/MaskedPII'
 import { uid } from '../types'
-
-// Modal de confirmação dupla para exclusão (reutilizável local)
-function ConfirmDeleteModal({ isOpen, onClose, onConfirm, title, message, itemName }: {
-  isOpen: boolean; onClose: () => void; onConfirm: () => void; title: string; message: string; itemName: string
-}) {
-  const [checked, setChecked] = useState(false)
-  const [typed, setTyped] = useState('')
-  const canConfirm = checked && typed.toUpperCase() === 'EXCLUIR'
-  if (!isOpen) return null
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal modal-sm" role="dialog" aria-modal="true" aria-label={title} onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <h3>{title}</h3>
-        </div>
-        <div className="form" style={{ padding: 'var(--sp-4)' }}>
-          <p style={{ color: 'var(--tx-1)', marginBottom: 'var(--sp-4)' }}>{message}</p>
-          <p style={{ fontWeight: 600, color: 'var(--cz-600)', marginBottom: 'var(--sp-4)' }}>{itemName}</p>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', cursor: 'pointer', marginBottom: 'var(--sp-3)' }}>
-            <input type="checkbox" checked={checked} onChange={e => setChecked(e.target.checked)} style={{ width: 18, height: 18, cursor: 'pointer' }} />
-            <span>Entendo que é irreversível</span>
-          </label>
-          <div className="field">
-            <label>Digite EXCLUIR para confirmar</label>
-            <input type="text" value={typed} onChange={e => setTyped(e.target.value)} placeholder="EXCLUIR" style={{ textTransform: 'uppercase' }} />
-          </div>
-          <div className="modal-actions" style={{ marginTop: 'var(--sp-4)' }}>
-            <button className="btn btn-secondary" onClick={onClose}>Cancelar</button>
-            <button className="btn btn-danger" onClick={onConfirm} disabled={!canConfirm}>Excluir</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 export interface Perda {
   id: string
@@ -56,10 +25,13 @@ export interface Perda {
 
 export function PerdasView() {
   const [perdas, setPerdas] = useTrackedState<Perda>("perdas", () => load('cc_perdas', [] as Perda[]) as Perda[])
+  const [search, setSearch] = useState('')
+  const [error, setError] = useState('')
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ date: '', produto: '', qtd: '', motivo: '', custoUnit: '' })
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null)
   const { guard } = usePasswordGuard()
+  const productionCosts = load<Array<{ id: string; name: string; custoUnitario: number }>>('cc_custos', [...CUSTOS_PRODUCAO])
 
   useEffect(() => {
     save('cc_perdas', perdas)
@@ -75,7 +47,8 @@ export function PerdasView() {
     const qtd = Number(form.qtd)
     const motivo = form.motivo.trim()
     const custoUnit = Number(form.custoUnit)
-    if (!date || !produto || !Number.isSafeInteger(qtd) || qtd <= 0 || !motivo || !Number.isFinite(custoUnit) || custoUnit < 0) return
+    if (!date || !produto || !Number.isSafeInteger(qtd) || qtd <= 0 || !motivo || !Number.isFinite(custoUnit) || custoUnit < 0 || form.custoUnit === '') { setError('Informe data, produto, quantidade inteira positiva, motivo e custo válido.'); return }
+    setError('')
     const nova: Perda = {
       id: uid(),
       date,
@@ -95,8 +68,7 @@ export function PerdasView() {
 
   // Ao escolher um produto conhecido, preenche o custo unitário automaticamente
   const pickProduto = (name: string) => {
-    const savedCosts = load<Array<{ name: string; custoUnitario: number }>>('cc_custos', [...CUSTOS_PRODUCAO])
-    const c = savedCosts.find(x => x.name === name)
+    const c = productionCosts.find(x => x.name === name)
     setForm(f => ({
       ...f,
       produto: name,
@@ -121,6 +93,7 @@ export function PerdasView() {
   const fmtBRL = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
   const fmtBRL_audit = fmtBRL
 
+  const visible = perdas.filter(p => matchesSearch(search, p.produto, p.motivo)).sort((a, b) => b.date.localeCompare(a.date))
   return (
     <>
       <div className="page-row">
@@ -151,8 +124,9 @@ export function PerdasView() {
         </div>
       </div>
 
-      {perdas.length === 0 ? (
-        <div className="card empty-state"><Package className="icon" size={48} /><p>Nenhuma perda registrada.</p></div>
+      <div className="list-toolbar card"><SearchInput label="Buscar perda" placeholder="Produto ou motivo…" value={search} onChange={setSearch} /><span className="result-count" role="status">{visible.length} de {perdas.length} registros · totais acima incluem todo o histórico</span></div>
+      {visible.length === 0 ? (
+        <div className="card empty-state"><Package className="icon" size={48} /><p>{perdas.length ? 'Nenhuma perda corresponde à busca.' : 'Nenhuma perda registrada.'}</p></div>
       ) : (
         <div className="card">
           <div className="table-wrap">
@@ -169,9 +143,9 @@ export function PerdasView() {
                 </tr>
               </thead>
               <tbody>
-                {perdas.map(p => (
+                {visible.map(p => (
                   <tr key={p.id}>
-                    <td>{p.date}</td>
+                    <td>{p.date.split('-').reverse().join('/')}</td>
                     <td>{p.produto}</td>
                     <td style={{ fontWeight: 700 }}>{p.qtd} un</td>
                     <td>{p.motivo}</td>
@@ -191,57 +165,55 @@ export function PerdasView() {
       )}
 
       {showForm && (
-        <div className="modal-backdrop" onClick={() => setShowForm(false)}>
-          <div className="modal" role="dialog" aria-modal="true" aria-label="Registrar perda" onClick={e => e.stopPropagation()}>
+        <Modal label="Registrar perda" onClose={() => setShowForm(false)}>
             <div className="modal-header">
               <h3>Registrar Perda</h3>
               <button className="modal-close" aria-label="Fechar" onClick={() => setShowForm(false)}><X size={20} /></button>
             </div>
             <div className="form">
+              {error && <p role="alert" className="login-error">{error}</p>}
               <div className="field">
                 <label>Data</label>
-                <input type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
+                <input aria-label="Data" type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
               </div>
               <div className="form-grid">
                 <div className="field">
                   <label>Produto</label>
-                  <select
+                  <select aria-label="Produto"
                     className="num-input"
                     value={form.produto}
                     onChange={e => pickProduto(e.target.value)}
                     style={{ width: '100%' }}
                   >
                     <option value="">Selecione o produto…</option>
-                    {CUSTOS_PRODUCAO.map(c => (
+                    {productionCosts.map(c => (
                       <option key={c.id} value={c.name}>{c.name} — {c.custoUnitario.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} un</option>
                     ))}
                   </select>
                 </div>
                 <div className="field">
                   <label>Quantidade</label>
-                  <input type="number" min={1} className="num-input" value={form.qtd} onChange={e => setForm(f => ({ ...f, qtd: e.target.value }))} />
+                  <input aria-label="Quantidade" type="number" min={1} className="num-input" value={form.qtd} onChange={e => setForm(f => ({ ...f, qtd: e.target.value }))} />
                 </div>
               </div>
               <div className="field">
                 <label>Motivo</label>
-                <input value={form.motivo} onChange={e => setForm(f => ({ ...f, motivo: e.target.value }))} placeholder="ex: Queimou, Caiu no chão, Comi" />
+                <input aria-label="Motivo" value={form.motivo} onChange={e => setForm(f => ({ ...f, motivo: e.target.value }))} placeholder="ex: Queimou, Caiu no chão, Comi" />
               </div>
               <div className="field">
                 <label>Custo Unitário (R$)</label>
-                <input type="number" min={0} step="0.01" className="num-input" value={form.custoUnit} onChange={e => setForm(f => ({ ...f, custoUnit: e.target.value }))} placeholder="0.00" />
+                <input aria-label="Custo Unitário (R$)" type="number" min={0} step="0.01" className="num-input" value={form.custoUnit} onChange={e => setForm(f => ({ ...f, custoUnit: e.target.value }))} placeholder="0.00" />
               </div>
               <div className="modal-actions">
                 <button className="btn btn-secondary" onClick={() => setShowForm(false)}>Cancelar</button>
                 <button className="btn btn-primary" onClick={submitForm}>Registrar</button>
               </div>
             </div>
-          </div>
-        </div>
-      )}
+              </Modal>
+            )}
 
       {deleteConfirm && (
-        <ConfirmDeleteModal
-          isOpen={true}
+        <DeleteConfirmation
           onClose={() => setDeleteConfirm(null)}
           onConfirm={confirmDelete}
           title="Excluir perda"

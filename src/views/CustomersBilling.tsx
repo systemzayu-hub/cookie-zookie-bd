@@ -16,10 +16,10 @@ export function CustomersBillingView({ customers, setCustomers, sales, setSales,
   return (
     <SensitiveData label="Clientes e cobrança" level="financial">
       <div style={{ display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap', marginBottom: 'var(--sp-4)' }}>
-        <button className={`btn ${section === 'clientes' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setSection('clientes')} style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
+        <button aria-pressed={section === 'clientes'} className={`btn ${section === 'clientes' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setSection('clientes')} style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
           <Users size={16} /> Clientes
         </button>
-        <button className={`btn ${section === 'cobranca' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setSection('cobranca')} style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
+        <button aria-pressed={section === 'cobranca'} className={`btn ${section === 'cobranca' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setSection('cobranca')} style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
           <HandCoins size={16} /> Cobrança
         </button>
       </div>

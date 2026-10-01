@@ -1,3 +1,5 @@
+import { SearchInput } from '../components/SearchInput'
+import { matchesSearch } from '../search'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertCircle, ChevronLeft, ChevronRight, RefreshCw, Search, ShoppingBag } from 'lucide-react'
 import { authCurrentUser } from '../sync'
@@ -147,8 +149,7 @@ export function SiteOrdersView() {
   const shown = useMemo(() => (page?.orders ?? []).filter(order => {
     const matchesMode = mode === 'all' || (mode === 'test' ? order.testMode : !order.testMode)
     const matchesStatus = statusFilter === 'all' || order.status === statusFilter
-    const search = query.trim().toLocaleLowerCase('pt-BR')
-    return matchesMode && matchesStatus && (!search || [order.number, order.customerName, ...order.items.map(item => item.name)].some(value => value?.toLocaleLowerCase('pt-BR').includes(search)))
+    return matchesMode && matchesStatus && matchesSearch(query, order.number, order.customerName, ...order.items.map(item => item.name))
   }), [page, mode, statusFilter, query])
   const statuses = [...new Set((page?.orders ?? []).map(order => order.status))].sort((a, b) => a.localeCompare(b, 'pt-BR'))
   const first = page && page.total ? page.offset + 1 : 0
@@ -162,11 +163,13 @@ export function SiteOrdersView() {
       </button>
     </header>
     <div className="site-orders-toolbar">
-      <label className="site-orders-search"><Search size={17} /><span className="sr-only">Buscar nesta página</span><input value={query} onChange={event => setQuery(event.target.value)} placeholder="Buscar pedido, cliente ou item nesta página" /></label>
+      <SearchInput label="Buscar nesta página" value={query} onChange={setQuery} placeholder="Pedido, cliente ou item…" />
       <label className="site-orders-filter">Exibição<select value={mode} onChange={event => setMode(event.target.value as typeof mode)}><option value="all">Todos</option><option value="test">Pedidos de teste</option><option value="real">Pedidos sem marcação de teste</option></select></label>
       <label className="site-orders-filter">Etapa<select value={statusFilter} onChange={event => setStatusFilter(event.target.value)}><option value="all">Todas</option>{statuses.map(status => <option key={status} value={status}>{statusLabel(status, page?.orders.find(order => order.status === status)?.fulfillment || '')}</option>)}</select></label>
     </div>
     <div className="site-orders-meta" aria-live="polite">
+      {page && <span>{shown.length} resultados nesta página</span>}
+      {(query || mode !== "all" || statusFilter !== "all") && <button className="btn btn-ghost btn-sm" onClick={() => {setQuery(""); setMode("all"); setStatusFilter("all")}}>Limpar filtros</button>}
       <span>{page ? `${first}–${last} de ${page.total} pedidos` : loading ? 'Carregando pedidos…' : error ? 'Consulta indisponível' : 'Nenhum pedido carregado'}</span>
       <span>{page ? `Atualizado ${dateTime(page.fetchedAt)}` : ''}</span>
     </div>

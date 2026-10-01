@@ -6,6 +6,7 @@ import { validateStoreData, type StoreData } from './validation'
 import { employeeSale } from './employee-sale'
 import { recordSale, removeSale } from './record-sale'
 import { editSale, type SaleEdit } from './edit-sale'
+import { changeDebit, isDebitAudit, type DebitChange } from './debit-change'
 import { diffRows, reversePatches } from './undo-model'
 import { changesFromPatches } from './audit-changes'
 import { can, type Role } from './roles'
@@ -117,6 +118,28 @@ export function createFreeStore(db: Firestore, currentUser: () => User | null) {
         return after
       })
     },
+    async changeDebit(request: DebitChange) {
+      const user = identity()
+      if (!/^v2-[a-f0-9-]{36}$/.test(request.operationId)) throw Error('Identificador da alteração inválido.')
+      if (!request.payment?.id || request.payment.id.includes('/')) throw Error('Identificador do pagamento inválido.')
+      const paymentRef = doc(db, 'ownerPayments', request.payment.id)
+      return runTransaction(db, async tx => {
+        const [access, store, payment, receipt] = await Promise.all([
+          tx.get(doc(db, 'teamAccess', accessKey(user.email!))), tx.get(shop), tx.get(paymentRef),
+          tx.get(doc(db, 'auditSnapshots', request.operationId, 'versions', 'after')),
+        ])
+        if (!can(access.data()?.role, 'manage')) throw Error('Seu cargo não permite alterar pagamentos.')
+        if (receipt.exists()) throw Error('Esta alteração já foi aplicada. Atualize o histórico.')
+        const remote = payment.exists() && !payment.data().deleted ? payment.data().data : undefined
+        if (request.reopen ? !sameData(remote, request.payment) : remote !== undefined) throw Error('Este pagamento mudou em outro aparelho. Atualize o histórico.')
+        const before = core(store.data())
+        const changed = changeDebit(before, request)
+        const after = core(changed.store)
+        writeStore(tx, user, request.operationId, before, after, 'alteracao', `Pagamento de débito: venda ${request.sale.id} ${request.reopen ? 'reaberta como debitada' : 'marcada como paga'}; histórico de pagamento atualizado na mesma operação.`)
+        tx.set(paymentRef, {data: JSON.parse(JSON.stringify(changed.payment)), deleted: false, updatedAt: serverTimestamp()})
+        return after
+      })
+    },
     async deleteSale({ sale }: { sale: Sale }) {
       const user = identity(), id = auditId()
       if (!sale || typeof sale.id !== 'string' || !sale.id) throw new Error('Venda inválida.')
@@ -136,6 +159,7 @@ export function createFreeStore(db: Firestore, currentUser: () => User | null) {
     async previewUndo({ id }: { id: string }) {
       identity()
       const entry = await getDocFromServer(doc(db, 'auditV2', id))
+      if (isDebitAudit(entry.data()?.detail || '')) throw Error('Reverta o débito na área Pagamentos para manter a venda e o histórico consistentes.')
       if (entry.data()?.action === 'venda') {
         const e = entry.data()!
         return [{ source: 'products', count: diffRows('products', e.beforeProducts, e.afterProducts).length }, { source: 'sales', count: 1 }]
@@ -167,6 +191,7 @@ export function createFreeStore(db: Firestore, currentUser: () => User | null) {
         const [receipt, store] = await Promise.all([tx.get(doc(db, 'auditReversals', id)), tx.get(shop)])
         if (receipt.exists()) throw new Error('Esta ação já foi desfeita.')
         if (!entry.data()?.hasUndo) throw new Error('Esta ação não pode ser desfeita.')
+        if (isDebitAudit(entry.data()?.detail || '')) throw Error('Reverta o débito na área Pagamentos para manter a venda e o histórico consistentes.')
         let originalBefore: StoreData, originalAfter: StoreData
         if (entry.data()?.action === 'venda') {
           const e = entry.data()!
@@ -187,10 +212,15 @@ export function createFreeStore(db: Firestore, currentUser: () => User | null) {
     async changeTeamAccess({ email, role }: { email: string; role: Role }) {
       const user = identity(), target = accessKey(email), id = auditId()
       if (!/^[^\s@/]+@[^\s@/]+\.[^\s@/]+$/.test(target) || target.length > 254 || !['owner', 'admin', 'employee', 'viewer', 'blocked'].includes(role)) throw new Error('E-mail ou cargo inválido.')
+      const ownRef = doc(db, 'teamAccess', accessKey(user.email!))
+      const access = await getDocFromServer(ownRef)
+      if (!can(access.data()?.role, 'team') || target === accessKey(user.email!)) throw new Error('Apenas o dono pode alterar outros acessos. O dono não pode ser alterado.')
       return runTransaction(db, async tx => {
         const ref = doc(db, 'teamAccess', target)
-        const [previous, own] = await Promise.all([tx.get(ref), tx.get(doc(db, 'teamAccess', accessKey(user.email!)))])
-        if (!can(own.data()?.role, 'team') || target === accessKey(user.email!) || previous.data()?.role === 'owner') throw new Error('Apenas o dono pode alterar outros acessos. O dono não pode ser alterado.')
+        const own = await tx.get(ownRef)
+        if (!can(own.data()?.role, 'team') || target === accessKey(user.email!)) throw new Error('Apenas o dono pode alterar outros acessos. O dono não pode ser alterado.')
+        const previous = await tx.get(ref)
+        if (previous.data()?.role === 'owner') throw new Error('O acesso do dono não pode ser alterado.')
         tx.set(ref, { email: target, role, updatedAt: serverTimestamp(), auditId: id })
         tx.set(doc(db, 'auditV2', id), { ...header(user, id, 'equipe', 'Acesso da equipe atualizado', false), targetEmail: target, beforeRole: previous.data()?.role || 'blocked', afterRole: role })
         return { done: true }

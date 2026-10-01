@@ -1,4 +1,5 @@
 import { SalesImage } from '../components/SalesImage'
+import { useConfirmation } from '../components/useConfirmation'
 import { useState, useMemo, useRef } from 'react'
 import { ClipboardPaste, CheckCircle2, AlertCircle, Undo2, Sparkles } from 'lucide-react'
 import { Product, Customer, Sale, uid, fmtBRL } from '../types'
@@ -196,6 +197,7 @@ export function QuickSaleView({ products, customers, onSalesImported, pushToast,
   products: Product[]; customers: Customer[]; draftKey?: string
   onSalesImported: (sales: Sale[], customers: Customer[]) => boolean; pushToast: (m: string, t?: 'success' | 'error') => void
 }) {
+  const { confirm, confirmation } = useConfirmation()
   const { draft: savedDraft, update: updateDraft, clear: clearDraft, saved: draftSaved } = useSalesDraft(draftKey)
   const { text, date: defaultDate, status: defaultStatus, automaticDate } = savedDraft
   const setText = (text: string) => updateDraft({ text })
@@ -278,8 +280,8 @@ export function QuickSaleView({ products, customers, onSalesImported, pushToast,
     pushToast(`${count} venda(s) criada(s) com sucesso! 🎉`)
   })
 
-  const doReset = () => {
-    if (text.trim() && step !== 'done' && !window.confirm('Descartar o rascunho salvo e começar uma nova lista?')) return
+  const doReset = async () => {
+    if (text.trim() && step !== 'done' && !await confirm('Descartar o rascunho salvo e começar uma nova lista?')) return
     clearDraft(); setParsed([]); setStep('input'); setCreatedCount(0); confirming.current = false
   }
 
@@ -298,6 +300,7 @@ export function QuickSaleView({ products, customers, onSalesImported, pushToast,
 
   return (
     <>
+      {confirmation}
       <div className="page-row">
         <div className="page-row-inner">
           <div className="page-title"><h2>Venda Rápida</h2><p>Cole texto da planilha e gere vendas automaticamente</p></div>

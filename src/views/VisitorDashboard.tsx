@@ -8,11 +8,12 @@ import type { Sale } from '../types'
 export function VisitorDashboard({ name, onLogout }: { name: string; onLogout: () => void }) {
   const [sales, setSales] = useState<Pick<Sale, 'id' | 'date' | 'items' | 'status'>[] | null>(null)
   const [error, setError] = useState('')
+  const [attempt, setAttempt] = useState(0)
   useEffect(() => {
     const db = getDb()
-    if (!db) return
+    if (!db) {setError('Não foi possível conectar ao painel. Tente novamente.'); return}
     return onSnapshot(doc(db, 'dashboard', 'public'), snapshot => { setSales(snapshot.data()?.sales || []); setError('') }, () => { setSales(null); setError('Não foi possível carregar a dashboard.') })
-  }, [])
+  }, [attempt])
   const today = (sales || []).filter(s => dayKey(s.date) === dayKey(new Date()) && s.status !== 'Presente')
   const units = today.reduce((sum,s) => sum + s.items.reduce((n,i) => n + i.qty, 0), 0)
   const days = Array.from({ length:7 }, (_,i) => {
@@ -21,7 +22,7 @@ export function VisitorDashboard({ name, onLogout }: { name: string; onLogout: (
   })
   return <main className="employee-workspace">
     <header className="page-row"><div className="page-title"><h1>Dashboard</h1><p>{name} · Somente leitura</p></div><button className="btn btn-secondary" onClick={onLogout}>Sair</button></header><OwnerKeyLogin/>
-    {error ? <p role="alert">{error}</p> : sales === null ? <p role="status">Carregando…</p> : <>
+    {error ? <div className="card" role="alert"><p>{error}</p><button className="btn btn-secondary" onClick={() => {setError(''); setAttempt(n => n + 1)}}>Tentar novamente</button></div> : sales === null ? <p role="status">Carregando…</p> : <>
       <section className="daily-overview" aria-label="Resumo de hoje">
         <div className="card daily-count"><span className="eyebrow">HOJE NA COOKIE ZOOKIE</span><strong>{units} <span>cookies vendidos</span></strong><small>{today.length} vendas</small></div>
         <div className="card daily-pending"><strong>{sales.filter(s => s.status === 'Pendente').length}</strong><span>vendas aguardando pagamento</span></div>

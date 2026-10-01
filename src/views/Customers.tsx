@@ -1,3 +1,7 @@
+import { Modal } from '../components/Modal'
+import { DeleteConfirmation } from '../components/DeleteConfirmation'
+import { SearchInput } from '../components/SearchInput'
+import { matchesSearch } from '../search'
 import { billingWhatsApp } from '../billing-message'
 import type { CustomerMerge } from '../combine-customers'
 import { customerCandidates, normalizeCustomerName } from '../customer-matching'
@@ -10,41 +14,6 @@ import { MaskedMoney } from '../components/MaskedMoney'
 import { MaskedPII } from '../components/MaskedPII'
 import { SaleTransferDialog } from '../components/SaleTransferDialog'
 import type { SaleTransfer } from '../sale-adjustments'
-
-// Modal de confirmação dupla para exclusão (reutilizável local)
-function ConfirmDeleteModal({ isOpen, onClose, onConfirm, title, message, itemName }: {
-  isOpen: boolean; onClose: () => void; onConfirm: () => void; title: string; message: string; itemName: string
-}) {
-  const [checked, setChecked] = useState(false)
-  const [typed, setTyped] = useState('')
-  const canConfirm = checked && typed.toUpperCase() === 'EXCLUIR'
-  if (!isOpen) return null
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal modal-sm" role="dialog" aria-modal="true" aria-label={title} onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <h3>{title}</h3>
-        </div>
-        <div className="form" style={{ padding: 'var(--sp-4)' }}>
-          <p style={{ color: 'var(--tx-1)', marginBottom: 'var(--sp-4)' }}>{message}</p>
-          <p style={{ fontWeight: 600, color: 'var(--cz-600)', marginBottom: 'var(--sp-4)' }}>{itemName}</p>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', cursor: 'pointer', marginBottom: 'var(--sp-3)' }}>
-            <input type="checkbox" checked={checked} onChange={e => setChecked(e.target.checked)} style={{ width: 18, height: 18, cursor: 'pointer' }} />
-            <span>Entendo que é irreversível</span>
-          </label>
-          <div className="field">
-            <label>Digite EXCLUIR para confirmar</label>
-            <input type="text" value={typed} onChange={e => setTyped(e.target.value)} placeholder="EXCLUIR" style={{ textTransform: 'uppercase' }} />
-          </div>
-          <div className="modal-actions" style={{ marginTop: 'var(--sp-4)' }}>
-            <button className="btn btn-secondary" onClick={onClose}>Cancelar</button>
-            <button className="btn btn-danger" onClick={onConfirm} disabled={!canConfirm}>Excluir</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
 
 export function CustomersView({ customers, setCustomers, sales, pushToast, onCustomersCombined, onSaleTransfer }: {
   onSaleTransfer?: (request: SaleTransfer) => boolean
@@ -165,7 +134,6 @@ export function CustomersView({ customers, setCustomers, sales, pushToast, onCus
   const debitedCount = customers.filter(c => clientStatus.get(c.id) === 'Debitado').length
   const noSalesCount = customers.filter(c => clientStatus.get(c.id) === 'Sem vendas').length
 
-  const normalizeSearch = (value: string) => value.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLocaleLowerCase('pt-BR')
   const visible = customers.filter(customer => {
     const hasPhone = /\d/.test(customer.contact || '')
     const pending = clientStatus.get(customer.id) === 'Pendente'
@@ -173,7 +141,7 @@ export function CustomersView({ customers, setCustomers, sales, pushToast, onCus
       : statusFilter === 'with-phone-pending' ? hasPhone && pending
       : statusFilter === 'without-phone-pending' ? !hasPhone && pending
       : statusFilter === 'all' || clientStatus.get(customer.id) === statusFilter
-    return matchesFilter && normalizeSearch(customer.name + ' ' + customer.contact).includes(normalizeSearch(search.trim()))
+    return matchesFilter && matchesSearch(search, customer.name, customer.contact)
   }).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
   const pages = Math.max(1, Math.ceil(visible.length / 25))
   const activePage = Math.min(page, pages - 1)
@@ -243,7 +211,7 @@ export function CustomersView({ customers, setCustomers, sales, pushToast, onCus
 
       <div className="card">
         <div className="report-toolbar">
-          <input aria-label="Buscar cliente por nome ou telefone" placeholder="Buscar nome ou telefone..." value={search} onChange={event => { setSearch(event.target.value); setPage(0) }} />
+          <SearchInput label="Buscar cliente por nome ou telefone" placeholder="Nome ou telefone…" value={search} onChange={value => { setSearch(value); setPage(0) }} />
           <select aria-label="Status dos clientes" value={statusFilter} onChange={event => { setStatusFilter(event.target.value); setPage(0) }}><option value="all">Todos os clientes</option>{['Pago', 'Pendente', 'Debitado', 'Sem vendas'].map(status => <option key={status}>{status}</option>)}<option value="with-phone">Números cadastrados</option><option value="with-phone-pending">Números cadastrados pendentes</option><option value="without-phone-pending">Sem número pendentes</option></select>
           <span className="badge badge-neutral">{visible.length} clientes</span>
         </div>
@@ -277,8 +245,7 @@ export function CustomersView({ customers, setCustomers, sales, pushToast, onCus
 
       {transferCustomer && onSaleTransfer && <SaleTransferDialog customer={transferCustomer} customers={customers} sales={sales} onTransfer={onSaleTransfer} onClose={() => setTransferCustomer(null)} />}
 
-      {mergePrompt && <div className="modal-backdrop">
-        <div className="modal" role="dialog" aria-modal="true" aria-label="Combinar clientes">
+      {mergePrompt && <Modal label="Combinar clientes" onClose={() => setMergePrompt(null)}>
           <div className="modal-header"><h3>Tem certeza de que quer combinar clientes?</h3><button className="modal-close" aria-label="Voltar à edição" onClick={() => setMergePrompt(null)}><X size={20} /></button></div>
           <div className="form">
             <p>Ao trocar “{mergePrompt.source.name}” por “{mergePrompt.name}”, encontramos outros cadastros parecidos. Se for a mesma pessoa, escolha onde reunir tudo:</p>
@@ -299,32 +266,28 @@ export function CustomersView({ customers, setCustomers, sales, pushToast, onCus
               <button className="btn btn-primary" disabled={!target || (phoneConflict && !mergePhone)} onClick={confirmMerge}>Sim, combinar clientes</button>
             </div>
           </div>
-        </div>
-      </div>}
+      </Modal>}
 
       {pages > 1 && <div className="pagination"><span>{activePage + 1} / {pages}</span><button className="btn btn-secondary btn-sm" disabled={!activePage} onClick={() => setPage(activePage - 1)}>Anterior</button><button className="btn btn-secondary btn-sm" disabled={activePage === pages - 1} onClick={() => setPage(activePage + 1)}>Próxima</button></div>}
       {showModal && !mergePrompt && (
-              <div className="modal-backdrop" onClick={() => setShowModal(false)}>
-                <div className="modal" role="dialog" aria-modal="true" aria-label={editing ? 'Editar cliente' : 'Novo cliente'} onClick={e => e.stopPropagation()}>
+              <Modal label={editing ? 'Editar cliente' : 'Novo cliente'} onClose={() => setShowModal(false)}>
                   <div className="modal-header">
                     <h3>{editing ? 'Editar Cliente' : 'Novo Cliente'}</h3>
                     <button className="modal-close" aria-label="Fechar" onClick={() => setShowModal(false)}><X size={20} /></button>
                   </div>
                   <div className="form">
-                    <div className="field"><label>Nome</label><input value={form.name} maxLength={120} autoComplete="name" onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Nome do cliente" /></div>
-                    <div className="field"><label>Telefone com DDD (opcional)</label><input value={form.contact} maxLength={15} autoComplete="tel" inputMode="tel" onChange={e => setForm(f => ({ ...f, contact: formatPhone(e.target.value) }))} placeholder="(11) 99999-0000" /><span className="hint">Se deixar vazio, aparecerá “Não informado”.</span></div>
+                    <div className="field"><label>Nome</label><input aria-label="Nome" value={form.name} maxLength={120} autoComplete="name" onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Nome do cliente" /></div>
+                    <div className="field"><label>Telefone com DDD (opcional)</label><input aria-label="Telefone com DDD (opcional)" value={form.contact} maxLength={15} autoComplete="tel" inputMode="tel" onChange={e => setForm(f => ({ ...f, contact: formatPhone(e.target.value) }))} placeholder="(11) 99999-0000" /><span className="hint">Se deixar vazio, aparecerá “Não informado”.</span></div>
                     <div className="modal-actions">
                       <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancelar</button>
                       <button className="btn btn-primary" onClick={() => submit()}>{editing ? 'Salvar' : 'Adicionar'}</button>
                     </div>
                   </div>
-                </div>
-              </div>
+              </Modal>
             )}
 
             {deleteConfirm && (
-              <ConfirmDeleteModal
-                isOpen={true}
+              <DeleteConfirmation
                 onClose={() => setDeleteConfirm(null)}
                 onConfirm={confirmDelete}
                 title="Excluir cliente"

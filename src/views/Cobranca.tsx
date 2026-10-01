@@ -1,4 +1,6 @@
 import { billingMessage, billingWhatsApp } from '../billing-message'
+import { SearchInput } from '../components/SearchInput'
+import { matchesSearch } from '../search'
 import { useState, useMemo } from 'react'
 import { MessageSquare, CheckCircle2, Copy, ChevronDown, ChevronUp, DollarSign, Users, AlertCircle, Calendar, Minus, Check, ChevronRight, ArrowLeftRight } from 'lucide-react'
 import { Sale, Customer, fmtBRL, saleOutstanding } from '../types'
@@ -67,7 +69,7 @@ export function CobrancaView({ sales, setSales, customers, pushToast, onCustomer
 
   // Sort
   const sortedGroups = useMemo(() => {
-    return groups.filter(group => normalizeCustomerName(group.customer?.name || '').includes(normalizeCustomerName(search))).sort((a, b) => {
+    return groups.filter(group => matchesSearch(search, group.customer?.name, group.customer?.contact)).sort((a, b) => {
       let cmp = 0
       if (sortBy === 'total') cmp = a.totalPending - b.totalPending
       else if (sortBy === 'nome') cmp = (a.customer?.name || 'ZZZ').localeCompare(b.customer?.name || 'ZZZ')
@@ -226,8 +228,7 @@ export function CobrancaView({ sales, setSales, customers, pushToast, onCustomer
       </div>
 
       <div className="field" style={{ marginBottom: 'var(--sp-4)' }}>
-        <label htmlFor="billing-search">Buscar cliente</label>
-        <input id="billing-search" type="search" placeholder="Digite o nome da pessoa..." value={search} onChange={event => setSearch(event.target.value)} />
+        <SearchInput inputId="billing-search" label="Buscar cliente" placeholder="Nome ou telefone…" value={search} onChange={setSearch} />
       </div>
 
       {/* Filtros/ordenação */}

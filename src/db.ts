@@ -41,14 +41,14 @@ export function baixarBackup(products: Product[], sales: Sale[], customers: Cust
   window.setTimeout(() => URL.revokeObjectURL(url), 1_000)
 }
 
-export function aplicarBackup(file: File, cb: (data: BackupData) => void): Promise<void> {
+export function aplicarBackup(file: File, cb: (data: BackupData) => void | boolean | Promise<void | boolean>): Promise<void> {
   return new Promise((resolve, reject) => {
     if (file.size > 5 * 1024 * 1024) {
       reject(new Error('O backup excede o limite de 5 MB.'))
       return
     }
     const reader = new FileReader()
-    reader.onload = () => {
+    reader.onload = async () => {
       try {
         const raw = JSON.parse(reader.result as string) as Record<string, unknown>
         const store = validateStoreData(raw)
@@ -66,14 +66,14 @@ export function aplicarBackup(file: File, cb: (data: BackupData) => void): Promi
           ...store,
           ...(extras ? { extras } : {}),
         }
+        if (await cb(data) === false) { resolve(); return }
         if (extras) {
           save('cc_custos', extras.custos)
           save('cc_perdas', extras.perdas)
         }
-        cb(data)
         resolve()
-      } catch {
-        reject(new Error('Não foi possível ler o backup.'))
+      } catch (error) {
+        reject(error instanceof Error ? error : new Error('Não foi possível ler o backup.'))
       }
     }
     reader.onerror = () => reject(new Error('Erro na leitura do arquivo.'))

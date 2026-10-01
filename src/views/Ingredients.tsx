@@ -1,3 +1,6 @@
+import { useConfirmation } from '../components/useConfirmation'
+import { SearchInput } from '../components/SearchInput'
+import { matchesSearch } from '../search'
 import { migratePurchases, watchPurchases, commitPurchases } from '../purchase-cloud'
 import { useRole } from '../auth'
 import { useEffect, useRef, useState } from 'react'
@@ -16,6 +19,9 @@ export function IngredientsView(props: { owner: string; sales?: Sale[] }) {
   return role === 'owner' ? <OwnerPurchases {...props} /> : null
 }
 function OwnerPurchases({ owner, sales = [] }: { owner: string; sales?: Sale[] }) {
+  const { confirm, confirmation } = useConfirmation()
+  const [cloudReady, setCloudReady] = useState(false)
+  const [retry, setRetry] = useState(0)
   const role = useRole()
   const isOwner = role === 'owner'
   const key = 'cc_ingredients:' + owner.toLowerCase()
@@ -36,6 +42,7 @@ function OwnerPurchases({ owner, sales = [] }: { owner: string; sales?: Sale[] }
   useEffect(() => {
     let cancelled=false, stop=()=>{}, starting=false
     alive.current=true
+    setCloudReady(false)
     const start=async()=>{
       if(starting || cancelled)return
       starting=true
@@ -43,6 +50,9 @@ function OwnerPurchases({ owner, sales = [] }: { owner: string; sales?: Sale[] }
         const [data,saved,migrated]=await Promise.all([get(key),get(key+':draft'),get(key+':cloud-migrated')])
         if(data!==undefined&&(!Array.isArray(data)||!data.every(validPurchase)))throw Error()
         const local:IngredientPurchase[]=data||[]
+        if(cancelled)return
+        setPurchases(local);setReady(true)
+        if(saved&&typeof saved.text==='string'&&Array.isArray(saved.items)){setDraft(saved);setEditor(!!(saved.text||saved.items.length||saved.photo))}
         photos.current={...Object.fromEntries(local.filter(p=>p.photo).map(p=>[p.id,p.photo!])),...await get(key+':photos')}
         // Recheck local records on every opening. A device may have marked the
         // first migration as complete while it was empty or offline; in that
@@ -57,20 +67,21 @@ function OwnerPurchases({ owner, sales = [] }: { owner: string; sales?: Sale[] }
         stop=watchPurchases((rows,cached)=>{
           if(cancelled)return
           const merged=rows.map(p=>({...p,...(photos.current[p.id]?{photo:photos.current[p.id]}:{})}))
-          setPurchases(merged);setReady(true);setSyncMessage(cached?'Sem confirmação do servidor. Conecte-se para atualizar.':'Compras sincronizadas entre seus aparelhos.')
+          setPurchases(merged);setReady(true);setCloudReady(!cached);setSyncMessage(cached?'Sem confirmação do servidor. Conecte-se para atualizar.':'Compras sincronizadas entre seus aparelhos.')
           if(!cached)void set(key,merged).catch(()=>{if(!cancelled)setSyncMessage('Sincronizado, mas não foi possível atualizar a cópia local.')})
-        },()=>{if(!cancelled)setSyncMessage('Falha na sincronização. Verifique sua conexão e atualize a página. Os dados locais foram preservados.')})
-      }catch{if(!cancelled){setMessage('Não foi possível sincronizar as compras. Conecte-se à internet e tente novamente. Os dados deste aparelho foram preservados.');setSyncMessage('Aguardando conexão para sincronizar.')}}
+        },()=>{if(!cancelled){setCloudReady(false);setSyncMessage('Falha na sincronização. Sua cópia local foi preservada. Tente conectar novamente.')}})
+      }catch{if(!cancelled){setReady(true);setCloudReady(false);setMessage('Não foi possível sincronizar as compras. Conecte-se à internet e tente novamente. Os dados deste aparelho foram preservados.');setSyncMessage('Aguardando conexão para sincronizar.')}}
       finally{starting=false}
     }
     void start();window.addEventListener('online',start)
     return()=>{cancelled=true;alive.current=false;stop();window.removeEventListener('online',start)}
-  },[key])
+  },[key,retry])
   const change = (next: PurchaseDraft) => {
     setDraft(next); setDraftSaved(false); const version = ++draftVersion.current
     queue.current = queue.current.then(() => set(key + ':draft', next)).then(() => { if (alive.current && draftVersion.current === version) setDraftSaved(true) }).catch(() => { if (alive.current) setMessage('Falha ao salvar rascunho. Confira o espaço do navegador.') })
   }
   const persist = async (transform: (old: IngredientPurchase[]) => IngredientPurchase[]) => {
+    if (!cloudReady) throw Error('Conecte as compras ao servidor antes de alterar registros. Seu rascunho está preservado.')
     const next=transform(purchases)
     photos.current=Object.fromEntries(next.filter(p=>p.photo).map(p=>[p.id,p.photo!]))
     await set(key+':photos',photos.current)
@@ -131,7 +142,7 @@ function OwnerPurchases({ owner, sales = [] }: { owner: string; sales?: Sale[] }
   }
   const removePurchase = async (p: IngredientPurchase) => {
     if (lock.current) return
-    if (!confirm(`Excluir este registro de ${fmtBRL(purchaseTotal(p))} (${p.shop || 'Local não informado'})? Ele será removido dos totais, pendências e histórico. Esta ação não pode ser desfeita.`)) return
+    if (!await confirm(`Excluir este registro de ${fmtBRL(purchaseTotal(p))} (${p.shop || 'Local não informado'})? Ele será removido dos totais, pendências e histórico. Esta ação não pode ser desfeita.`)) return
     lock.current = true; setBusy(true)
     try {
       await persist(old => deletePurchase(old, p))
@@ -140,8 +151,8 @@ function OwnerPurchases({ owner, sales = [] }: { owner: string; sales?: Sale[] }
     } catch (e) { setMessage(e instanceof Error ? e.message : 'Não foi possível excluir. O registro foi preservado.') }
     finally { lock.current = false; if (alive.current) setBusy(false) }
   }
-  const edit = (p: IngredientPurchase) => {
-    if ((draft.text || draft.items.length || draft.photo) && !confirm('Abrir esta compra substituirá o rascunho atual. Continuar?')) return
+  const edit = async (p: IngredientPurchase) => {
+    if ((draft.text || draft.items.length || draft.photo) && !await confirm('Abrir esta compra substituirá o rascunho atual. Continuar?')) return
     change({ ...p, text: '', paymentToAdd: undefined, editingBefore: p }); setEditor(true); setArea('compras'); setIgnored([])
     requestAnimationFrame(() => document.querySelector('.purchase-editor')?.scrollIntoView({ behavior: 'smooth', block: 'start' }))
   }
@@ -167,24 +178,27 @@ function OwnerPurchases({ owner, sales = [] }: { owner: string; sales?: Sale[] }
   const summary = purchasesSummary(period)
   const ingredientTotals = new Map<string, {label: string; value: number}>()
   period.filter(p => !p.archived).forEach(p => p.items.forEach(item => { const name = normalizeIngredient(item.name); const previous = ingredientTotals.get(name); ingredientTotals.set(name, { label: previous?.label || item.name, value: (Math.round((previous?.value || 0) * 100) + Math.round(item.total * 100)) / 100 }) }))
-  const matchesSearch = (p: IngredientPurchase) => normalizeIngredient(`${p.shop} ${creditorName(p)} ${p.items.map(i => i.name).join(' ')}`).includes(normalizeIngredient(search))
-  const filtered = period.filter(p => !!p.archived === archived && matchesSearch(p) && (status === 'all' || (purchaseDue(p) > 0 ? 'pending' : 'paid') === status)).sort((a,b) => b.date.localeCompare(a.date))
-  const debts = groupDebts(period.filter(matchesSearch))
-  const renderEntry = (p: IngredientPurchase) => <PurchaseEntry key={p.id} purchase={p} busy={busy} remove={() => void removePurchase(p)} today={today()} edit={() => edit(p)} pay={() => void action(p, settlePurchase(p, today(), uid()), 'Pagamento integral registrado.')} archive={() => {
-    if (!p.archived && !confirm('Arquivar retira esta compra dos totais e das pendências. Você poderá restaurá-la. Continuar?')) return
+  const matchesPurchase = (p: IngredientPurchase) => matchesSearch(search, p.shop, creditorName(p), ...p.items.map(i => i.name))
+  const filtered = period.filter(p => !!p.archived === archived && matchesPurchase(p) && (status === 'all' || (purchaseDue(p) > 0 ? 'pending' : 'paid') === status)).sort((a,b) => b.date.localeCompare(a.date))
+  const debts = groupDebts(period.filter(matchesPurchase))
+  const renderEntry = (p: IngredientPurchase) => <PurchaseEntry key={p.id} purchase={p} busy={busy || !cloudReady} remove={() => void removePurchase(p)} today={today()} edit={() => void edit(p)} pay={() => void action(p, settlePurchase(p, today(), uid()), 'Pagamento integral registrado.')} archive={async () => {
+    if (!p.archived && !await confirm('Arquivar retira esta compra dos totais e das pendências. Você poderá restaurá-la. Continuar?')) return
     void action(p, { ...p, archived: !p.archived }, p.archived ? 'Compra restaurada.' : 'Compra arquivada. Você pode restaurá-la pelo filtro Arquivadas.')
   }} />
   if (!ready) return <p role="status">{message || 'Abrindo compras…'}</p>
   return <div className="ingredients-view">
+    {confirmation}
+    {!cloudReady && <div className="sync-banner" role="status"><div><strong>Compras sem confirmação do servidor</strong><p>A cópia local pode estar desatualizada. Conecte para salvar alterações.</p></div><button className="btn btn-secondary" disabled={busy} onClick={() => setRetry(n => n + 1)}>Conectar novamente</button></div>}
     <header className="purchase-header"><div><h1>Compras</h1><p>Ingredientes, preços e pagamentos em um só lugar.</p><p role="status">{syncMessage}</p></div><details className="purchase-tools"><summary>Backup e armazenamento</summary><p>Valores e registros sincronizam entre os aparelhos do dono. Fotos anexadas e rascunhos continuam neste navegador. O backup inclui as fotos disponíveis neste aparelho.</p><div className="purchase-actions"><button className="btn btn-secondary" onClick={() => void backup()}>Exportar compras e fotos</button><button className="btn btn-secondary" onClick={() => void backup(true)}>Backup anterior à sincronização</button><label className="purchase-upload">Importar backup<input aria-label="Importar backup de compras" type="file" accept=".json" disabled={busy} onChange={e => { const f = e.target.files?.[0]; if (f) void restore(f); e.target.value = '' }} /></label></div><small>Compras antigas sem situação foram consideradas pagas. Você pode alterar isso em Editar compra.</small></details></header>
     <nav className="purchase-tabs" aria-label="Áreas de compras">{[['compras','Compras'],['precos','Histórico de preços'],['pendencias','Pendências']].map(([id,label]) => <button key={id} aria-pressed={area === id} onClick={() => selectArea(id)}>{label}{id === 'pendencias' && purchasesSummary(purchases).due > 0 && <span className="purchase-count">{purchases.filter(p => !p.archived && purchaseDue(p) > 0).length}</span>}</button>)}</nav>
     {message && <p className="purchase-message" role="status" aria-live="polite">{message}</p>}
     {area === 'precos' ? <PurchasePrices purchases={purchases} /> : <>
       <dl className="purchase-summary" aria-label="Resumo financeiro"><div><dt>Total comprado</dt><dd>{fmtBRL(summary.total)}</dd></div><div><dt>Total pago</dt><dd>{fmtBRL(summary.paid)}</dd></div><div className="purchase-due"><dt>A pagar</dt><dd>{fmtBRL(summary.due)}</dd></div></dl>
       <div className="purchase-section-heading"><small>{from || to ? 'Totais do período selecionado' : 'Totais de todas as compras'} · excluem arquivadas</small>{area === 'compras' && <button className="btn btn-primary" disabled={busy} onClick={() => setEditor(!editor)}>{editor ? 'Ocultar cadastro' : draft.items.length || draft.text || draft.photo ? 'Continuar rascunho' : '+ Nova compra'}</button>}</div>
-      {editor && area === 'compras' && <><PurchaseEditor draft={draft} change={change} busy={busy} onSave={() => void savePurchase()} onClose={() => setEditor(false)} onPhoto={file => void readPhoto(file)} onProcess={() => { if (!draft.items.length || confirm('Reprocessar substituirá os produtos da revisão. Continuar?')) process(draft.text) }} ignored={ignored}/><div className="purchase-section-heading"><small role="status">{draftSaved ? 'Rascunho salvo neste navegador.' : 'Salvando rascunho…'}</small><button className="btn btn-ghost" disabled={busy} onClick={() => { if (confirm('Descartar o rascunho? As compras salvas serão mantidas.')) { change(empty()); setIgnored([]) } }}>Descartar rascunho</button></div></>}
+      {editor && area === 'compras' && <><PurchaseEditor draft={draft} change={change} busy={busy} onSave={() => { if (!cloudReady) {setMessage("Conecte ao servidor para salvar. O rascunho está preservado."); return} void savePurchase() }} onClose={() => setEditor(false)} onPhoto={file => void readPhoto(file)} onProcess={async () => { if (!draft.items.length || await confirm('Reprocessar substituirá os produtos da revisão. Continuar?')) process(draft.text) }} ignored={ignored}/><div className="purchase-section-heading"><small role="status">{draftSaved ? 'Rascunho salvo neste navegador.' : 'Salvando rascunho…'}</small><button className="btn btn-ghost" disabled={busy} onClick={async () => { if (await confirm('Descartar o rascunho? As compras salvas serão mantidas.')) { change(empty()); setIgnored([]) } }}>Descartar rascunho</button></div></>}
       {!(editor && area === 'compras') && <section className="purchase-list-section"><div className="purchase-section-heading"><h2>{area === 'compras' ? 'Suas compras' : 'Para quem devo'}</h2>{area === 'pendencias' && <strong>{fmtBRL(debts.reduce((sum,g) => sum + Math.round(g.due * 100),0)/100)} a pagar</strong>}</div>
-        <div className="purchase-filters"><label>Buscar<input value={search} placeholder="Produto, local ou pessoa" onChange={e => setSearch(e.target.value)} /></label><label>De<input type="date" value={from} onChange={e => setFrom(e.target.value)} /></label><label>Até<input type="date" value={to} onChange={e => setTo(e.target.value)} /></label>{area === 'compras' && <><label>Situação<select value={status} onChange={e => setStatus(e.target.value)}><option value="all">Todas</option><option value="paid">✓ Pagas</option><option value="pending">○ A pagar</option></select></label><label>Registros<select value={archived ? 'archived' : 'active'} onChange={e => setArchived(e.target.value === 'archived')}><option value="active">Ativos</option><option value="archived">Arquivadas</option></select></label></>}</div>
+        <div className="purchase-filters"><SearchInput label="Buscar compra" value={search} placeholder="Produto, local ou pessoa…" onChange={setSearch} /><label>De<input type="date" value={from} onChange={e => setFrom(e.target.value)} /></label><label>Até<input type="date" value={to} onChange={e => setTo(e.target.value)} /></label>{area === 'compras' && <><label>Situação<select value={status} onChange={e => setStatus(e.target.value)}><option value="all">Todas</option><option value="paid">✓ Pagas</option><option value="pending">○ A pagar</option></select></label><label>Registros<select value={archived ? 'archived' : 'active'} onChange={e => setArchived(e.target.value === 'archived')}><option value="active">Ativos</option><option value="archived">Arquivadas</option></select></label></>}</div>
+        <button className="btn btn-ghost btn-sm" onClick={() => {setSearch(''); setFrom(''); setTo(''); setStatus('all'); setArchived(false)}}>Limpar filtros</button>
         {from && to && from > to && <p role="alert">A data inicial deve ser anterior à final.</p>}
         {area === 'compras' ? <>{filtered.length ? filtered.map(renderEntry) : <p className="purchase-empty">Nenhuma compra encontrada. Ajuste os filtros ou registre uma compra.</p>}</> : <>{debts.length ? debts.map(group => <section className="purchase-creditor" key={normalizeIngredient(group.name)}><div className="purchase-section-heading"><h3>{group.name}</h3><strong>{fmtBRL(group.due)} a pagar</strong></div>{group.purchases.sort((a,b) => (a.dueDate || '9999').localeCompare(b.dueDate || '9999')).map(renderEntry)}</section>) : <p className="purchase-empty">✓ Nenhuma pendência encontrada no período.</p>}</>}
         {area === 'compras' && <details className="purchase-spending"><summary>Comprado por ingrediente · maiores gastos no período</summary><MetricBars items={[...ingredientTotals.values()].sort((a,b) => b.value - a.value).slice(0,10)} format={fmtBRL} /></details>}

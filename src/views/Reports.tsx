@@ -1,6 +1,8 @@
+import { SearchInput } from '../components/SearchInput'
+import { matchesSearch } from '../search'
 import { useMemo, useState } from 'react'
 import { Download, Search, Wallet, TrendingUp, Clock3, ShoppingBag } from 'lucide-react'
-import { Sale, CHANNELS, PAYMENTS, fmtBRL, fmtDate, salePaidAmount } from '../types'
+import { Customer, Sale, CHANNELS, PAYMENTS, fmtBRL, fmtDate, salePaidAmount } from '../types'
 import { StatusBadge } from './Dashboard'
 import { SensitiveData } from '../components/SensitiveData'
 import { MaskedMoney } from '../components/MaskedMoney'
@@ -8,7 +10,13 @@ import { MetricBars } from '../components/MetricBars'
 import { authReauthenticateGoogle } from '../sync'
 import { dayKey, periodSales, salesSummary } from '../analytics'
 
-export function ReportsView({ sales }: { sales: Sale[] }) {
+export function salesCSV(sales: Sale[], customers: Customer[]) {
+  const cell = (value: string) => `"${(/^[=+\-@]/.test(value.trimStart()) ? `'${value}` : value).replace(/"/g, '""')}"`
+  const rows = sales.map(sale => [fmtDate(sale.date), customers.find(c => c.id === sale.customerId)?.name || 'Sem cliente', sale.items.map(item => `${item.name} x${item.qty}`).join(', '), sale.payment, sale.status || 'Pago', sale.channel, sale.total.toFixed(2).replace('.', ','), salePaidAmount(sale).toFixed(2).replace('.', ',')].map(cell).join(';'))
+  return '\uFEFFData;Cliente;Itens;Pagamento;Status;Canal;Total;Recebido\r\n' + rows.join('\r\n')
+}
+
+export function ReportsView({ sales, customers = [] }: { sales: Sale[]; customers?: Customer[] }) {
   const [period, setPeriod] = useState<7 | 30 | 90 | 'all'>(30)
   const [status, setStatus] = useState('all')
   const [search, setSearch] = useState('')
@@ -16,8 +24,8 @@ export function ReportsView({ sales }: { sales: Sale[] }) {
   const [exporting, setExporting] = useState(false)
   const [error, setError] = useState('')
   const filtered = useMemo(() => periodSales(sales, period).filter(sale =>
-    (status === 'all' || sale.status === status) && sale.items.some(item => item.name.toLocaleLowerCase('pt-BR').includes(search.trim().toLocaleLowerCase('pt-BR')))
-  ), [sales, period, status, search])
+    (status === 'all' || (sale.status || 'Pago') === status) && matchesSearch(search, customers.find(c => c.id === sale.customerId)?.name, ...sale.items.map(item => item.name))
+  ).sort((a, b) => Date.parse(b.date) - Date.parse(a.date)), [sales, customers, period, status, search])
   const summary = salesSummary(filtered)
   const commercial = filtered.filter(sale => sale.status !== 'Presente')
   const byDay = new Map<string, number>()
@@ -34,9 +42,7 @@ export function ReportsView({ sales }: { sales: Sale[] }) {
     setExporting(true); setError('')
     try {
       await authReauthenticateGoogle()
-      const cell = (value: string) => `"${(/^[=+\-@]/.test(value.trimStart()) ? `'${value}` : value).replace(/"/g, '""')}"`
-      const rows = filtered.map(sale => [fmtDate(sale.date), sale.items.map(item => `${item.name} x${item.qty}`).join(', '), sale.payment, sale.status || 'Não informado', sale.channel, sale.total.toFixed(2).replace('.', ','), salePaidAmount(sale).toFixed(2).replace('.', ',')].map(cell).join(';'))
-      const blob = new Blob(['\uFEFFData;Itens;Pagamento;Status;Canal;Total;Recebido\r\n' + rows.join('\r\n')], { type: 'text/csv;charset=utf-8' })
+      const blob = new Blob([salesCSV(filtered, customers)], { type: 'text/csv;charset=utf-8' })
       const url = URL.createObjectURL(blob)
       const link = document.createElement('a')
       link.href = url; link.download = `vendas-${dayKey(Date.now())}.csv`; document.body.appendChild(link); link.click(); link.remove()
@@ -50,7 +56,7 @@ export function ReportsView({ sales }: { sales: Sale[] }) {
     <SensitiveData label="Desbloquear relatórios financeiros">
       <div className="report-toolbar card">
         <div className="period-options" aria-label="Período do relatório">{([7, 30, 90, 'all'] as const).map(value => <button key={value} aria-pressed={period === value} className={`btn btn-sm ${period === value ? 'btn-primary' : 'btn-ghost'}`} onClick={() => { setPeriod(value); setPage(0) }}>{value === 'all' ? 'Tudo' : `${value} dias`}</button>)}</div>
-        <label className="search-field"><Search size={17} aria-hidden="true" /><input aria-label="Buscar produto no relatório" placeholder="Buscar produto…" value={search} onChange={event => { setSearch(event.target.value); setPage(0) }} /></label>
+        <SearchInput label="Buscar cliente ou produto no relatório" placeholder="Nome do cliente ou produto…" value={search} onChange={value => { setSearch(value); setPage(0) }} />
         <select aria-label="Filtrar por status" value={status} onChange={event => { setStatus(event.target.value); setPage(0) }}><option value="all">Todos os status</option>{['Pago', 'Pendente', 'Debitado', 'Presente'].map(value => <option key={value}>{value}</option>)}</select>
         <button className="btn btn-secondary btn-sm" disabled={exporting || !filtered.length} onClick={() => void exportCSV()}><Download size={15} /> {exporting ? 'Exportando…' : 'Exportar CSV'}</button>
       </div>
@@ -67,7 +73,7 @@ export function ReportsView({ sales }: { sales: Sale[] }) {
       <div className="card report-table">
         <div className="section-heading"><h3>Detalhamento de vendas</h3><span className="badge badge-neutral">{filtered.length} registros</span></div>
         {!filtered.length ? <div className="empty-state"><Search size={28} /><p>Nenhuma venda corresponde aos filtros.</p><button className="btn btn-secondary" onClick={() => { setPeriod('all'); setStatus('all'); setSearch(''); setPage(0) }}>Limpar filtros</button></div> : <>
-          <div className="table-wrap"><table className="table"><thead><tr><th>Data</th><th>Itens</th><th>Pagamento</th><th>Status</th><th className="text-right">Total</th><th className="text-right">Recebido</th></tr></thead><tbody>{filtered.slice(currentPage * 25, (currentPage + 1) * 25).map(sale => <tr key={sale.id}><td>{fmtDate(sale.date)}</td><td>{sale.items.map(item => `${item.name} ×${item.qty}`).join(', ')}</td><td>{sale.payment}</td><td><StatusBadge status={sale.status} /></td><td className="text-right">{fmtBRL(sale.total)}</td><td className="text-right">{fmtBRL(salePaidAmount(sale))}</td></tr>)}</tbody></table></div>
+          <div className="table-wrap"><table className="table"><thead><tr><th>Data</th><th>Cliente</th><th>Itens</th><th>Pagamento</th><th>Status</th><th className="text-right">Total</th><th className="text-right">Recebido</th></tr></thead><tbody>{filtered.slice(currentPage * 25, (currentPage + 1) * 25).map(sale => <tr key={sale.id}><td>{fmtDate(sale.date)}</td><td>{customers.find(c => c.id === sale.customerId)?.name || 'Sem cliente'}</td><td>{sale.items.map(item => `${item.name} ×${item.qty}`).join(', ')}</td><td>{sale.payment}</td><td><StatusBadge status={sale.status} /></td><td className="text-right">{fmtBRL(sale.total)}</td><td className="text-right">{fmtBRL(salePaidAmount(sale))}</td></tr>)}</tbody></table></div>
           <div className="pagination"><span>Página {currentPage + 1} de {pageCount}</span><button className="btn btn-secondary btn-sm" disabled={!currentPage} onClick={() => setPage(currentPage - 1)}>Anterior</button><button className="btn btn-secondary btn-sm" disabled={currentPage === pageCount - 1} onClick={() => setPage(currentPage + 1)}>Próxima</button></div>
         </>}
       </div>

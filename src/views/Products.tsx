@@ -1,3 +1,7 @@
+import { Modal } from '../components/Modal'
+import { DeleteConfirmation } from '../components/DeleteConfirmation'
+import { SearchInput } from '../components/SearchInput'
+import { matchesSearch } from '../search'
 import { useState } from 'react'
 import { Plus, Pencil, Trash2, X, Package, Check } from 'lucide-react'
 import { Product, Sale, CATEGORIES, CAT_LABEL, LOW_STOCK_THRESHOLD, fmtBRL, uid } from '../types'
@@ -7,44 +11,12 @@ import { logAction } from '../audit'
 import { CookieArt } from '../components/CookieArt'
 import { MaskedMoney } from '../components/MaskedMoney'
 
-// Modal de confirmação dupla para exclusão (reutilizável local)
-function ConfirmDeleteModal({ isOpen, onClose, onConfirm, title, message, itemName }: {
-  isOpen: boolean; onClose: () => void; onConfirm: () => void; title: string; message: string; itemName: string
-}) {
-  const [checked, setChecked] = useState(false)
-  const [typed, setTyped] = useState('')
-  const canConfirm = checked && typed.toUpperCase() === 'EXCLUIR'
-  if (!isOpen) return null
-  return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal modal-sm" role="dialog" aria-modal="true" aria-label={title} onClick={e => e.stopPropagation()}>
-        <div className="modal-header">
-          <h3>{title}</h3>
-        </div>
-        <div className="form" style={{ padding: 'var(--sp-4)' }}>
-          <p style={{ color: 'var(--tx-1)', marginBottom: 'var(--sp-4)' }}>{message}</p>
-          <p style={{ fontWeight: 600, color: 'var(--cz-600)', marginBottom: 'var(--sp-4)' }}>{itemName}</p>
-          <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)', cursor: 'pointer', marginBottom: 'var(--sp-3)' }}>
-            <input type="checkbox" checked={checked} onChange={e => setChecked(e.target.checked)} style={{ width: 18, height: 18, cursor: 'pointer' }} />
-            <span>Entendo que é irreversível</span>
-          </label>
-          <div className="field">
-            <label>Digite EXCLUIR para confirmar</label>
-            <input type="text" value={typed} onChange={e => setTyped(e.target.value)} placeholder="EXCLUIR" style={{ textTransform: 'uppercase' }} />
-          </div>
-          <div className="modal-actions" style={{ marginTop: 'var(--sp-4)' }}>
-            <button className="btn btn-secondary" onClick={onClose}>Cancelar</button>
-            <button className="btn btn-danger" onClick={onConfirm} disabled={!canConfirm}>Excluir</button>
-          </div>
-        </div>
-      </div>
-    </div>
-  )
-}
-
 export function ProductsView({ products, setProducts, sales, pushToast }: {
   products: Product[]; setProducts: React.Dispatch<React.SetStateAction<Product[]>>; sales: Sale[]; pushToast: (m: string, t?: 'success' | 'error') => void
 }) {
+  const [search, setSearch] = useState('')
+  const [category, setCategory] = useState('all')
+  const [sort, setSort] = useState('name')
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing] = useState<Product | null>(null)
   const [form, setForm] = useState({ name: '', price: '', category: 'tradicional', stock: '', emoji: '🍪' })
@@ -57,7 +29,7 @@ export function ProductsView({ products, setProducts, sales, pushToast }: {
     setForm(f => ({
       ...f,
       name,
-      price: c ? String(c.precoVenda) : f.price,
+      price: !editing && c ? String(c.precoVenda) : f.price,
     }))
   }
 
@@ -108,6 +80,8 @@ export function ProductsView({ products, setProducts, sales, pushToast }: {
       })
     }
 
+  const visible = products.filter(p => matchesSearch(search, p.name, CAT_LABEL[p.category]) && (category === 'all' || p.category === category)).sort((a, b) => sort === 'stock' ? a.stock - b.stock : sort === 'price' ? a.price - b.price : a.name.localeCompare(b.name, 'pt-BR'))
+
   return (
     <>
       <div className="page-row">
@@ -115,11 +89,12 @@ export function ProductsView({ products, setProducts, sales, pushToast }: {
         <button className="btn btn-primary" onClick={openNew}><Plus size={16} /> Novo Produto</button>
       </div>
 
-      {products.length === 0 ? (
-        <div className="card empty-state"><Package className="icon" size={48} /><p>Nenhum produto cadastrado.</p></div>
+      <div className="list-toolbar card"><SearchInput label="Buscar produto" value={search} onChange={setSearch} placeholder="Nome ou categoria…" /><label>Categoria<select value={category} onChange={e => setCategory(e.target.value)}><option value="all">Todas as categorias</option>{CATEGORIES.map(c => <option key={c} value={c}>{CAT_LABEL[c]}</option>)}</select></label><label>Ordenar<select value={sort} onChange={e => setSort(e.target.value)}><option value="name">Nome A–Z</option><option value="stock">Menor estoque</option><option value="price">Menor preço</option></select></label><span className="result-count" role="status">{visible.length} de {products.length} produtos</span>{(search || category !== 'all') && <button className="btn btn-ghost" onClick={() => {setSearch(''); setCategory('all')}}>Limpar filtros</button>}</div>
+      {visible.length === 0 ? (
+        <div className="card empty-state"><Package className="icon" size={48} /><p>{products.length ? 'Nenhum produto corresponde aos filtros.' : 'Nenhum produto cadastrado.'}</p></div>
       ) : (
         <div className="product-grid">
-          {products.map(p => (
+          {visible.map(p => (
             <div key={p.id} className="product-card">
               <div className="p-emoji"><CookieArt name={p.name} size={76} /></div>
               <div className="p-name">{p.name}</div>
@@ -136,39 +111,36 @@ export function ProductsView({ products, setProducts, sales, pushToast }: {
       )}
 
       {showModal && (
-              <div className="modal-backdrop" onClick={() => setShowModal(false)}>
-                <div className="modal" role="dialog" aria-modal="true" aria-label={editing ? 'Editar produto' : 'Novo produto'} onClick={e => e.stopPropagation()}>
+              <Modal label={editing ? 'Editar produto' : 'Novo produto'} onClose={() => setShowModal(false)}>
                   <div className="modal-header">
                     <h3>{editing ? 'Editar Produto' : 'Novo Produto'}</h3>
                     <button className="modal-close" aria-label="Fechar" onClick={() => setShowModal(false)}><X size={20} /></button>
                   </div>
                   <div className="form">
-                    <div className="field"><label>Nome do cookie</label><input value={form.name} maxLength={100} onChange={e => changeName(e.target.value)} placeholder="ex: Chocolate, Aveia, Red Velvet" /></div>
+                    <div className="field"><label>Nome do cookie</label><input aria-label="Nome do cookie" value={form.name} maxLength={100} onChange={e => changeName(e.target.value)} placeholder="ex: Chocolate, Aveia, Red Velvet" /></div>
                     <div className="form-grid">
-                      <div className="field"><label>Preço (R$)</label><input type="number" min={0} step="0.01" className="num-input" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} /></div>
-                      <div className="field"><label>Estoque inicial</label><input type="number" min={0} className="num-input" value={form.stock} onChange={e => setForm(f => ({ ...f, stock: e.target.value }))} /></div>
+                      <div className="field"><label>Preço (R$)</label><input aria-label="Preço (R$)" type="number" min={0} step="0.01" className="num-input" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} /></div>
+                      <div className="field"><label>{editing ? "Estoque atual" : "Estoque inicial"}</label><input aria-label={editing ? "Estoque atual" : "Estoque inicial"} type="number" min={0} className="num-input" value={form.stock} onChange={e => setForm(f => ({ ...f, stock: e.target.value }))} /></div>
                     </div>
                     <div className="form-grid">
                       <div className="field">
                         <label>Categoria</label>
-                        <select value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}>
+                        <select aria-label="Categoria" value={form.category} onChange={e => setForm(f => ({ ...f, category: e.target.value }))}>
                           {CATEGORIES.map(c => <option key={c} value={c}>{CAT_LABEL[c]}</option>)}
                         </select>
                       </div>
-                      <div className="field"><label>Emoji</label><input value={form.emoji} onChange={e => setForm(f => ({ ...f, emoji: e.target.value }))} maxLength={4} /></div>
+                      <div className="field"><label>Emoji</label><input aria-label="Emoji" value={form.emoji} onChange={e => setForm(f => ({ ...f, emoji: e.target.value }))} maxLength={4} /></div>
                     </div>
                     <div className="modal-actions">
                       <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancelar</button>
                       <button className="btn btn-primary" onClick={submit}>{editing ? 'Salvar' : 'Adicionar'}</button>
                     </div>
                   </div>
-                </div>
-              </div>
+              </Modal>
             )}
 
             {deleteConfirm && (
-              <ConfirmDeleteModal
-                isOpen={true}
+              <DeleteConfirmation
                 onClose={() => setDeleteConfirm(null)}
                 onConfirm={confirmDelete}
                 title="Excluir produto"

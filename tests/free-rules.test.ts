@@ -5,6 +5,8 @@ import { initializeTestEnvironment, assertFails, assertSucceeds } from '@firebas
 import { doc, getDocFromServer, getDocs, collection, setDoc, updateDoc, deleteDoc, runTransaction, serverTimestamp, arrayUnion, setLogLevel } from 'firebase/firestore'
 import { createFreeStore, catalogCustomers, dashboardSale } from '../src/free-store'
 import { validateStoreData } from '../src/validation'
+import { salePaidAmount } from '../src/types'
+import type { CashPayment } from '../src/payments'
 setLogLevel('silent')
 let env: Awaited<ReturnType<typeof initializeTestEnvironment>>
 const p = { id: 'p1', name: 'Tradicional', price: 6, stock: 10, category: 'tradicional' }
@@ -188,6 +190,35 @@ test('key identity requires server-issued claim and password provider',async()=>
   }
 })
 
+test('debit settlement and reopening atomically update sale, history and route reversal to payments', async () => {
+  const debit = {...sale('debit-test'), status:'Debitado', customerId:'c1', paidAmount:0}
+  await api('owner').commitStore({base, local:{...base,sales:[debit]}})
+  const payment: CashPayment = {id:'debit-payment',date:'2026-10-01',amount:12,description:'Cookie',person:'Cliente teste',quantity:2,sourceSaleId:debit.id,kind:'cookie',status:'paid'}
+  const request = {sale:debit,payment,reopen:false,operationId:'v2-'+crypto.randomUUID()}
+  const settled = await assertSucceeds(api('owner').changeDebit(request))
+  assert.equal(settled.sales[0].status,'Pago')
+  assert.equal(salePaidAmount(settled.sales[0]),12)
+  const snapshot = await getDocFromServer(doc(client('owner'),'ownerPayments',payment.id))
+  assert.equal(snapshot.data()?.data.sourceSaleId,debit.id)
+  assert.equal((await audits()).find(row => row.id === request.operationId)?.hasUndo,true)
+  await assert.rejects(api('owner').undoAction({id:request.operationId}), /área Pagamentos/)
+  await assert.rejects(api('owner').changeDebit(request), /já foi aplicada/)
+  const reopened = await assertSucceeds(api('owner').changeDebit({sale:settled.sales[0],payment:snapshot.data()!.data,reopen:true,operationId:'v2-'+crypto.randomUUID()}))
+  assert.equal(reopened.sales[0].status,'Debitado')
+  assert.equal(salePaidAmount(reopened.sales[0]),0)
+  assert.equal((await getDocFromServer(doc(client('owner'),'ownerPayments',payment.id))).data()?.data.archived,true)
+  assert.deepEqual(reopened.products,base.products)
+})
+test('competing debit receipts cannot create duplicate payments, and staff cannot reclassify', async () => {
+  const debit = {...sale('debit-race'),status:'Debitado',customerId:'c1',paidAmount:0}
+  await api('owner').commitStore({base,local:{...base,sales:[debit]}})
+  const payment: CashPayment = {id:'pay-a',date:'2026-10-01',amount:12,description:'Cookie',person:'Cliente teste',quantity:2,sourceSaleId:debit.id,kind:'cookie',status:'paid'}
+  for (const id of ['employee','blocked','missing']) await assertFails(api(id).changeDebit({sale:debit,payment,reopen:false,operationId:'v2-'+crypto.randomUUID()}))
+  const result = await Promise.allSettled(['pay-a','pay-b'].map(id => api('owner').changeDebit({sale:debit,payment:{...payment,id},reopen:false,operationId:'v2-'+crypto.randomUUID()})))
+  assert.equal(result.filter(row => row.status === 'fulfilled').length,1)
+  assert.equal((await getDocs(collection(client('owner'),'ownerPayments'))).docs.length,1)
+  assert.equal((await readStore()).sales[0].status,'Pago')
+})
 test('purchases sync across owner sessions and remain private to owner', async () => {
  const a=client('owner'), b=client('owner')
  const data={id:'purchase-test',date:'2026-09-12',shop:'Mercado',items:[{name:'Sem detalhamento',total:2650}],paymentStatus:'pending',paidAmount:650}

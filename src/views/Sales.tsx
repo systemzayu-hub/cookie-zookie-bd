@@ -1,3 +1,6 @@
+import { SearchableSelect } from '../components/SearchableSelect'
+import { matchesSearch } from '../search'
+import { SearchInput } from '../components/SearchInput'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { Plus, X, CheckCircle2, Trash2, ClipboardPaste, ShoppingCart, History, UserRound, Pencil, Save } from 'lucide-react'
 import { Product, Customer, Sale, SaleItem, LOW_STOCK_THRESHOLD, CHANNELS, PAYMENTS, fmtBRL, fmtDate, salePaidAmount, saleOutstanding, uid } from '../types'
@@ -130,27 +133,21 @@ export function SalesView({ products, customers, sales, onSaleAdded, onSaleDelet
 
           <div className="form-grid" style={{ marginTop: 'var(--sp-6)' }}>
             <div className="field">
-              <label>Forma de pagamento</label>
-              <select value={payment} onChange={e => setPayment(e.target.value as Sale['payment'])}>
+              <label htmlFor="manual-sale-payment">Forma de pagamento</label>
+              <select id="manual-sale-payment" value={payment} onChange={e => setPayment(e.target.value as Sale['payment'])}>
                 {PAYMENTS.map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
               </select>
             </div>
             <div className="field">
-              <label>Canal de venda</label>
-              <select value={channel} onChange={e => setChannel(e.target.value as Sale['channel'])}>
+              <label htmlFor="manual-sale-channel">Canal de venda</label>
+              <select id="manual-sale-channel" value={channel} onChange={e => setChannel(e.target.value as Sale['channel'])}>
                 {CHANNELS.map(c => <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>)}
               </select>
             </div>
+            <SearchableSelect label="Cliente" value={customerId} onChange={setCustomerId} options={customers} emptyLabel="Sem cliente" />
             <div className="field">
-              <label>Cliente</label>
-              <select value={customerId} onChange={e => setCustomerId(e.target.value)}>
-                <option value="">Sem cliente</option>
-                {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-              </select>
-            </div>
-            <div className="field">
-              <label>Status</label>
-              <select value={status} onChange={e => setStatus(e.target.value as Sale['status'])}>
+              <label htmlFor="manual-sale-status">Status</label>
+              <select id="manual-sale-status" value={status} onChange={e => setStatus(e.target.value as Sale['status'])}>
                 <option value="Pago">Pago</option>
                 <option value="Pendente">Pendente</option>
                 <option value="Debitado">Debitado</option>
@@ -193,7 +190,7 @@ function SaleHistory({ sales, customers, onEdit, onDelete, onClose }: { sales: S
   const [date, setDate] = useState('')
   const [status, setStatus] = useState('')
   const [limit, setLimit] = useState(50)
-  const filtered = useMemo(() => sales.filter(sale => (!date || dayKey(sale.date) === date) && (!status || (sale.status || 'Pago') === status) && normalizeCustomerName(customerNameForSale(sale, customers) + ' ' + sale.items.map(item => item.name).join(' ')).includes(normalizeCustomerName(search))).sort((a, b) => Date.parse(b.date) - Date.parse(a.date)), [sales, customers, date, status, search])
+  const filtered = useMemo(() => sales.filter(sale => (!date || dayKey(sale.date) === date) && (!status || (sale.status || 'Pago') === status) && matchesSearch(search, customerNameForSale(sale, customers), ...sale.items.map(item => item.name))).sort((a, b) => Date.parse(b.date) - Date.parse(a.date)), [sales, customers, date, status, search])
   const visibleSales = filtered.slice(0, limit)
   useEffect(() => setLimit(50), [date, status, search])
   const dialogRef = useRef<HTMLDialogElement>(null)
@@ -207,7 +204,7 @@ function SaleHistory({ sales, customers, onEdit, onDelete, onClose }: { sales: S
       <div className="history-modal-header"><div><h2 id="sale-history-title">Histórico de Vendas</h2><p>{sales.length} {sales.length === 1 ? 'venda registrada' : 'vendas registradas'}</p></div><button className="modal-close" aria-label="Fechar histórico de vendas" onClick={onClose}><X size={20} /></button></div>
       <div className="history-modal-body">
       <div className="sale-history-filters">
-        <label>Buscar cliente ou produto<input type="search" value={search} onChange={event => setSearch(event.target.value)} /></label>
+        <SearchInput label="Buscar cliente ou produto" value={search} onChange={setSearch} />
         <label>Data da venda<input type="date" value={date} onChange={event => setDate(event.target.value)} /></label>
         <label>Situação<select value={status} onChange={event => setStatus(event.target.value)}><option value="">Todas</option>{['Pago', 'Pendente', 'Debitado', 'Presente'].map(value => <option key={value}>{value}</option>)}</select></label>
         <button className="btn btn-secondary btn-sm" onClick={() => setDate(dayKey(Date.now() - 86400000))}>Ontem</button>
@@ -293,7 +290,7 @@ function SaleEditorDialog({ sale, products, customers, sales, onClose, onSave }:
       <div className="sale-editor-heading"><div><span className="sale-history-label">Correção segura</span><h2 id="edit-sale-title">Editar venda</h2><p>{customerNameForSale(sale, customers)} · {fmtBRL(sale.total)}</p></div><button type="button" className="modal-close" aria-label="Fechar edição" disabled={busy} onClick={onClose}><X size={20}/></button></div>
       <div className="sale-editor-scroll">
         <div className="sale-editor-fields">
-          <label>Cliente<select value={form.customerId} onChange={event => patch({ customerId: event.target.value })}><option value="">Sem cliente</option>{customers.map(customer => <option key={customer.id} value={customer.id}>{customer.name}</option>)}</select></label>
+          <SearchableSelect label="Cliente" value={form.customerId} onChange={value => patch({ customerId: value })} options={customers} emptyLabel="Sem cliente" />
           <label>Data e hora<input type="datetime-local" step="1" value={form.date} onChange={event => patch({ date: event.target.value })}/></label>
           <label>Pagamento<select value={form.payment} onChange={event => patch({ payment: event.target.value as Sale['payment'] })}>{PAYMENTS.map(value => <option key={value} value={value}>{value[0].toUpperCase() + value.slice(1)}</option>)}</select></label>
           <label>Canal<select value={form.channel} onChange={event => patch({ channel: event.target.value as Sale['channel'] })}>{CHANNELS.map(value => <option key={value} value={value}>{value[0].toUpperCase() + value.slice(1)}</option>)}</select></label>

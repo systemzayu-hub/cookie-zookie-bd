@@ -1,3 +1,4 @@
+import { useConfirmation } from '../components/useConfirmation'
 import { changeItemQuantity } from '../purchase-scan'
 import { IngredientPurchase, IngredientUnit, normalizedPrice, purchaseDue, purchasePaid, purchaseTotal } from '../ingredients'
 import { fmtBRL } from '../types'
@@ -6,17 +7,19 @@ export function PurchaseEditor({ draft, change, busy, onSave, onClose, onPhoto, 
   draft: PurchaseDraft; change: (draft: PurchaseDraft) => void; busy: boolean; onSave: () => void; onClose: () => void
   onPhoto: (file: File) => void; onProcess: () => void; ignored: string[]
 }) {
+  const { confirm, confirmation } = useConfirmation()
   const patch = (part: Partial<PurchaseDraft>) => change({ ...draft, scanConfirmed: false, ...part })
   const total = purchaseTotal(draft)
   return <section className="purchase-editor" aria-label={draft.editingBefore ? 'Editar compra' : 'Nova compra'}>
+    {confirmation}
     <div className="purchase-section-heading"><h2>{draft.editingBefore ? 'Editar compra' : 'Nova compra'}</h2><button className="btn btn-ghost" disabled={busy} onClick={onClose}>Fechar · manter rascunho</button></div>
     <fieldset disabled={busy}>
       <div className="purchase-fields"><label>Data da compra<input type="date" required value={draft.date} onChange={e => patch({ date: e.target.value })} /></label><label>Local / estabelecimento<input value={draft.shop} maxLength={200} placeholder="Ex.: Mercado X" onChange={e => patch({ shop: e.target.value })} /></label></div>
       <details className="purchase-import"><summary>Registrar só valores · sem listar produtos</summary>
         <p>Informe o que já pagou e o que ainda deve. Os valores entram no resumo financeiro como uma compra sem detalhamento.</p>
         <div className="purchase-fields"><label>Já pago (R$)<input aria-label="Valor já pago" type="number" min="0" max="1000000" step="0.01" value={draft.quickPaid ?? ''} onChange={e => patch({quickPaid:Number(e.target.value)})} /></label><label>A pagar (R$)<input aria-label="Valor a pagar" type="number" min="0" max="1000000" step="0.01" value={draft.quickDue ?? ''} onChange={e => patch({quickDue:Number(e.target.value)})} /></label></div>
-        <button className="btn btn-secondary" disabled={(draft.quickPaid || 0) < 0 || (draft.quickDue || 0) < 0 || (draft.quickPaid || 0) + (draft.quickDue || 0) <= 0 || (draft.quickPaid || 0) + (draft.quickDue || 0) > 1000000} onClick={() => {
-          if (draft.items.length && !confirm('Substituir os itens desta compra pelos valores informados?')) return
+        <button className="btn btn-secondary" disabled={(draft.quickPaid || 0) < 0 || (draft.quickDue || 0) < 0 || (draft.quickPaid || 0) + (draft.quickDue || 0) <= 0 || (draft.quickPaid || 0) + (draft.quickDue || 0) > 1000000} onClick={async () => {
+          if (draft.items.length && !await confirm('Substituir os itens desta compra pelos valores informados?')) return
           const paid = Math.round((draft.quickPaid || 0) * 100) / 100, due = Math.round((draft.quickDue || 0) * 100) / 100
           patch({items:[{name:'Compra sem detalhamento',quantity:1,total:Math.round((paid + due) * 100) / 100}],paymentStatus:due > 0 ? 'pending' : 'paid',paidAmount:due > 0 ? paid : undefined,paidAt:undefined})
         }}>Usar estes valores</button>

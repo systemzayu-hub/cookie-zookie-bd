@@ -10,6 +10,7 @@ try {
   await build({
     entryPoints: ['tests/core.test.tsx'], outfile, bundle: true, platform: 'node', format: 'cjs', jsx: 'automatic',
     define: { 'import.meta.env': '{}' },
+    loader: { '.css': 'empty' },
     external: ['react', 'react/*', 'react-dom/*', 'react-test-renderer'],
     plugins: [{ name: 'mock-firestore-for-hook-tests', setup(builder) {
       builder.onResolve({ filter: /^\.\.\/(sync|audit|undo)$/ }, args => /[\\/]views[\\/]Audit\.tsx$/.test(args.importer) ? { path: resolve('tests/audit-view-mock.ts') } : undefined)

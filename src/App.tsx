@@ -424,7 +424,7 @@ export default function App() {
       { id: 'pagamentos', label: 'Pagamentos', icon: <WalletCards className="icon" /> },
       { id: 'lucro', label: 'Resultado estimado', icon: <TrendingDown className="icon" /> },
       { id: 'financeiro', label: 'Financeiro', icon: <Percent className="icon" /> },
-      { id: 'audit', label: 'Auditoria', icon: <ShieldCheck className="icon" /> },
+      { id: 'audit', label: 'Histórico e equipe', icon: <ShieldCheck className="icon" /> },
       ...(isSiteOwner ? [{ id: 'pedidos-site' as Tab, label: 'Pedidos do site', icon: <ShoppingBag className="icon" /> }] : []),
     ]
   const availableNav = nav.filter(n => {
@@ -594,7 +594,7 @@ export default function App() {
           </div>
           <InstallApp />
           </details>
-          <div className="sidebar-version">Versão do app · 1.1.6</div>
+          <div className="sidebar-version">Versão do app · 1.1.7</div>
         </div>
       </aside>
 

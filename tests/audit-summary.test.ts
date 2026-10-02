@@ -3,56 +3,85 @@ import test from 'node:test'
 import { summarizeSale, summarizeStoreChange, summarizeTeam } from '../src/audit-summary'
 import { isDebitAudit } from '../src/debit-change'
 
-const product = { id: 'p1', name: 'Chocolate "especial"', price: 8.5, category: 'especial', stock: 10 }
-const customer = { id: 'c1', name: 'Ana & João', contact: '', createdAt: '2026-01-01T00:00:00Z' }
-const sale = { id: 'v-1', date: '2026-01-01T00:00:00Z', items: [{ productId: 'p1', name: product.name, qty: 2, unitPrice: 8.5 }], payment: 'pix' as const, total: 17, channel: 'loja' as const, customerId: 'c1', status: 'Pendente' as const, paidAmount: 5 }
+const product = { id: 'p1', name: 'Nutella', price: 8.5, category: 'especial', stock: 35 }
+const customer = { id: 'c1', name: 'Ana Souza', contact: '', createdAt: '2026-01-01T00:00:00Z' }
+const sale = { id: '9c65593d-8105-4ff0-9ee4-f0b83c0866d3', date: '2026-01-01T12:00:00Z', items: [{ productId: 'p1', name: product.name, qty: 2, unitPrice: 8.5 }], payment: 'pix' as const, total: 17, channel: 'loja' as const, customerId: 'c1', status: 'Pendente' as const, paidAmount: 5 }
 const before = { products: [product], sales: [], customers: [customer] }
 
-test('detalhar um débito mantém a identificação que exige reversão pela área Pagamentos', () => {
-  const detail = summarizeStoreChange({ ...before, sales: [{ ...sale, status: 'Debitado' }] }, { ...before, sales: [{ ...sale, status: 'Pago' }] }, 'Pagamento de débito: venda v-1 marcada como paga')
-  assert.equal(isDebitAudit(detail), true)
-  assert.match(detail, /Debitado→Pago/)
+test('resume preço e estoque em uma descrição concreta e conjunta', () => {
+  const detail = summarizeStoreChange(before, { ...before, products: [{ ...product, price: 9, stock: 40 }] })
+  assert.match(detail, /Nutella/)
+  assert.match(detail, /preço de .*8,50.* para .*9,00/)
+  assert.match(detail, /estoque de 35 para 40/)
   assert.ok(detail.length <= 1000)
 })
 
-test('resume venda com itens, cliente, pagamento parcial e caracteres especiais', () => {
-  const detail = summarizeSale(sale, { ...before, sales: [] })
-  assert.match(detail, /v-1/)
-  assert.match(detail, /2x Chocolate "especial"/)
-  assert.match(detail, /Ana & João/)
-  assert.match(detail, /R\$\s*17,00/)
-  assert.match(detail, /recebido R\$\s*5,00/)
-  assert.match(detail, /Pendente/)
+test('resume venda com cliente, itens, total, recebido e saldo calculados pela regra de venda', () => {
+  const detail = summarizeSale(sale, before)
+  assert.match(detail, /2x Nutella/)
+  assert.match(detail, /Ana Souza/)
+  assert.match(detail, /total .*17,00/)
+  assert.match(detail, /recebido .*5,00/)
+  assert.match(detail, /a receber .*12,00/)
+  assert.match(detail, /pagamento Pix/)
+  assert.match(detail, /canal Loja/)
+  assert.doesNotMatch(detail, new RegExp(sale.id))
 })
 
-test('descreve antes e depois de preço, estoque, venda e cliente', () => {
-  const after = { products: [{ ...product, price: 9, stock: 8 }], sales: [sale], customers: [{ ...customer, name: 'Ana Silva' }] }
-  const detail = summarizeStoreChange(before, after)
-  assert.match(detail, /preço/)
-  assert.match(detail, /estoque 10→8/)
-  assert.match(detail, /Venda v-1/)
-  assert.match(detail, /cliente Ana Silva cadastrado|cliente Ana & João renomeado para Ana Silva/)
+test('agrupa os campos alterados de uma venda e descreve recebido/saldo reais', () => {
+  const oldSale = { ...sale, status: 'Pendente' as const, paidAmount: 5 }
+  const newSale = { ...sale, status: 'Pago' as const, paidAmount: 5, total: 19 }
+  const detail = summarizeStoreChange({ ...before, sales: [oldSale] }, { ...before, sales: [newSale] })
+  assert.match(detail, /situação Pendente → Pago/)
+  assert.match(detail, /recebido de .*5,00 para .*19,00/)
+  assert.match(detail, /a receber → .*0,00 a receber/)
+  assert.match(detail, /total de .*17,00 para .*19,00/)
+  assert.equal((detail.match(/Venda \(/g) || []).length, 1)
 })
 
-test('não perde alterações isoladas de categoria, pagamento, itens ou contato', () => {
-  const category = summarizeStoreChange(before, { ...before, products: [{ ...product, category: 'tradicional' }] })
-  const payment = summarizeStoreChange({ ...before, sales: [sale] }, { ...before, sales: [{ ...sale, payment: 'cartão' }] })
-  const items = summarizeStoreChange({ ...before, sales: [sale] }, { ...before, sales: [{ ...sale, items: [{ ...sale.items[0], qty: 1 }] }] })
-  const contact = summarizeStoreChange(before, { ...before, customers: [{ ...customer, contact: '11999999999' }] })
-  assert.match(category, /categoria/)
-  assert.match(payment, /pagamento/)
-  assert.match(items, /itens atualizados/)
-  assert.match(contact, /contato atualizado/)
+test('explicita criação e exclusão sem expor UUID da venda', () => {
+  const created = summarizeStoreChange(before, { ...before, sales: [sale] })
+  const deleted = summarizeStoreChange({ ...before, sales: [sale] }, before)
+  assert.match(created, /Venda registrada: 2x Nutella/)
+  assert.match(deleted, /Venda excluída: Ana Souza/)
+  assert.doesNotMatch(`${created} ${deleted}`, new RegExp(sale.id))
 })
 
-test('identifica exclusão e lote sem ultrapassar o limite', () => {
-  const removed = summarizeStoreChange(before, { products: [], sales: [], customers: [] }, 'Lote importado')
-  assert.match(removed, /removido/)
+test('preserva o prefixo de pagamento de débito usado na regra de reversão', () => {
+  const detail = summarizeStoreChange({ ...before, sales: [{ ...sale, status: 'Debitado' }] }, { ...before, sales: [{ ...sale, status: 'Pago' }] }, `Pagamento de débito: venda ${sale.id} marcada como paga`)
+  assert.ok(isDebitAudit(detail))
+  assert.match(detail, /^Pagamento de débito: venda marcada como paga:/)
+  assert.match(detail, /situação Debitado → Pago/)
+})
+
+test('remove UUID de contextos de edição, exclusão e reversão sem ocultar o tipo de operação', () => {
+  const id = sale.id
+  const edit = summarizeStoreChange(before, { ...before, products: [{ ...product, stock: 34 }] }, `Venda ${id} editada`)
+  const deletion = summarizeStoreChange(before, { ...before, products: [] }, `Venda ${id} excluída; estoque recomposto`)
+  const undo = summarizeStoreChange(before, { ...before, products: [{ ...product, stock: 34 }] }, `Reversão do registro ${id}`)
+  assert.match(edit, /^Venda editada:/)
+  assert.match(deletion, /^Venda excluída; estoque recomposto:/)
+  assert.match(undo, /^Reversão do registro:/)
+  assert.doesNotMatch(`${edit} ${deletion} ${undo}`, new RegExp(id))
+})
+
+test('mostra rótulos de enum legíveis nas mudanças de pagamento e canal', () => {
+  const detail = summarizeStoreChange({ ...before, sales: [sale] }, { ...before, sales: [{ ...sale, payment: 'dinheiro', channel: 'delivery' }] })
+  assert.match(detail, /pagamento de Pix para Dinheiro/)
+  assert.match(detail, /canal de Loja para Delivery/)
+})
+
+test('fala com honestidade quando não identifica campos alterados e respeita o limite de texto', () => {
+  const unknown = summarizeStoreChange(before, { ...before, customers: [{ ...customer, custom: 'valor' }] as typeof before.customers })
+  assert.match(unknown, /Outros campos foram atualizados; consulte os detalhes/)
   const many = { ...before, products: Array.from({ length: 200 }, (_, index) => ({ ...product, id: `p${index}`, name: `Produto ${index} com nome longo` })) }
-  assert.ok(summarizeStoreChange(before, many).length <= 1000)
-  assert.match(summarizeStoreChange(before, many), /demais alterações omitidas/)
+  const limited = summarizeStoreChange(before, many, 'Lote importado')
+  assert.ok(limited.length <= 1000)
+  assert.match(limited, /demais alterações omitidas/)
 })
 
-test('registra conta e cargo anterior e novo', () => {
-  assert.equal(summarizeTeam('equipe@example.com', 'viewer', 'employee'), 'Acesso da conta equipe@example.com alterado: Sem cargo · somente leitura→Funcionário.')
+test('registra conta e cargos anterior e novo', () => {
+  const result = summarizeTeam('equipe@example.com', 'viewer', 'employee')
+  assert.match(result, /equipe@example.com/)
+  assert.match(result, /Sem cargo · somente leitura → Funcionário/)
 })

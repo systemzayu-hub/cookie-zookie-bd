@@ -100,6 +100,60 @@ export function auditEventPresentation(entry: AuditEntry): { title: string; desc
   return { title, description, category }
 }
 
+const compactName = (value: string | undefined) => {
+  const name = value?.trim()
+  if (!name || /@/.test(name) || new RegExp(`^${UUID}$`, 'i').test(name) || /^(?:cliente sem nome(?: no registro| disponível)?|sem cliente)$/i.test(name)) return undefined
+  return name.length > 76 ? `${name.slice(0, 75).trimEnd()}…` : name
+}
+const compactTitle = (value: string) => value.length <= 100 ? value : `${value.slice(0, 99).trimEnd()}…`
+
+/** Short row title that omits metrics while preserving recognized business names and operations. */
+export function auditCompactTitle(entry: AuditEntry): string {
+  const detail = cleanDetail(typeof entry.detail === 'string' ? entry.detail : '')
+  const baseTitle = auditEventPresentation(entry).title
+  let title: string | undefined
+  const hasSaleContext = /^Venda (?:editada:|excluída; estoque recomposto:)/i.test(detail)
+  if (['Produtos e estoque atualizados', 'Clientes atualizados', 'Vendas e recebimentos atualizados'].includes(baseTitle)) return compactTitle(baseTitle)
+  if (entry.action === 'alteracao' && !hasSaleContext && detailKinds(detail).size > 1) return compactTitle(baseTitle)
+
+  if (entry.action === 'alteracao' || entry.action === 'venda' || entry.action === 'cliente') {
+    if (/^Venda editada:/i.test(detail)) title = 'Venda editada'
+    else if (/^Venda excluída; estoque recomposto:/i.test(detail)) title = 'Venda excluída'
+    else {
+      let match = /^Produto (.+?) cadastrado(?:$|:)/i.exec(detail)
+      if (match) title = compactName(match[1]) ? `Produto ${compactName(match[1])} cadastrado` : 'Produto cadastrado'
+      else if ((match = /^Produto (.+?) removido(?:$|:)/i.exec(detail))) title = compactName(match[1]) ? `Produto ${compactName(match[1])} removido` : 'Produto removido'
+      else if ((match = /^Produto (.+?) atualizado:\s*(.+)$/i.exec(detail))) {
+        const name = compactName(match[1])
+        const fields = match[2]
+        const price = /(?:^|;\s*)preço de\b/i.test(fields)
+        const stock = /(?:^|;\s*)estoque de\b/i.test(fields)
+        const onlyPriceAndStock = /^(?:(?:preço|estoque) de\b[^;]+)(?:;\s*(?:preço|estoque) de\b[^;]+)?$/i.test(fields)
+        const what = price && stock && onlyPriceAndStock ? 'preço e estoque alterados'
+          : price && onlyPriceAndStock ? 'preço alterado'
+            : stock && onlyPriceAndStock ? 'estoque alterado' : undefined
+        title = name ? (what ? `${name}: ${what}` : `Produto ${name} atualizado`) : 'Produto atualizado'
+      } else if ((match = /^Venda registrada:\s*(.*)$/i.exec(detail))) {
+        const customer = /(?:^|;\s*)cliente\s+([^;]+)/i.exec(match[1])?.[1]
+        const name = compactName(customer)
+        title = name ? `Venda registrada para ${name}` : 'Venda registrada'
+      } else if ((match = /^Venda \(([^)]*)\) atualizada:\s*(.*)$/i.exec(detail))) {
+        const identity = match[1]
+        const name = compactName(identity.split(';')[0])
+        const changes = match[2]
+        if (/^cliente de\b/i.test(changes)) title = 'Cliente da venda alterado'
+        else if (/^recebido de\b/i.test(changes) && !/;/.test(changes)) title = name ? `Recebimento da venda de ${name} alterado` : 'Recebimento da venda alterado'
+        else title = name ? `Venda de ${name} atualizada` : 'Venda atualizada'
+      } else if ((match = /^Cliente (.+?) (cadastrado|atualizado|removido)(?:$|:)/i.exec(detail))) {
+        const name = compactName(match[1])
+        title = name ? `Cliente ${name} ${match[2].toLowerCase()}` : baseTitle
+      }
+    }
+  }
+
+  return compactTitle(title || baseTitle)
+}
+
 const dateParts = (ts: number) => {
   const parts = new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Sao_Paulo', year: 'numeric', month: '2-digit', day: '2-digit' }).formatToParts(new Date(ts))
   return Object.fromEntries(parts.filter(part => part.type !== 'literal').map(part => [part.type, part.value])) as { year: string; month: string; day: string }

@@ -10,7 +10,7 @@ import { can } from '../roles'
 import { canUndoAction, loadAudit, loadAuditRemote, loadAuditRemotePage, undoAuditAction, type AuditEntry } from '../audit'
 import { callBackend, onAuditChanges, type AuditDetails, type AuditPageCursor } from '../sync'
 import { auditFieldLabel, changesFromPatches, formatAuditValue, type AuditChange } from '../audit-changes'
-import { auditActionLabel, auditAuthor, auditDayLabel, auditEventPresentation, mergeAuditEntries } from '../audit-presentation'
+import { auditActionLabel, auditAuthor, auditCompactTitle, auditDayLabel, auditEventPresentation, mergeAuditEntries } from '../audit-presentation'
 import { OWNER_KEY_EMAIL } from '../owner-access'
 import { auditUndoPatches, previewUndo, undoStatus } from '../undo'
 import { TeamView } from './Team'
@@ -29,6 +29,9 @@ type ChangeGroup = { key: string; label: string; source?: string; entityId?: str
 const hasRealTimestamp = (ts: number) => Number.isFinite(ts) && ts > 0 && !Number.isNaN(new Date(ts).getTime())
 const timestampLabel = (ts: number) => hasRealTimestamp(ts)
   ? new Date(ts).toLocaleString('pt-BR', { timeZone: 'America/Sao_Paulo' })
+  : 'Data não informada'
+const timeLabel = (ts: number) => hasRealTimestamp(ts)
+  ? new Date(ts).toLocaleTimeString('pt-BR', { timeZone: 'America/Sao_Paulo', hour: '2-digit', minute: '2-digit' })
   : 'Data não informada'
 
 function groupChanges(changes: AuditChange[]): ChangeGroup[] {
@@ -78,6 +81,7 @@ export function AuditView() {
   const [action, setAction] = useState('')
   const [category, setCategory] = useState('')
   const [days, setDays] = useState(0)
+  const [filtersOpen, setFiltersOpen] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(true)
   const [pageCursor, setPageCursor] = useState<AuditPageCursor | undefined>()
@@ -223,6 +227,7 @@ export function AuditView() {
 
   const grouped = groupByDay(filtered)
   const actions = [...new Set(entries.map(entry => entry.action))].sort((a, b) => auditActionLabel(a).localeCompare(auditActionLabel(b), 'pt-BR'))
+  const filtersActive = Boolean(search.trim() || action || category || days)
 
   const exportCsv = () => {
     if (!can(role, 'audit')) return
@@ -248,8 +253,7 @@ export function AuditView() {
   return <div className="audit-page">
     <div className="page-row audit-page-header">
       <div className="page-title">
-        <h1>Histórico de alterações</h1>
-        <p>Veja o que mudou, quem fez e qual foi o resultado.</p>
+        <h1>Auditoria</h1>
       </div>
       <div className="audit-tabs">
         {tab === 'history' && <button className="btn btn-secondary" disabled={!filtered.length} onClick={exportCsv}>Exportar histórico</button>}
@@ -258,18 +262,28 @@ export function AuditView() {
       </div>
     </div>
     {tab === 'team' && can(role, 'team') ? <TeamView/> : <>
-      <div className="audit-scope-note" role="note">
-        <strong>Escopo do histórico</strong>
-        <span>Alterações de produtos, vendas, clientes e acessos da equipe são compartilhadas neste histórico. Compras e pagamentos avulsos devem ser conferidos nas telas próprias; custos e perdas ficam neste aparelho.</span>
-      </div>
-      <div className="audit-filters-shell">
-        <SearchInput label="Buscar no histórico" placeholder="Pessoa, ação, alteração ou registro…" inputId="audit-search" value={search} onChange={setSearch}/>
-        <label htmlFor="audit-category">Área<select id="audit-category" className="input" value={category} onChange={event => setCategory(event.target.value)}><option value="">Todas as áreas</option>{categories.map(value => <option key={value} value={value}>{value}</option>)}</select></label>
-        <label htmlFor="audit-action">Tipo de operação<select id="audit-action" className="input" value={action} onChange={event => setAction(event.target.value)}><option value="">Todos os tipos</option>{actions.map(value => <option key={value} value={value}>{auditActionLabel(value)}</option>)}</select></label>
-        <label htmlFor="audit-period">Período<select id="audit-period" className="input" value={days} onChange={event => setDays(Number(event.target.value))}><option value={0}>Todo o histórico carregado</option><option value={1}>Últimas 24 horas</option><option value={7}>Últimos 7 dias</option><option value={30}>Últimos 30 dias</option></select></label>
+      <details className="audit-about">
+        <summary>Sobre esta auditoria</summary>
+        <div className="audit-about-content">
+          <p>Alterações de produtos, vendas, clientes e acessos da equipe são compartilhadas neste histórico. Compras e pagamentos avulsos devem ser conferidos nas telas próprias; custos e perdas ficam neste aparelho.</p>
+          <p>Busca e exportação abrangem somente os registros carregados. Horários exibidos neste histórico usam Brasília.</p>
+        </div>
+      </details>
+      <div className="audit-controls">
+        <div className="audit-search-row">
+          <SearchInput label="Buscar no histórico" placeholder="Pessoa, ação, alteração ou registro…" inputId="audit-search" value={search} onChange={setSearch}/>
+          <button type="button" className="btn btn-secondary audit-filter-toggle" aria-expanded={filtersOpen} aria-controls="audit-filters" onClick={() => setFiltersOpen(value => !value)}>
+            <span>Filtros</span>{filtersActive && <span className="audit-filter-badge">Filtros ativos</span>}<ChevronDown size={16} aria-hidden="true"/>
+          </button>
+        </div>
+        {filtersOpen && <div id="audit-filters" className="audit-filters-shell">
+          <label htmlFor="audit-category">Área<select id="audit-category" className="input" value={category} onChange={event => setCategory(event.target.value)}><option value="">Todas as áreas</option>{categories.map(value => <option key={value} value={value}>{value}</option>)}</select></label>
+          <label htmlFor="audit-action">Tipo de operação<select id="audit-action" className="input" value={action} onChange={event => setAction(event.target.value)}><option value="">Todos os tipos</option>{actions.map(value => <option key={value} value={value}>{auditActionLabel(value)}</option>)}</select></label>
+          <label htmlFor="audit-period">Período<select id="audit-period" className="input" value={days} onChange={event => setDays(Number(event.target.value))}><option value={0}>Todo o histórico carregado</option><option value={1}>Últimas 24 horas</option><option value={7}>Últimos 7 dias</option><option value={30}>Últimos 30 dias</option></select></label>
+        </div>}
       </div>
       <p className="audit-history-hint" aria-live="polite">
-        {filtered.length} {filtered.length === 1 ? 'registro encontrado' : 'registros encontrados'} entre {entries.length} carregados. Busca, filtros e exportação abrangem somente os registros carregados. Horários de Brasília.
+        {filtered.length} {filtered.length === 1 ? 'registro' : 'registros'}
       </p>
       {loading && <p role="status" className="audit-status-card">Carregando histórico…</p>}
       {error && <div className="audit-status-card"><p role="alert">{error}</p><button className="btn btn-secondary" disabled={loading || busy} onClick={() => setAttempt(value => value + 1)}>Recarregar histórico</button></div>}
@@ -291,28 +305,32 @@ export function AuditView() {
               const sharedKey = entry.email === OWNER_KEY_EMAIL
               const author = auditAuthor(entry)
               const dateTime = hasRealTimestamp(entry.ts) ? new Date(entry.ts).toISOString() : undefined
+              const compactTitle = auditCompactTitle(entry)
               return <article className={'audit-event' + (open ? ' is-expanded' : '')} key={entry.id}>
                 <button type="button" className="audit-event-summary" aria-expanded={open} aria-controls={'audit-details-' + entry.id} onClick={() => toggleDetails(entry)}>
                   <span className="audit-event-summary-copy">
-                    <span className="audit-event-title" role="heading" aria-level={3}>{presentation.title}</span>
-                    <span className="audit-event-description">{presentation.description}</span>
+                    <span className="audit-event-title" role="heading" aria-level={3}>{compactTitle}</span>
                     <span className="audit-event-who">
-                      <span><strong>Quem:</strong> {author}</span>
-                      <span><strong>Quando:</strong> <time dateTime={dateTime}>{timestampLabel(entry.ts)}</time></span>
+                      <span className="audit-event-author">{author}</span><span aria-hidden="true"> · </span><time dateTime={dateTime}>{timeLabel(entry.ts)}</time>
                     </span>
-                    <span className="audit-event-account">
-                      {sharedKey ? 'Conta: identidade compartilhada; a pessoa que usou a chave não é identificada.' : entry.email ? 'Conta: ' + entry.email : 'Conta: não informada neste registro'}
-                      <span aria-hidden="true"> · </span>Origem: {entry.local ? 'Somente neste aparelho' : 'Equipe'}
-                    </span>
+                    {reversed && <small className="audit-reversal-status audit-reversal-status-closed">Desfeita</small>}
                   </span>
-                  <span className="audit-event-expand"><span>{open ? 'Ocultar mudanças' : 'Ver mudanças'}</span><ChevronDown size={17} aria-hidden="true"/></span>
+                  <span className="audit-event-expand"><span className="sr-only">{open ? 'Ocultar detalhes' : 'Ver detalhes'}</span><ChevronDown size={16} aria-hidden="true"/></span>
                 </button>
-                <div className="audit-event-labels"><span className="badge badge-neutral">{presentation.category || unknownCategory}</span><span className="audit-event-action">{auditActionLabel(entry.action)}</span></div>
-                <div className="audit-event-actions">
-                  {available ? <button className="btn btn-secondary btn-sm audit-undo-button" disabled={busy || !!previewing} onClick={() => void select(entry)}><Undo2 size={15} aria-hidden="true"/>{previewing === entry.id ? 'Conferindo…' : 'Desfazer'}</button>
-                    : <small className="audit-reversal-status">{reversed ? 'Desfeita' : entry.action === 'equipe' ? 'Gerencie pela equipe' : isDebitAudit(entry.detail) ? <a href="#pagamentos">Reverter em Pagamentos</a> : 'Sem reversão disponível'}</small>}
-                </div>
                 {open && <div className="audit-event-changes" id={'audit-details-' + entry.id} aria-busy={!!detailsLoading[entry.id]}>
+                  <div className="audit-event-detail-intro">
+                    <p className="audit-event-description audit-event-description-full">{presentation.description}</p>
+                    <dl className="audit-event-meta">
+                      <div><dt>Quem</dt><dd>{author}</dd></div>
+                      <div><dt>Quando</dt><dd><time dateTime={dateTime}>{timestampLabel(entry.ts)}</time></dd></div>
+                      <div><dt>Conta</dt><dd>{sharedKey ? 'Identidade compartilhada; a pessoa que usou a chave não é identificada.' : entry.email || 'Não informada neste registro'}</dd></div>
+                      <div><dt>Origem</dt><dd>{entry.local ? 'Somente neste aparelho' : 'Equipe'}</dd></div>
+                    </dl>
+                  </div>
+                  {!reversed && <div className="audit-event-actions">
+                    {available ? <button className="btn btn-secondary btn-sm audit-undo-button" disabled={busy || !!previewing} onClick={() => void select(entry)}><Undo2 size={15} aria-hidden="true"/>{previewing === entry.id ? 'Conferindo…' : 'Desfazer'}</button>
+                      : <small className="audit-reversal-status">{entry.action === 'equipe' ? 'Gerencie pela equipe' : isDebitAudit(entry.detail) ? <a href="#pagamentos">Reverter em Pagamentos</a> : 'Sem reversão disponível'}</small>}
+                  </div>}
                   <details className="audit-record-disclosure">
                     <summary>Informações do registro</summary>
                     <dl><div><dt>ID do registro</dt><dd>{entry.id}</dd></div>{entry.undoOf && <div><dt>Reversão do registro</dt><dd>{entry.undoOf}</dd></div>}</dl>

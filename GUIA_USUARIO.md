@@ -42,13 +42,13 @@ Esse arquivo não inclui compras nem pagamentos. Compras têm os botões própri
 
 Antes de importar um backup da loja, confira a confirmação com a quantidade de produtos, clientes e vendas. Faça uma exportação atual antes de restaurar uma versão antiga.
 
-## Histórico de alterações do dono
+## Auditoria do dono
 
-Abra **Histórico e equipe** com o acesso do dono. Os registros ficam agrupados por dia e mostram o que aconteceu, quem fez, horário e origem. Use a busca para localizar uma pessoa ou alteração e os filtros de área, tipo de operação e período para reduzir a lista.
+Abra **Auditoria** com o acesso do dono. A lista agrupa os registros por dia e mostra uma descrição curta da operação, o responsável e o horário. Use a busca para localizar uma pessoa ou alteração; **Filtros** abre as opções de área, tipo de operação e período.
 
-Abra **Ver mudanças** para comparar os valores **Antes/Depois**, agrupados por produto, venda ou cliente. Esses valores descrevem aquela alteração; mudanças posteriores podem ter ocorrido. **Informações do registro** permite conferir o ID quando necessário. Registros antigos sem os dados de comparação mostram essa limitação.
+Abra **Ver detalhes** para consultar a descrição completa, a conta, a origem e os valores **Antes/Depois**, agrupados por produto, venda ou cliente. Esses valores descrevem aquela alteração; mudanças posteriores podem ter ocorrido. **Informações do registro** permite conferir o ID quando necessário. Registros antigos sem os dados de comparação mostram essa limitação.
 
-Use **Buscar registros mais antigos** para ampliar o histórico. A contagem informa quantos registros já foram carregados; a busca, os filtros e **Exportar histórico** consideram somente esses registros. Os horários seguem Brasília. Quando **Desfazer** estiver disponível, confira a prévia e confirme a reversão. Conflitos com alterações posteriores impedem a reversão, e registros já desfeitos ficam identificados.
+Use **Buscar registros mais antigos** para ampliar o histórico. A busca, os filtros e **Exportar histórico** consideram somente os registros carregados; **Sobre esta auditoria** explica essa abrangência. Os horários seguem Brasília. Nos detalhes, quando **Desfazer** estiver disponível, confira a prévia e confirme a reversão. Conflitos com alterações posteriores impedem a reversão, e registros já desfeitos ficam identificados.
 
 As operações da loja e da equipe usam o histórico compartilhado, para que as ações de diferentes aparelhos possam ser conferidas. A auditoria não é um extrato financeiro completo: pagamentos têm histórico próprio e custos/perdas permanecem locais, portanto essas áreas devem ser conferidas nas telas correspondentes.
 

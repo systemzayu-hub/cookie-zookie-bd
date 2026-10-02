@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { auditDayLabel, auditEventPresentation } from '../src/audit-presentation'
+import { auditCompactTitle, auditDayLabel, auditEventPresentation } from '../src/audit-presentation'
 import type { AuditEntry } from '../src/audit'
 
 const entry = (changes: Partial<AuditEntry> = {}): AuditEntry => ({
@@ -52,6 +52,25 @@ test('humaniza prefixos conhecidos e oculta UUIDs sem inferir ação a partir de
   const reversal = auditEventPresentation(entry({ detail: `Reversão do registro ${id}: estoque restaurado` }))
   assert.equal(reversal.title, 'Reversão aplicada')
   assert.doesNotMatch(reversal.description, new RegExp(id))
+})
+
+test('gera títulos compactos de negócio sem métricas, com fallback honesto', () => {
+  const compact = (detail: string, action: AuditEntry['action'] = 'alteracao') => auditCompactTitle(entry({ action, detail }))
+  assert.equal(compact('Produto Nutella atualizado: preço de R$ 8,50 para R$ 9,00; estoque de 35 para 40'), 'Nutella: preço e estoque alterados')
+  assert.equal(compact('Produto Nutella atualizado: preço de R$ 8,50 para R$ 9,00'), 'Nutella: preço alterado')
+  assert.equal(compact('Produto Nutella atualizado: estoque de 35 para 40'), 'Nutella: estoque alterado')
+  assert.equal(compact('Produto Turma 2 cadastrado'), 'Produto Turma 2 cadastrado')
+  assert.equal(compact('Venda registrada: 2x Nutella; cliente Lara Almeida; total R$ 17,00'), 'Venda registrada para Lara Almeida')
+  assert.equal(compact('Venda registrada: 2x Nutella; cliente Lara Almeida; total R$ 17,00', 'venda'), 'Venda registrada para Lara Almeida')
+  assert.equal(compact('Venda (Lara Almeida; total R$ 17,00) atualizada: recebido de R$ 5,00 para R$ 7,00'), 'Recebimento da venda de Lara Almeida alterado')
+  assert.equal(compact('Venda (Lara Almeida; total R$ 17,00) atualizada: cliente de Lara Almeida para João Silva'), 'Cliente da venda alterado')
+  assert.equal(compact('Venda editada: Produto Nutella atualizado: estoque de 35 para 40'), 'Venda editada')
+  assert.equal(compact('Venda registrada: cliente pessoa@example.com; total R$ 17,00'), 'Venda registrada')
+  assert.equal(compact('Cliente Lara Almeida atualizado: contato de vazio para 11999999999', 'cliente'), 'Cliente Lara Almeida atualizado')
+  assert.equal(compact('Produto Nutella atualizado: estoque de 35 para 40 · Cliente Lara Almeida atualizado: contato de vazio para 11999999999'), 'Alterações em vários registros')
+  assert.equal(compact('Produto Nutella atualizado: estoque de 35 para 40 · Produto Oreo atualizado: preço de R$ 4,00 para R$ 5,00'), 'Produtos e estoque atualizados')
+  assert.equal(compact('comentário legado com preço de R$ 8,50 para R$ 9,00'), 'Alteração de dados')
+  assert.equal(compact('acesso da equipe atualizado', 'equipe'), 'Acesso da equipe alterado')
 })
 
 test('troca JSON legado por texto de campos e explica detalhes vazios', () => {

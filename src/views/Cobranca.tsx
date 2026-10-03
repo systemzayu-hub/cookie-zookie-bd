@@ -216,17 +216,21 @@ export function CobrancaView({ sales, setSales: _setSales, customers, setCustome
   }
 
   const totalReceber = groups.reduce((sum, group) => sum + group.totalPending, 0)
-  const totalReceived = groups.reduce((sum, group) => sum + group.received, 0)
-  const totalSales = groups.reduce((sum, group) => sum + group.total, 0)
+  const totalSalesOpen = groups.reduce((sum, group) => sum + group.sales.length, 0)
   const sortOptions = [{ value: 'data', label: 'Data mais recente' }, { value: 'total', label: 'Maior saldo' }, { value: 'nome', label: 'Nome A-Z' }, { value: 'qtd', label: 'Mais unidades' }] as const
 
   return <div className="customer-billing-view">
-    <div className="page-row"><div className="page-title"><h2>Cobrança</h2><p>Busque uma pessoa, confira a ficha e registre recebimentos.</p></div></div>
+    <div className="page-row"><div className="page-title"><h2>Cobrança</h2><p>Confira saldos e registre pagamentos.</p></div></div>
+    <section className="card cb-billing-overview" aria-label="Resumo das cobranças">
+      <span className="cb-overview-note">Todas as pendências</span>
+      <div className="cb-overview-balance"><small>Total a receber</small><strong><MaskedMoney value={totalReceber} /></strong></div>
+      <div className="cb-overview-counts"><div><small>Clientes</small><strong>{groups.length}</strong></div><div><small>Vendas em aberto</small><strong>{totalSalesOpen}</strong></div></div>
+    </section>
     {groups.length === 0 ? <div className="card empty-state" role="status"><CheckCircle2 className="icon" size={48} color="var(--ok-500)" /><p>Nenhuma pendência encontrada.</p><p>As vendas presentes e pagas ficam fora desta lista.</p></div> : <>
       <section className="card cb-billing-toolbar" aria-label="Buscar cobranças">
         <SearchInput inputId="billing-search" label="Buscar cliente" placeholder="Nome ou telefone…" value={search} onChange={setSearch} />
         <label className="field-label" htmlFor="billing-sort">Ordenar por<select id="billing-sort" value={sortBy} onChange={event => setSortBy(event.target.value as typeof sortBy)}><option value="total">Maior saldo</option><option value="nome">Nome A-Z</option><option value="qtd">Mais unidades</option><option value="data">Data mais recente</option></select></label>
-        <button className="btn btn-ghost btn-sm" onClick={() => setSortDesc(previous => !previous)} aria-label="Alternar ordem da lista">{sortDesc ? <ChevronDown size={16} /> : <ChevronUp size={16} />} {sortDesc ? 'Maior primeiro' : 'Menor primeiro'}</button>
+        <button className="btn btn-ghost btn-sm cb-sort-toggle" onClick={() => setSortDesc(previous => !previous)} aria-label="Alternar ordem da lista">{sortDesc ? <ChevronDown size={16} /> : <ChevronUp size={16} />} <span className="cb-sort-direction">{sortDesc ? 'Maior primeiro' : 'Menor primeiro'}</span></button>
         <span className="result-count">{sortedGroups.length} {sortedGroups.length === 1 ? 'pessoa' : 'pessoas'}</span>
       </section>
       {sortedGroups.length === 0 && <div className="card empty-state" role="status"><p>Nenhum cliente encontrado para “{search}”.</p></div>}
@@ -287,7 +291,6 @@ export function CobrancaView({ sales, setSales: _setSales, customers, setCustome
         })}
       </div>
     </>}
-    <details className="cb-summary-disclosure"><summary>Resumo da cobrança</summary><div className="cb-summary-content"><section><small>Vendas pendentes</small><strong><MaskedMoney value={totalSales} /></strong><small>valor total das vendas</small></section><section><small>Recebido registrado</small><strong><MaskedMoney value={totalReceived} /></strong><small>créditos já registrados</small></section><section><small>Falta receber</small><strong><MaskedMoney value={totalReceber} /></strong><small>saldo em aberto</small></section></div></details>
     {profile && <CustomerProfile customer={customers.find(customer => customer.id === profile.id) || profile} sales={sales} onClose={() => setProfile(null)} onSaveContact={setCustomers ? saveContact : undefined} />}
     {preview && <BillingMessagePreview customer={preview.customer} sales={preview.sales} onClose={() => setPreview(null)} pushToast={pushToast} />}
     {transfer && <SaleTransferDialog key={transfer.sale.id} customer={transfer.customer} initialSale={transfer.sale} customers={customers} sales={sales} onTransfer={onSaleTransfer} onClose={() => setTransfer(null)} />}

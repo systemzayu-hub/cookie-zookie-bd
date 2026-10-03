@@ -6,7 +6,7 @@ import { billingWhatsApp } from '../billing-message'
 import type { CustomerMerge } from '../combine-customers'
 import { customerCandidates, normalizeCustomerName } from '../customer-matching'
 import { useState, useMemo } from 'react'
-import { Plus, Pencil, Trash2, X, Users, ShoppingBag, AlertCircle, CheckCircle2, Gift } from 'lucide-react'
+import { Plus, Pencil, Trash2, X, Users, ShoppingBag, AlertCircle, CheckCircle2, Gift, ChevronRight } from 'lucide-react'
 import { Customer, Sale, fmtBRL, saleOutstanding, uid } from '../types'
 import { usePasswordGuard } from '../components/PasswordGate'
 import { MaskedMoney } from '../components/MaskedMoney'
@@ -201,7 +201,7 @@ export function CustomersView({ customers, setCustomers, sales, pushToast, onCus
             const status = clientStatus.get(customer.id) || 'Sem vendas'
             const statusClass = status === 'Pendente' ? 'badge-warning' : status === 'Debitado' ? 'badge-danger' : status === 'Presente' ? 'badge-neutral' : status === 'Pago' ? 'badge-success' : 'badge-neutral'
             return <tr key={customer.id}>
-              <td data-label="Cliente" style={{ fontWeight: 600 }}><button className="cb-customer-name" title="Ver ficha" aria-label={`Ver ficha de ${customer.name}`} onClick={() => setProfile(customer)}>{customer.name}</button></td>
+              <td data-label="Cliente" style={{ fontWeight: 600 }}><button className="cb-customer-name" title="Ver ficha" aria-label={`Ver ficha de ${customer.name}`} onClick={() => setProfile(customer)}><span>{customer.name}</span><ChevronRight className="cb-customer-arrow" size={16} aria-hidden="true" /></button></td>
               <td data-label="Telefone" className="customer-phone"><MaskedPII value={customer.contact || ''} type="phone" /></td>
               <td data-label="Situação"><span className={`badge ${statusClass}`}>{status}</span></td>
               <td data-label="Cadastro">{new Date(customer.createdAt).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}</td>

@@ -610,7 +610,7 @@ export default function App() {
           </div>
           <InstallApp />
           </details>
-          <div className="sidebar-version">Versão do app · 1.1.9</div>
+          <div className="sidebar-version">Versão do app · 1.1.10</div>
         </div>
       </aside>
 

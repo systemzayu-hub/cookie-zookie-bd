@@ -2,14 +2,14 @@ import { saleOutstanding, type Customer, type Sale } from './types'
 import type { StoreData } from './validation'
 import { sameData } from './store-merge'
 
-export type CustomerPayment = { customerId: string; amount: number; sales: Sale[] }
+export type CustomerPayment = { customerId: string; amount: number; sales: Sale[]; saleId?: string; payment?: Sale['payment']; date?: string; receiptId?: string }
 export type SaleTransfer = { sale: Sale; target: Customer }
 
 const cents = (value: number) => Math.round(value * 100)
 const oldestFirst = (a: Sale, b: Sale) => Date.parse(a.date) - Date.parse(b.date) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
 
 export function payCustomer(store: StoreData, request: CustomerPayment): StoreData {
-  const pending = store.sales.filter(s => s.customerId === request.customerId && s.status === 'Pendente').sort(oldestFirst)
+  const pending = store.sales.filter(s => s.customerId === request.customerId && s.status === 'Pendente' && (!request.saleId || s.id === request.saleId)).sort(oldestFirst)
   if (!store.customers.some(c => c.id === request.customerId) || !sameData(pending, [...request.sales].sort(oldestFirst))) {
     throw new Error('As pendências mudaram. Confira o saldo e tente novamente.')
   }

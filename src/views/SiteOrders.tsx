@@ -4,67 +4,13 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertCircle, ChevronLeft, ChevronRight, RefreshCw, Search, ShoppingBag } from 'lucide-react'
 import { authCurrentUser } from '../sync'
 import './SiteOrders.css'
+import { parseFeed, matchesOrderMode, type FeedPage } from '../site-orders-model'
 
 const FEED_URL = 'https://cookie-zookie-gestao.onrender.com/api/integration/orders'
 const PAGE_SIZE = 50
 const REFRESH_MS = 30_000
 const REQUEST_TIMEOUT_MS = 90_000
 
-type SiteOrder = {
-  id: number
-  number: string
-  createdAt: string
-  status: string
-  subtotalCents: number
-  discountCents: number
-  deliveryCents: number
-  totalCents: number
-  couponCode: string | null
-  items: { name: string; quantity: number; unitPriceCents: number; note?: string | null }[]
-  paymentMethod: string
-  paymentUnconfirmed: true
-  fulfillment: string
-  customerName?: string | null
-  testMode: boolean
-}
-type FeedPage = { orders: SiteOrder[]; fetchedAt: string; offset: number; limit: number; total: number; hasMore: boolean }
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return Boolean(value && typeof value === 'object' && !Array.isArray(value))
-}
-function safeText(value: unknown, max = 180): string {
-  return typeof value === 'string' ? value.trim().slice(0, max) : ''
-}
-function parseFeed(value: unknown, expectedOffset: number): FeedPage {
-  if (!isRecord(value) || !Array.isArray(value.orders)) throw new Error('Resposta do feed inválida.')
-  const orders: SiteOrder[] = value.orders.slice(0, PAGE_SIZE).flatMap(row => {
-    if (!isRecord(row) || !Array.isArray(row.items)) return []
-    const integer = (key: string) => Number.isSafeInteger(row[key]) && Number(row[key]) >= 0 ? Number(row[key]) : 0
-    const items = row.items.slice(0, 100).flatMap(item => {
-      if (!isRecord(item)) return []
-      const quantity = Number(item.quantity)
-      if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 999) return []
-      return [{ name: safeText(item.name, 100) || 'Item', quantity, unitPriceCents: Number.isSafeInteger(item.unitPriceCents) && Number(item.unitPriceCents) >= 0 ? Number(item.unitPriceCents) : 0, note: safeText(item.note, 240) || null }]
-    })
-    const createdAt = safeText(row.createdAt, 40)
-    if (!createdAt || !Number.isFinite(Date.parse(createdAt))) return []
-    const id = integer('id')
-    const orderNumber = typeof row.number === 'string' || typeof row.number === 'number' ? String(row.number).slice(0, 32) : ''
-    return [{
-      id, number: orderNumber || String(id), createdAt,
-      status: safeText(row.status, 80) || 'Status não informado', subtotalCents: integer('subtotalCents'),
-      discountCents: integer('discountCents'), deliveryCents: integer('deliveryCents'), totalCents: integer('totalCents'),
-      couponCode: safeText(row.couponCode, 60) || null, items, paymentMethod: safeText(row.paymentMethod, 60) || 'Não informado',
-      paymentUnconfirmed: true, fulfillment: safeText(row.fulfillment, 40) || 'Não informado',
-      customerName: safeText(row.customerName, 100) || null, testMode: row.testMode !== false,
-    }]
-  })
-  const total = Number.isSafeInteger(value.total) && Number(value.total) >= 0 ? Number(value.total) : orders.length
-  const offset = Number.isSafeInteger(value.offset) && Number(value.offset) >= 0 ? Number(value.offset) : expectedOffset
-  const limit = Number.isSafeInteger(value.limit) && Number(value.limit) > 0 ? Math.min(Number(value.limit), PAGE_SIZE) : PAGE_SIZE
-  const fetchedAt = safeText(value.fetchedAt, 40)
-  return { orders, fetchedAt: Number.isFinite(Date.parse(fetchedAt)) ? fetchedAt : new Date().toISOString(), offset, limit, total, hasMore: value.hasMore === true }
-}
 const brl = (cents: number) => (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
 const dateTime = (value: string) => new Date(value).toLocaleString('pt-BR', { dateStyle: 'short', timeStyle: 'short', timeZone: 'America/Sao_Paulo' })
 const paymentLabel = (value: string) => ({ cash: 'Dinheiro', money: 'Dinheiro', dinheiro: 'Dinheiro', pix: 'Pix', card: 'Cartão', credit_card: 'Cartão' } as Record<string, string>)[value.toLowerCase()] || value
@@ -77,7 +23,7 @@ export function SiteOrdersView() {
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState('')
   const [query, setQuery] = useState('')
-  const [mode, setMode] = useState<'all' | 'test' | 'real'>('all')
+  const [mode, setMode] = useState<'all' | 'test' | 'real' | 'unknown'>('all')
   const [statusFilter, setStatusFilter] = useState('all')
   const requestRef = useRef<AbortController | null>(null)
   const timeoutRef = useRef<number | null>(null)
@@ -147,7 +93,7 @@ export function SiteOrdersView() {
   }, [refresh])
 
   const shown = useMemo(() => (page?.orders ?? []).filter(order => {
-    const matchesMode = mode === 'all' || (mode === 'test' ? order.testMode : !order.testMode)
+    const matchesMode = matchesOrderMode(order, mode)
     const matchesStatus = statusFilter === 'all' || order.status === statusFilter
     return matchesMode && matchesStatus && matchesSearch(query, order.number, order.customerName, ...order.items.map(item => item.name))
   }), [page, mode, statusFilter, query])
@@ -164,7 +110,7 @@ export function SiteOrdersView() {
     </header>
     <div className="site-orders-toolbar">
       <SearchInput label="Buscar nesta página" value={query} onChange={setQuery} placeholder="Pedido, cliente ou item…" />
-      <label className="site-orders-filter">Exibição<select value={mode} onChange={event => setMode(event.target.value as typeof mode)}><option value="all">Todos</option><option value="test">Pedidos de teste</option><option value="real">Pedidos sem marcação de teste</option></select></label>
+      <label className="site-orders-filter">Exibição<select value={mode} onChange={event => setMode(event.target.value as typeof mode)}><option value="all">Todos</option><option value="test">Pedidos de teste</option><option value="real">Pedidos reais</option><option value="unknown">Classificação não informada</option></select></label>
       <label className="site-orders-filter">Etapa<select value={statusFilter} onChange={event => setStatusFilter(event.target.value)}><option value="all">Todas</option>{statuses.map(status => <option key={status} value={status}>{statusLabel(status, page?.orders.find(order => order.status === status)?.fulfillment || '')}</option>)}</select></label>
     </div>
     <div className="site-orders-meta" aria-live="polite">
@@ -176,7 +122,7 @@ export function SiteOrdersView() {
     {error && <div className="site-orders-alert" role="alert"><AlertCircle size={18} /><span>{error}{page && <small> · Os dados exibidos são da consulta de {dateTime(page.fetchedAt)}.</small>}</span></div>}
     {loading && !page ? <div className="site-orders-empty" role="status"><RefreshCw className="spin" size={22} />Carregando pedidos…</div>
       : shown.length ? <div className="site-order-list">{shown.map(order => <article className="site-order-card" key={`${order.id}-${order.number}`}>
-        <div className="site-order-heading"><div><strong>Pedido {order.number}</strong><span>{dateTime(order.createdAt)}</span></div><div className="site-order-tags"><span className="site-order-status">{statusLabel(order.status, order.fulfillment)}</span>{order.testMode && <span className="site-order-test">Pedido de teste</span>}</div></div>
+        <div className="site-order-heading"><div><strong>Pedido {order.number}</strong><span>{dateTime(order.createdAt)}</span></div><div className="site-order-tags"><span className="site-order-status">{statusLabel(order.status, order.fulfillment)}</span>{order.testMode === true && <span className="site-order-test">Pedido de teste</span>}{order.testMode === null && <span className="site-order-status">Classificação não informada</span>}</div></div>
         {order.customerName && <p className="site-order-customer">{order.customerName}</p>}
         <ul className="site-order-items">{order.items.map((item, index) => <li key={`${order.id}-${index}`}><span>{item.quantity} × {item.name}{item.note ? <small>{item.note}</small> : null}</span><span>{brl(item.unitPriceCents * item.quantity)}</span></li>)}</ul>
         {(order.discountCents > 0 || order.deliveryCents > 0 || order.couponCode) && <dl className="site-order-breakdown">

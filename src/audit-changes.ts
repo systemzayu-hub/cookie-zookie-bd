@@ -3,7 +3,7 @@ import type { UndoPatch, UndoRow, UndoSource } from './undo-model'
 import type { Customer, Sale } from './types'
 import { fmtBRL, saleOutstanding, salePaidAmount } from './types'
 
-export type AuditChange = { entity: string; field: string; before: unknown; after: unknown; source?: UndoSource; entityId?: string }
+export type AuditChange = { entity: string; field: string; before: unknown; after: unknown; source?: UndoSource | 'purchase' | 'payment' | 'cost' | 'loss'; entityId?: string }
 
 const sourceNames: Record<UndoSource, string> = { products: 'Produto', sales: 'Venda', customers: 'Cliente', custos: 'Custo', perdas: 'Perda' }
 const fieldNames: Record<string, string> = {
@@ -12,13 +12,16 @@ const fieldNames: Record<string, string> = {
   status: 'Situação', paidAmount: 'Valor recebido', amount: 'Valor', description: 'Descrição', person: 'Pessoa',
   produto: 'Produto', qtd: 'Quantidade', custoUnit: 'Custo unitário', motivo: 'Motivo', role: 'Cargo',
   paid: 'Item pago', productId: 'Produto associado', customerName: 'Nome do cliente',
+  shop: 'Estabelecimento', archived: 'Arquivado', paymentStatus: 'Situação do pagamento', paidAt: 'Data do pagamento',
+  creditor: 'Credor', dueDate: 'Vencimento', note: 'Observação', payments: 'Parcelas pagas', sourceSaleId: 'Venda relacionada', quantity: 'Quantidade', kind: 'Tipo',
+  custoUnitario: 'Custo unitário', custoTotal: 'Custo total', precoVenda: 'Preço de venda', lucroUnitario: 'Lucro unitário', margem: 'Margem',
 }
 const valueNames: Record<string, Record<string, string>> = {
   payment: { pix: 'Pix', dinheiro: 'Dinheiro', cartao: 'Cartão', cartão: 'Cartão', fiado: 'Fiado' },
   channel: { loja: 'Loja', delivery: 'Delivery', evento: 'Evento', whatsapp: 'WhatsApp', encomenda: 'Encomenda' },
   category: { tradicional: 'Tradicional', especial: 'Especial', sazonal: 'Sazonal' },
 }
-const moneyFields = new Set(['price', 'total', 'unitPrice', 'paidAmount', 'amount', 'custoUnit', 'cost'])
+const moneyFields = new Set(['price', 'total', 'unitPrice', 'paidAmount', 'amount', 'custoUnit', 'custoUnitario', 'custoTotal', 'precoVenda', 'lucroUnitario', 'cost'])
 const roleNames: Record<string, string> = { owner: 'Dono', admin: 'Administrador', employee: 'Funcionário', viewer: 'Somente leitura', blocked: 'Bloqueado' }
 type AuditContext = { beforeCustomers?: Pick<Customer, 'id' | 'name'>[]; afterCustomers?: Pick<Customer, 'id' | 'name'>[] }
 const clean = (value: unknown) => String(value ?? '').replace(/[\r\n]+/g, ' ').trim()
@@ -113,6 +116,7 @@ export function formatAuditValue(value: unknown, field = ''): string {
   if (value === null) return 'Sem valor'
   if (value === '') return 'Vazio'
   if (typeof value === 'number' && moneyFields.has(field)) return fmtBRL(value)
+  if (typeof value === 'number' && field === 'margem') return `${(value * 100).toLocaleString('pt-BR', { maximumFractionDigits: 2 })}%`
   if (typeof value === 'boolean') return value ? 'Sim' : 'Não'
   if (field === 'role' && typeof value === 'string') return roleNames[value] || value
   if (field === 'customerId') return typeof value === 'string' && value.includes('@') ? value : 'Cliente sem nome disponível'

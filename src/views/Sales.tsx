@@ -50,7 +50,7 @@ export function SalesView({ products, customers, sales, onSaleAdded, onSaleDelet
   const total = finalItems.reduce((a, i) => a + i.unitPrice * i.qty, 0)
   const productOptions = products.map(product => ({
     id: product.id,
-    name: `${product.emoji ? `${product.emoji} ` : ''}${product.name} — ${fmtBRL(product.price)} · Estoque: ${product.stock}`,
+    name: `${product.name} — ${fmtBRL(product.price)}`,
   }))
 
   const submit = () => guard('Registrar venda', () => {

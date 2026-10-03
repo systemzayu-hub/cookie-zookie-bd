@@ -12,6 +12,9 @@ import { changesFromPatches } from './audit-changes'
 import { can, type Role } from './roles'
 import type { Sale } from './types'
 import { summarizeSale, summarizeStoreChange, summarizeTeam } from './audit-summary'
+import { payCustomer, type CustomerPayment } from './sale-adjustments'
+import { combineCustomers as combineCustomerData, type CustomerMerge } from './combine-customers'
+import { adjustmentReceiptId, customerReceiptRequestHash, receiptAllocations, receiptAdjustmentRows, validCustomerReceiptRequest } from './customer-receipts'
 
 export const dashboardSale = ({ id, date, items, status }: Sale) => ({ id, date, items, status: status || 'Pago' })
 export const FREE_MAX_FLAVORS = 5
@@ -38,14 +41,26 @@ export function createFreeStore(db: Firestore, currentUser: () => User | null) {
     tx.set(doc(db, 'auditSnapshots', id, 'versions', 'before'), before)
     tx.set(doc(db, 'auditSnapshots', id, 'versions', 'after'), after)
   }
-  const writeStore = (tx: Transaction, user: User, id: string, before: StoreData, after: StoreData, action: string, detail: string, undoOf = '') => {
+  const writeStore = (tx: Transaction, user: User, id: string, before: StoreData, after: StoreData, action: string, detail: string, undoOf = '', hasUndo = !undoOf, extra: Record<string, unknown> = {}) => {
+    const adjustments = action === 'recebimento' ? [] : receiptAdjustmentRows(before, after)
+    if (adjustments.length > 450) throw new Error('Esta alteração afetaria mais de 450 saldos de recebimentos. Divida a atualização em grupos menores; nenhum dado foi alterado.')
     tx.update(shop, { ...after, schemaVersion: 2, auditId: id, updatedAt: serverTimestamp(), updatedBy: user.uid, updatedByEmail: accessKey(user.email!) })
     tx.set(doc(db, 'saleRegistry', 'ids'), { ids: arrayUnion(...after.sales.map(sale => sale.id)), revision: id }, { merge: true })
     tx.set(doc(db, 'dashboard', 'public'), { sales: after.sales.map(dashboardSale), revision: id })
     tx.set(doc(db, 'catalog', 'products'), { products: after.products, revision: id })
     tx.set(doc(db, 'catalog', 'customers'), { customers: catalogCustomers(after), revision: id })
-    tx.set(doc(db, 'auditV2', id), header(user, id, action, detail, !undoOf, undoOf))
+    tx.set(doc(db, 'auditV2', id), { ...header(user, id, action, detail, hasUndo, undoOf), ...extra })
     writeSnapshots(tx, id, before, after)
+    if (action !== 'recebimento') {
+      for (const adjustment of adjustments) {
+        const receiptId = adjustmentReceiptId(id, adjustment.saleId)
+        tx.set(doc(db, 'customerReceipts', adjustment.customerId, 'entries', receiptId), {
+          id: receiptId, customerId: adjustment.customerId, amount: adjustment.amount,
+          recordedAt: serverTimestamp(), actor: (user.displayName || user.email || 'Equipe').slice(0, 120), actorUid: user.uid,
+          allocations: [{ saleId: adjustment.saleId, amount: adjustment.amount }], kind: 'adjustment', auditId: id,
+        })
+      }
+    }
   }
   return {
     async getMyAccess() {
@@ -69,6 +84,51 @@ export function createFreeStore(db: Firestore, currentUser: () => User | null) {
           const detail = summarizeStoreChange(before, after)
           writeStore(tx, user, id, before, after, 'alteracao', detail)
         }
+        return after
+      })
+    },
+    async payCustomer(request: CustomerPayment) {
+      const user = identity()
+      if (!validCustomerReceiptRequest(request)) throw new Error('Informe forma e data do recebimento antes de continuar.')
+      const id = auditId(), receiptRef = doc(db, 'customerReceipts', request.customerId, 'entries', request.receiptId)
+      return runTransaction(db, async tx => {
+        const [store, existing] = await Promise.all([tx.get(shop), tx.get(receiptRef)])
+        if (existing.exists()) {
+          const data = existing.data()
+          if (data.customerId !== request.customerId || data.requestHash !== customerReceiptRequestHash(request)) throw new Error('Este identificador já foi usado para outro recebimento.')
+          return core(store.data())
+        }
+        const before = core(store.data())
+        const after = core(payCustomer(before, request))
+        const allocations = receiptAllocations(before, after)
+        if (!allocations.length || Math.abs(allocations.reduce((sum, row) => sum + row.amount, 0) - request.amount) > 0.001) throw new Error('Não foi possível vincular o recebimento às vendas pendentes.')
+        if (allocations.length > 1000) throw new Error('Este recebimento abrangeria mais de 1.000 vendas. Selecione uma venda ou faça recebimentos menores; nenhum dado foi alterado.')
+        const customer = before.customers.find(item => item.id === request.customerId)!
+        const detail = `Recebimento de ${request.amount.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} para ${customer.name}`
+        const requestHash = customerReceiptRequestHash(request)
+        writeStore(tx, user, id, before, after, 'recebimento', detail, '', false, { receiptId: request.receiptId, customerId: request.customerId, amount: request.amount, payment: request.payment, date: request.date, allocations, requestHash })
+        tx.set(receiptRef, {
+          id: request.receiptId, customerId: request.customerId, amount: request.amount, payment: request.payment, date: request.date,
+          recordedAt: serverTimestamp(), actor: (user.displayName || user.email || 'Equipe').slice(0, 120), actorUid: user.uid,
+          allocations, kind: 'receipt', auditId: id, requestHash,
+        })
+        return after
+      })
+    },
+    async combineCustomers(request: CustomerMerge) {
+      const user = identity(), id = auditId()
+      return runTransaction(db, async tx => {
+        const [access, store, sourceAliases, targetAliases] = await Promise.all([
+          tx.get(doc(db, 'teamAccess', accessKey(user.email!))), tx.get(shop),
+          tx.get(doc(db, 'customerReceiptAliases', request.source.id)), tx.get(doc(db, 'customerReceiptAliases', request.target.id)),
+        ])
+        if (!can(access.data()?.role, 'manage')) throw new Error('Seu cargo não permite combinar clientes.')
+        const before = core(store.data())
+        const after = core(combineCustomerData(before, request))
+        const sourceIds = [...new Set([request.source.id, ...(Array.isArray(sourceAliases.data()?.sources) ? sourceAliases.data()!.sources : []), ...(Array.isArray(targetAliases.data()?.sources) ? targetAliases.data()!.sources : [])])]
+        if (sourceIds.length > 350) throw new Error('Este cliente tem muitas origens de histórico para combinar de uma só vez. O cadastro foi preservado; peça ao dono para revisar a combinação.')
+        writeStore(tx, user, id, before, after, 'alteracao', summarizeStoreChange(before, after, `Cliente ${request.source.name} combinado com ${request.target.name}`))
+        tx.set(doc(db, 'customerReceiptAliases', request.target.id), { customerId: request.target.id, sources: sourceIds, auditId: id, updatedAt: serverTimestamp(), actorUid: user.uid })
         return after
       })
     },
@@ -135,8 +195,10 @@ export function createFreeStore(db: Firestore, currentUser: () => User | null) {
         const before = core(store.data())
         const changed = changeDebit(before, request)
         const after = core(changed.store)
-        writeStore(tx, user, request.operationId, before, after, 'alteracao', summarizeStoreChange(before, after, `Pagamento de débito: venda ${request.sale.id} ${request.reopen ? 'reaberta como debitada' : 'marcada como paga'}; histórico de pagamento atualizado na mesma operação`))
-        tx.set(paymentRef, {data: JSON.parse(JSON.stringify(changed.payment)), deleted: false, updatedAt: serverTimestamp()})
+        const financialBefore = !payment.exists() ? null : payment.data().deleted ? { deleted: true } : { data: JSON.parse(JSON.stringify(remote)), deleted: false }
+        const financialAfter = { data: JSON.parse(JSON.stringify(changed.payment)), deleted: false }
+        writeStore(tx, user, request.operationId, before, after, 'alteracao', summarizeStoreChange(before, after, `Pagamento de débito: venda ${request.sale.id} ${request.reopen ? 'reaberta como debitada' : 'marcada como paga'}; histórico de pagamento atualizado na mesma operação`), '', false, { source: 'payment', recordId: request.payment.id, financialBefore, financialAfter })
+        tx.set(paymentRef, {...financialAfter, updatedAt: serverTimestamp(), auditId: request.operationId})
         return after
       })
     },
@@ -174,6 +236,45 @@ export function createFreeStore(db: Firestore, currentUser: () => User | null) {
       if (!entry.exists()) return { changes: [], unavailable: true }
       const event = entry.data()
       if (event.action === 'equipe') return { changes: [{ entity: `Acesso: ${event.targetEmail || 'conta'}`, field: 'role', before: event.beforeRole, after: event.afterRole }] }
+      if (event.action === 'financeiro' && ['cost', 'loss'].includes(event.source) && typeof event.recordId === 'string') {
+        const [beforeDoc, afterDoc] = await Promise.all([getDocFromServer(doc(db, 'auditSnapshots', id, 'versions', 'before')), getDocFromServer(doc(db, 'auditSnapshots', id, 'versions', 'after'))])
+        const beforeValue = beforeDoc.data()?.record && typeof beforeDoc.data()!.record === 'object' ? beforeDoc.data()!.record as Record<string, unknown> : undefined
+        const afterValue = afterDoc.data()?.record && typeof afterDoc.data()!.record === 'object' ? afterDoc.data()!.record as Record<string, unknown> : undefined
+        const record = afterValue || beforeValue || {}
+        const name = String(event.source === 'cost' ? record.name || 'produto não identificado' : record.produto || 'produto não identificado')
+        const entity = `${event.source === 'cost' ? 'Custo' : 'Perda'}: ${name}`
+        const changes = [...new Set([...Object.keys(beforeValue || {}), ...Object.keys(afterValue || {})])].filter(field => field !== 'id' && !sameData(beforeValue?.[field], afterValue?.[field]))
+          .map(field => ({ entity, field, before: beforeValue?.[field], after: afterValue?.[field], source: event.source as 'cost' | 'loss', entityId: event.recordId }))
+        if (event.baselineDeclared) changes.unshift({ entity, field: 'Registro anterior', before: 'Sem registro anterior no servidor', after: 'Estado inicial informado neste aparelho', source: event.source as 'cost' | 'loss', entityId: event.recordId })
+        return { changes, unavailable: !changes.length }
+      }
+      if (event.action === 'financeiro' && ['purchase', 'payment'].includes(event.source) && typeof event.recordId === 'string') {
+        const [beforeDoc, afterDoc] = await Promise.all([getDocFromServer(doc(db, 'auditSnapshots', id, 'versions', 'before')), getDocFromServer(doc(db, 'auditSnapshots', id, 'versions', 'after'))])
+        const oldRecord = beforeDoc.data()?.record, newRecord = afterDoc.data()?.record
+        const beforeValue = oldRecord?.data && typeof oldRecord.data === 'object' ? oldRecord.data as Record<string, unknown> : {}
+        const afterValue = newRecord?.data && typeof newRecord.data === 'object' ? newRecord.data as Record<string, unknown> : {}
+        const record = Object.keys(afterValue).length ? afterValue : beforeValue
+        const name = event.source === 'purchase' ? String(record.shop || 'Estabelecimento não informado') : String(record.description || record.person || 'Pagamento sem descrição')
+        const entity = event.source === 'purchase' ? `Compra: ${name}` : `Pagamento: ${name}`
+        const changes = Object.keys({ ...beforeValue, ...afterValue }).filter(field => field !== 'id' && !sameData(beforeValue[field], afterValue[field]))
+          .map(field => ({ entity, field, before: beforeValue[field], after: afterValue[field], source: event.source, entityId: event.recordId }))
+        if (oldRecord?.deleted !== newRecord?.deleted) changes.push({ entity, field: 'Registro', before: oldRecord ? oldRecord.deleted ? 'Excluído' : 'Ativo' : undefined, after: newRecord ? newRecord.deleted ? 'Excluído' : 'Ativo' : undefined, source: event.source, entityId: event.recordId })
+        return { changes, unavailable: !changes.length }
+      }
+      if (event.action === 'alteracao' && event.source === 'payment' && 'financialBefore' in event && event.financialAfter) {
+        const [beforeDoc, afterDoc] = await Promise.all([getDocFromServer(doc(db, 'auditSnapshots', id, 'versions', 'before')), getDocFromServer(doc(db, 'auditSnapshots', id, 'versions', 'after'))])
+        const left = validateStoreData(beforeDoc.data()), right = validateStoreData(afterDoc.data())
+        const patches = left && right ? (['products', 'sales', 'customers'] as const).flatMap(source => diffRows(source, left[source], right[source])) : []
+        const changes = left && right ? changesFromPatches(patches, { beforeCustomers: left.customers, afterCustomers: right.customers }) : []
+        const oldRecord = event.financialBefore?.data as Record<string, unknown> | undefined
+        const newRecord = event.financialAfter.data as Record<string, unknown> | undefined
+        const entity = `Pagamento: ${String(newRecord?.person || oldRecord?.person || newRecord?.description || oldRecord?.description || 'débito')}`
+        for (const field of new Set([...Object.keys(oldRecord || {}), ...Object.keys(newRecord || {})])) {
+          if (!sameData(oldRecord?.[field], newRecord?.[field])) changes.push({ entity, field, before: oldRecord?.[field], after: newRecord?.[field], source: 'payment', entityId: event.recordId })
+        }
+        if (event.financialBefore?.deleted !== event.financialAfter.deleted) changes.push({ entity, field: 'Registro', before: event.financialBefore?.deleted ? 'Excluído' : oldRecord ? 'Ativo' : 'Sem registro anterior', after: event.financialAfter.deleted ? 'Excluído' : newRecord ? 'Ativo' : 'Sem registro anterior', source: 'payment', entityId: event.recordId })
+        return { changes, unavailable: !changes.length }
+      }
       // A failed request must remain retryable, rather than look like missing history.
       const [before, after] = event.action === 'venda'
         ? [{ data: () => ({ products: event.beforeProducts || [], sales: [], customers: [] }) }, { data: () => ({ products: event.afterProducts || [], sales: event.sale ? [event.sale] : [], customers: [] }) }]
@@ -190,8 +291,8 @@ export function createFreeStore(db: Firestore, currentUser: () => User | null) {
         const entry = await tx.get(doc(db, 'auditV2', id))
         const [receipt, store] = await Promise.all([tx.get(doc(db, 'auditReversals', id)), tx.get(shop)])
         if (receipt.exists()) throw new Error('Esta ação já foi desfeita.')
-        if (!entry.data()?.hasUndo) throw new Error('Esta ação não pode ser desfeita.')
         if (isDebitAudit(entry.data()?.detail || '')) throw Error('Reverta o débito na área Pagamentos para manter a venda e o histórico consistentes.')
+        if (!entry.data()?.hasUndo) throw new Error('Esta ação não pode ser desfeita.')
         let originalBefore: StoreData, originalAfter: StoreData
         if (entry.data()?.action === 'venda') {
           const e = entry.data()!

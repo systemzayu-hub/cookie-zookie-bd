@@ -18,7 +18,7 @@ Os dados compartilhados são separados por área:
 | Produtos, vendas e clientes | Firestore da loja | O navegador mantém uma cópia operacional para carregar a tela e trabalhar durante falhas de conexão. |
 | Compras e ingredientes | Firestore próprio de compras | Há uma cópia local no navegador. Rascunhos e fotos continuam neste aparelho; fotos não são sincronizadas entre aparelhos. |
 | Pagamentos | Firestore próprio de pagamentos | Há uma cópia local no navegador. |
-| Custos e perdas | Não são compartilhados pelo Firestore da loja | Permanecem neste navegador. |
+| Custos e perdas | As alterações têm espelho por aparelho e entram na Auditoria | A lista operacional permanece neste navegador; não é sincronizada entre aparelhos. |
 | Tema, rascunhos e preferências | Configuração local | Podem desaparecer se os dados do navegador forem apagados. |
 
 ## Rotina de uso
@@ -26,6 +26,8 @@ Os dados compartilhados são separados por área:
 Em **Produtos & Estoque**, cadastre sabor, preço, categoria e quantidade. Ajustes de estoque e alterações de produtos entram na sincronização da loja.
 
 Em **Vendas**, registre uma venda manualmente ou cole uma lista. Para uma venda pendente, selecione o cliente. Em **Clientes & Cobrança**, consulte o saldo por cliente, registre pagamentos parciais ou confirme a quitação depois de conferir o valor.
+
+Busque por nome ou telefone para abrir a ficha com compras, saldo e recebimentos. Em **Cobrança**, abra a pessoa para **Registrar pagamento**, indicando valor, forma e data. O valor é aplicado às vendas pendentes mais antigas. **Cobrar** mostra a mensagem antes de copiar ou abrir o WhatsApp; abrir o aplicativo não confirma envio. Recebimentos novos mostram responsável e data. Valores anteriores sem recibo detalhado continuam identificados como históricos, sem inventar datas.
 
 Em **Compras**, registre ingredientes, quantidades, preços e vencimentos. A foto anexada serve para conferência e fica no aparelho que a recebeu. Use **Exportar compras e fotos** para transportar esses registros e imagens; o backup próprio de compras preserva registros já existentes ao importar e não duplica IDs.
 
@@ -36,11 +38,14 @@ Em **Pagamentos**, registre saídas em dinheiro e acompanhe cookies debitados. A
 No menu **Backup e instalação**, **Exportar backup** gera o backup da loja depois de uma nova confirmação Google. Ele inclui:
 
 - produtos, vendas e clientes da loja;
-- custos e perdas locais.
+- custos e perdas locais;
+- histórico detalhado de recebimentos dos clientes exportados, apenas para consulta.
 
 Esse arquivo não inclui compras nem pagamentos. Compras têm os botões próprios **Exportar compras e fotos**, **Backup anterior à sincronização** e **Importar backup** na tela Compras. O histórico de pagamentos permanece na área Pagamentos e não é incluído no backup da loja.
 
 Antes de importar um backup da loja, confira a confirmação com a quantidade de produtos, clientes e vendas. Faça uma exportação atual antes de restaurar uma versão antiga.
+
+A restauração preserva os recibos imutáveis do servidor e registra ajustes nos saldos alterados. Ela não cria recibos a partir do arquivo. Se uma importação financeira parar depois de alguns registros, confira o progresso informado e repita com o mesmo arquivo para continuar sem duplicações.
 
 ## Auditoria do dono
 
@@ -50,7 +55,7 @@ Abra **Ver detalhes** para consultar a descrição completa, a conta, a origem e
 
 Use **Buscar registros mais antigos** para ampliar o histórico. A busca, os filtros e **Exportar histórico** consideram somente os registros carregados; **Sobre esta auditoria** explica essa abrangência. Os horários seguem Brasília. Nos detalhes, quando **Desfazer** estiver disponível, confira a prévia e confirme a reversão. Conflitos com alterações posteriores impedem a reversão, e registros já desfeitos ficam identificados.
 
-As operações da loja e da equipe usam o histórico compartilhado, para que as ações de diferentes aparelhos possam ser conferidas. A auditoria não é um extrato financeiro completo: pagamentos têm histórico próprio e custos/perdas permanecem locais, portanto essas áreas devem ser conferidas nas telas correspondentes.
+As operações da loja, da equipe, compras, pagamentos, custos e perdas entram no histórico compartilhado. Alteração e registro de auditoria são confirmados na mesma operação do servidor. Custos e perdas continuam com dados operacionais locais: o primeiro estado informado de cada registro é identificado como vindo daquele aparelho. Confira os valores atuais nas telas correspondentes. A Auditoria continua acessível somente ao dono.
 
 ## Cuidados com cópias locais
 

@@ -1,5 +1,5 @@
 import { initializeApp, getApps, type FirebaseApp } from 'firebase/app'
-import { getFirestore, doc, onSnapshot, collection, query, orderBy, documentId, limit, getDocs, startAfter, type Firestore, type QueryDocumentSnapshot, type DocumentData } from 'firebase/firestore'
+import { getFirestore, doc, onSnapshot, collection, query, orderBy, documentId, limit, getDocs, getDocsFromServer, getDocFromServer, startAfter, type Firestore, type QueryDocumentSnapshot, type DocumentData } from 'firebase/firestore'
 import { getAuth, setPersistence, browserLocalPersistence, inMemoryPersistence, signInWithEmailAndPassword, signInWithPopup, reauthenticateWithPopup, GoogleAuthProvider, onAuthStateChanged, signOut, type Auth, type User } from 'firebase/auth'
 import { FIREBASE_APP_CHECK_SITE_KEY, FIREBASE_CONFIG } from './firebase-config'
 import { validateStoreData, type StoreData } from './validation'
@@ -10,6 +10,8 @@ import type { UndoPatch } from './undo-model'
 import type { AuditChange } from './audit-changes'
 import type { Sale } from './types'
 import type { SaleEdit } from './edit-sale'
+import type { CustomerReceipt } from './customer-receipts'
+import { validCustomerReceipt } from './customer-receipts'
 
 let app: FirebaseApp | null = null
 let db: Firestore | null = null
@@ -124,6 +126,55 @@ export async function editSaleRemote(request: SaleEdit): Promise<StoreData> {
   return callBackend<StoreData>('editSale', request)
 }
 
+/** Histórico operacional de recebimentos de um cliente (owner/admin conforme as regras). */
+export function watchCustomerReceipts(customerId: string, receive: (rows: CustomerReceipt[], cached: boolean) => void, fail: () => void): () => void {
+  if (!db || !customerId || customerId.includes('/')) { fail(); return () => {} }
+  let stopped = false, sourceStops: (() => void)[] = [], failed = false
+  const reportFailure = () => { if (!failed && !stopped) { failed = true; sourceStops.forEach(unsubscribe => unsubscribe()); sourceStops = []; fail() } }
+  const stop = () => { stopped = true; aliasStop(); sourceStops.forEach(unsubscribe => unsubscribe()) }
+  let aliasStop = () => {}
+  aliasStop = onSnapshot(doc(db, 'customerReceiptAliases', customerId), { includeMetadataChanges: true }, aliasSnapshot => {
+    if (stopped || failed) return
+    sourceStops.forEach(unsubscribe => unsubscribe()); sourceStops = []
+    const listedSources = aliasSnapshot.data()?.sources
+    const sources = [...new Set([customerId, ...(Array.isArray(listedSources) ? listedSources.filter((value: unknown): value is string => typeof value === 'string' && value.length > 0 && !value.includes('/')) : [])])]
+    const rowsBySource = new Map<string, CustomerReceipt[]>(), cache = new Map<string, boolean>()
+    const emit = () => {
+      if (rowsBySource.size !== sources.length) return
+      const rows = [...new Map([...rowsBySource.values()].flat().map(row => [row.id, row])).values()]
+      rows.sort((a,b) => b.recordedAt - a.recordedAt || b.id.localeCompare(a.id))
+      receive(rows, [...cache.values()].some(Boolean) || aliasSnapshot.metadata.fromCache)
+    }
+    for (const source of sources) sourceStops.push(onSnapshot(query(collection(db!, 'customerReceipts', source, 'entries'), orderBy('recordedAt', 'desc'), orderBy(documentId(), 'desc')), { includeMetadataChanges: true },
+      snapshot => {
+        const rows: CustomerReceipt[] = []
+        for (const item of snapshot.docs) {
+          const value = { ...item.data(), id: item.id, recordedAt: item.data().recordedAt?.toMillis?.() || item.data().recordedAt }
+          if (!validCustomerReceipt(value)) { reportFailure(); return }
+          rows.push(value)
+        }
+        rowsBySource.set(source, rows); cache.set(source, snapshot.metadata.fromCache); emit()
+      }, reportFailure))
+  }, reportFailure)
+  return stop
+}
+
+/** Sidecar de exportação; não há restauração arbitrária de eventos imutáveis. */
+export async function exportCustomerReceipts(customerId: string): Promise<CustomerReceipt[]> {
+  if (!await firebaseReady() || !db) throw new Error('Histórico indisponível.')
+  if (!customerId || customerId.includes('/')) throw new Error('Cliente inválido.')
+  const aliases = await getDocFromServer(doc(db, 'customerReceiptAliases', customerId))
+  const listedSources = aliases.data()?.sources
+  const sources = [...new Set([customerId, ...(Array.isArray(listedSources) ? listedSources.filter((value: unknown): value is string => typeof value === 'string' && value.length > 0 && !value.includes('/')) : [])])]
+  const snapshots = await Promise.all(sources.map(source => getDocsFromServer(query(collection(db!, 'customerReceipts', source, 'entries'), orderBy('recordedAt', 'asc'), orderBy(documentId(), 'asc')))))
+  const rows = snapshots.flatMap(snapshot => snapshot.docs.map(item => {
+    const value = { ...item.data(), id: item.id, recordedAt: item.data().recordedAt?.toMillis?.() || item.data().recordedAt }
+    if (!validCustomerReceipt(value)) throw new Error('Há registros de recebimento inválidos; exportação cancelada.')
+    return value
+  }))
+  return [...new Map(rows.map(row => [row.id, row])).values()].sort((a,b) => a.recordedAt - b.recordedAt || a.id.localeCompare(b.id))
+}
+
 export async function watchAccess(uid: string, callback: (role: Role | null) => void, failure: () => void) {
   await callBackend('getMyAccess')
   if (!db) throw new Error('Acesso indisponível.')
@@ -183,6 +234,10 @@ export type AuditEntryDB = {
   targetEmail?: string
   beforeRole?: string
   afterRole?: string
+  source?: string
+  recordId?: string
+  deviceId?: string
+  baselineDeclared?: boolean
 }
 export type AuditDetails = { changes: AuditChange[]; unavailable?: boolean }
 export type AuditPageCursor = {

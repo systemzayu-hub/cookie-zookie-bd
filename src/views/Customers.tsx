@@ -6,18 +6,25 @@ import { billingWhatsApp } from '../billing-message'
 import type { CustomerMerge } from '../combine-customers'
 import { customerCandidates, normalizeCustomerName } from '../customer-matching'
 import { useState, useMemo } from 'react'
-import { Plus, Pencil, Trash2, X, Users, ShoppingBag, AlertCircle, CheckCircle2, Check } from 'lucide-react'
-import { Customer, Sale, fmtBRL, uid } from '../types'
+import { Plus, Pencil, Trash2, X, Users, ShoppingBag, AlertCircle, CheckCircle2, Gift } from 'lucide-react'
+import { Customer, Sale, fmtBRL, saleOutstanding, uid } from '../types'
 import { usePasswordGuard } from '../components/PasswordGate'
-import { logAction } from '../audit'
 import { MaskedMoney } from '../components/MaskedMoney'
 import { MaskedPII } from '../components/MaskedPII'
 import { SaleTransferDialog } from '../components/SaleTransferDialog'
+import { CustomerProfile } from '../components/CustomerProfile'
+import { BillingMessagePreview } from '../components/BillingMessagePreview'
 import type { SaleTransfer } from '../sale-adjustments'
+
+type CustomerMergeHandler = (request: CustomerMerge) => boolean | Promise<boolean>
 
 export function CustomersView({ customers, setCustomers, sales, pushToast, onCustomersCombined, onSaleTransfer }: {
   onSaleTransfer?: (request: SaleTransfer) => boolean
-  onCustomersCombined?: (request: CustomerMerge) => boolean; customers: Customer[]; setCustomers: React.Dispatch<React.SetStateAction<Customer[]>>; sales: Sale[]; pushToast: (m: string, t?: 'success' | 'error') => void
+  onCustomersCombined?: CustomerMergeHandler
+  customers: Customer[]
+  setCustomers: React.Dispatch<React.SetStateAction<Customer[]>>
+  sales: Sale[]
+  pushToast: (m: string, t?: 'success' | 'error') => void
 }) {
   const [search, setSearch] = useState('')
   const [transferCustomer, setTransferCustomer] = useState<Customer | null>(null)
@@ -25,6 +32,8 @@ export function CustomersView({ customers, setCustomers, sales, pushToast, onCus
   const [page, setPage] = useState(0)
   const [showModal, setShowModal] = useState(false)
   const [editing, setEditing] = useState<Customer | null>(null)
+  const [profile, setProfile] = useState<Customer | null>(null)
+  const [messageCustomer, setMessageCustomer] = useState<Customer | null>(null)
   const [form, setForm] = useState({ name: '', contact: '' })
   const [mergePrompt, setMergePrompt] = useState<{ source: Customer; name: string; contact: string; candidates: Customer[] } | null>(null)
   const [mergeTarget, setMergeTarget] = useState('')
@@ -41,7 +50,16 @@ export function CustomersView({ customers, setCustomers, sales, pushToast, onCus
   }
 
   const openNew = () => { setEditing(null); setForm({ name: '', contact: '' }); setShowModal(true) }
-  const openEdit = (c: Customer) => { setEditing(c); setForm({ name: c.name, contact: c.contact }); setShowModal(true) }
+  const openEdit = (customer: Customer) => { setProfile(null); setEditing(customer); setForm({ name: customer.name, contact: customer.contact }); setShowModal(true) }
+  const saveContact = (customer: Customer, rawContact: string) => {
+    const contact = formatPhone(rawContact.trim())
+    if (contact && !/^\(\d{2}\) \d{4,5}-\d{4}$/.test(contact)) { pushToast('Informe um telefone válido com DDD.', 'error'); return false }
+    guard('Alterar telefone', () => {
+      setCustomers(cs => cs.map(item => item.id === customer.id ? { ...item, contact } : item))
+      pushToast('Telefone atualizado!')
+    })
+    return true
+  }
 
   const submit = (renameOnly = false) => {
     const name = form.name.trim()
@@ -61,13 +79,12 @@ export function CustomersView({ customers, setCustomers, sales, pushToast, onCus
       guard('Alterar cliente', () => {
         setCustomers(cs => cs.map(c => c.id === editing.id ? { ...c, name, contact } : c))
         setShowModal(false)
-        logAction('cliente', `Editou cliente "${editing.name}"`)
+        setProfile(null)
         pushToast('Cliente atualizado!')
       })
     } else {
       guard('Cadastrar cliente', () => {
         setCustomers(cs => [{ id: uid(), name, contact, createdAt: new Date().toISOString() }, ...cs])
-        logAction('cliente', `Cadastrou cliente "${name}"`)
         pushToast('Cliente adicionado!')
         setShowModal(false)
       })
@@ -80,34 +97,44 @@ export function CustomersView({ customers, setCustomers, sales, pushToast, onCus
     if (!mergePrompt || !target || !onCustomersCombined || (phoneConflict && !mergePhone)) return
     const contact = phoneConflict ? (mergePhone === 'source' ? mergePrompt.contact : target.contact) : target.contact || mergePrompt.contact
     guard('Combinar clientes', () => {
-      if (!onCustomersCombined({ source: mergePrompt.source, target, contact })) return
-      setMergePrompt(null); setShowModal(false); setEditing(null)
-      pushToast('Clientes combinados! Compras e pendências reunidas no cadastro escolhido.')
+      const result = onCustomersCombined({ source: mergePrompt.source, target, contact })
+      const finish = (ok: boolean) => {
+        if (!ok) return
+        setMergePrompt(null); setShowModal(false); setEditing(null); setProfile(null)
+        pushToast('Clientes combinados! Compras e pendências reunidas no cadastro escolhido.')
+      }
+      if (typeof result === 'boolean') finish(result)
+      else void result.then(finish).catch(error => pushToast((error as Error)?.message || 'Não foi possível combinar os clientes.', 'error'))
     })
   }
 
   const remove = (id: string) => {
-      const c = customers.find(x => x.id === id)
-      if (sales.some(sale => sale.customerId === id)) {
-        pushToast('Este cliente possui vendas no histórico e não pode ser excluído.', 'error')
-        return
-      }
-      if (c) setDeleteConfirm({ id: c.id, name: c.name })
+    const customer = customers.find(item => item.id === id)
+    if (sales.some(sale => sale.customerId === id)) {
+      pushToast('Este cliente possui vendas no histórico e não pode ser excluído.', 'error')
+      return
     }
+    if (customer) setDeleteConfirm({ id: customer.id, name: customer.name })
+  }
 
-    const confirmDelete = () => {
-      if (!deleteConfirm) return
-      guard('Excluir cliente', () => {
-        setCustomers(cs => cs.filter(c => c.id !== deleteConfirm.id))
-        pushToast('Cliente removido.')
-        logAction('cliente', `Excluiu cliente "${deleteConfirm.name}"`)
-        setDeleteConfirm(null)
-      }, 'audit')
-    }
+  const confirmDelete = () => {
+    if (!deleteConfirm) return
+    guard('Excluir cliente', () => {
+      setCustomers(cs => cs.filter(c => c.id !== deleteConfirm.id))
+      pushToast('Cliente removido.')
+      setDeleteConfirm(null)
+      setProfile(null)
+    }, 'audit')
+  }
 
   const customerSales = useMemo(() => {
     const map = new Map<string, Sale[]>()
-    sales.forEach(sale => { if (sale.customerId) { const group = map.get(sale.customerId) || []; group.push(sale); map.set(sale.customerId, group) } })
+    sales.forEach(sale => {
+      if (!sale.customerId) return
+      const group = map.get(sale.customerId) || []
+      group.push(sale)
+      map.set(sale.customerId, group)
+    })
     return map
   }, [sales])
   const spendOf = (id: string) => (customerSales.get(id) || []).filter(sale => sale.status !== 'Presente').reduce((sum, sale) => sum + sale.total, 0)
@@ -115,24 +142,25 @@ export function CustomersView({ customers, setCustomers, sales, pushToast, onCus
   const cookiesOf = (id: string) => (customerSales.get(id) || []).reduce((sum, sale) => sum + sale.items.reduce((qty, item) => qty + item.qty, 0), 0)
 
   const clientStatus = useMemo(() => {
-    const map = new Map<string, 'Pago' | 'Pendente' | 'Debitado' | 'Sem vendas'>()
-    customers.forEach(c => {
-      const clientSales = (customerSales.get(c.id) || [])
-      if (clientSales.length === 0) {
-        map.set(c.id, 'Sem vendas')
-      } else if (clientSales.some(s => s.status === 'Pendente' || s.status === 'Debitado')) {
-        map.set(c.id, clientSales.some(s => s.status === 'Pendente') ? 'Pendente' : 'Debitado')
-      } else {
-        map.set(c.id, 'Pago')
-      }
+    const map = new Map<string, 'Pago' | 'Pendente' | 'Debitado' | 'Presente' | 'Sem vendas'>()
+    customers.forEach(customer => {
+      const clientSales = customerSales.get(customer.id) || []
+      if (!clientSales.length) map.set(customer.id, 'Sem vendas')
+      else if (clientSales.some(sale => sale.status === 'Pendente')) map.set(customer.id, 'Pendente')
+      else if (clientSales.some(sale => sale.status === 'Debitado')) map.set(customer.id, 'Debitado')
+      else if (clientSales.some(sale => sale.status === 'Presente')) map.set(customer.id, 'Presente')
+      else map.set(customer.id, 'Pago')
     })
     return map
-  }, [customers, sales])
+  }, [customers, customerSales])
 
-  const paidCount = customers.filter(c => clientStatus.get(c.id) === 'Pago').length
-  const pendingCount = customers.filter(c => clientStatus.get(c.id) === 'Pendente').length
-  const debitedCount = customers.filter(c => clientStatus.get(c.id) === 'Debitado').length
-  const noSalesCount = customers.filter(c => clientStatus.get(c.id) === 'Sem vendas').length
+  const statusCounts = {
+    Pago: customers.filter(c => clientStatus.get(c.id) === 'Pago').length,
+    Pendente: customers.filter(c => clientStatus.get(c.id) === 'Pendente').length,
+    Debitado: customers.filter(c => clientStatus.get(c.id) === 'Debitado').length,
+    Presente: customers.filter(c => clientStatus.get(c.id) === 'Presente').length,
+    'Sem vendas': customers.filter(c => clientStatus.get(c.id) === 'Sem vendas').length,
+  }
 
   const visible = customers.filter(customer => {
     const hasPhone = /\d/.test(customer.contact || '')
@@ -145,156 +173,99 @@ export function CustomersView({ customers, setCustomers, sales, pushToast, onCus
   }).sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'))
   const pages = Math.max(1, Math.ceil(visible.length / 25))
   const activePage = Math.min(page, pages - 1)
+  const top = [...customers].map(c => ({ ...c, spent: spendOf(c.id), purchases: countOf(c.id), cookies: cookiesOf(c.id) })).sort((a, b) => b.spent - a.spent).slice(0, 5)
+  const activeProfile = profile ? customers.find(c => c.id === profile.id) || profile : null
 
-  const top = [...customers].map(c => ({
-    ...c, spent: spendOf(c.id), purchases: countOf(c.id), cookies: cookiesOf(c.id)
-  })).sort((a, b) => b.spent - a.spent).slice(0, 5)
+  return <div className="customer-billing-view">
+    <div className="page-row">
+      <div className="page-title"><h2>Clientes</h2><p>Busque um cadastro para abrir sua ficha e histórico.</p></div>
+      <button className="btn btn-primary" onClick={openNew}><Plus size={16} /> Novo Cliente</button>
+    </div>
 
-  return (
-    <>
-      <div className="page-row">
-        <div className="page-title"><h2>Clientes</h2><p>Cadastro e histórico de compras</p></div>
-        <button className="btn btn-primary" onClick={openNew}><Plus size={16} /> Novo Cliente</button>
+    <section className="card cb-list-shell" aria-label="Lista de clientes">
+      <div className="cb-toolbar">
+        <SearchInput label="Buscar cliente por nome ou telefone" placeholder="Nome ou telefone…" value={search} onChange={value => { setSearch(value); setPage(0) }} />
+        <select aria-label="Status dos clientes" value={statusFilter} onChange={event => { setStatusFilter(event.target.value); setPage(0) }}>
+          <option value="all">Todos os clientes</option>
+          {['Pago', 'Pendente', 'Debitado', 'Presente', 'Sem vendas'].map(status => <option key={status}>{status}</option>)}
+          <option value="with-phone">Números cadastrados</option>
+          <option value="with-phone-pending">Números cadastrados pendentes</option>
+          <option value="without-phone-pending">Sem número pendentes</option>
+        </select>
+        <span className="result-count">{visible.length} clientes</span>
       </div>
+      {visible.length === 0 ? <div className="empty-state"><Users className="icon" size={40} /><p>{customers.length ? 'Nenhum cliente encontrado para esta busca ou filtro.' : 'Nenhum cliente cadastrado.'}</p></div> : <div className="table-wrap customers-table-wrap">
+        <table className="table customers-table">
+          <thead><tr><th>Nome</th><th>Contato</th><th>Situação</th><th>Cadastro</th><th>Compras / Cookies</th><th className="text-right">Total gasto</th><th className="text-right">Ações</th></tr></thead>
+          <tbody>{visible.slice(activePage * 25, (activePage + 1) * 25).map(customer => {
+            const status = clientStatus.get(customer.id) || 'Sem vendas'
+            const statusClass = status === 'Pendente' ? 'badge-warning' : status === 'Debitado' ? 'badge-danger' : status === 'Presente' ? 'badge-neutral' : status === 'Pago' ? 'badge-success' : 'badge-neutral'
+            return <tr key={customer.id}>
+              <td data-label="Cliente" style={{ fontWeight: 600 }}><button className="cb-customer-name" title="Ver ficha" aria-label={`Ver ficha de ${customer.name}`} onClick={() => setProfile(customer)}>{customer.name}</button></td>
+              <td data-label="Telefone" className="customer-phone"><MaskedPII value={customer.contact || ''} type="phone" /></td>
+              <td data-label="Situação"><span className={`badge ${statusClass}`}>{status}</span></td>
+              <td data-label="Cadastro">{new Date(customer.createdAt).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}</td>
+              <td data-label="Compras / Cookies"><span className="badge badge-brand">{countOf(customer.id)} / {cookiesOf(customer.id)}</span></td>
+              <td data-label="Total gasto" className="text-right" style={{ fontWeight: 700 }}><span className="cb-desktop-value"><MaskedMoney value={spendOf(customer.id)} /></span><span className="cb-mobile-value"><small>{status === 'Pendente' ? 'Falta receber' : 'Total comprado'}</small><MaskedMoney value={status === 'Pendente' ? (customerSales.get(customer.id) || []).filter(sale => sale.status === 'Pendente').reduce((sum,sale) => sum + saleOutstanding(sale),0) : spendOf(customer.id)} /></span></td>
+              <td data-label="Ações" className="text-right customer-actions">
+                {statusFilter === 'with-phone-pending' && billingWhatsApp(customer, sales) && <button className="btn btn-primary btn-sm" aria-label={`Cobrar ${customer.name}`} onClick={() => setMessageCustomer(customer)}>Cobrar</button>}
+                <details className="cb-client-options"><summary aria-label={`Opções de ${customer.name}`}>Opções</summary><div>
+                  <button className="btn btn-ghost btn-sm" aria-label={`Editar ${customer.name}`} onClick={() => openEdit(customer)}><Pencil size={14} /> Editar</button>
+                  {onSaleTransfer && countOf(customer.id) > 0 && <button className="btn btn-ghost btn-sm customer-transfer" aria-label={`Transferir venda de ${customer.name}`} onClick={() => setTransferCustomer(customer)}><ShoppingBag size={14} /> Transferir venda</button>}
+                  <button className="btn btn-ghost btn-sm cb-danger-action" aria-label={`Excluir ${customer.name}`} onClick={() => remove(customer.id)}><Trash2 size={14} /> Excluir</button>
+                </div></details>
+              </td>
+            </tr>
+          })}</tbody>
+        </table>
+      </div>}
+    </section>
 
-      <div className="grid grid-3" style={{ marginBottom: 'var(--sp-6)' }}>
-        <div className="card">
-          <h3 className="card-title">Top clientes</h3>
-          {top.length === 0 ? <div className="empty-state"><Users className="icon" size={40} /><p>Sem clientes ainda.</p></div> : (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
-              {top.map((c, i) => (
-                              <div key={c.id} style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', flexWrap: 'wrap', minWidth: 0 }}>
-                                <span style={{ fontWeight: 700, color: 'var(--cz-600)', width: 20, flexShrink: 0 }}>{i + 1}º</span>
-                                <span style={{ flex: 1, minWidth: 0, overflowWrap: 'anywhere', wordBreak: 'break-word' }}>{c.name}</span>
-                                <span className="badge badge-neutral" style={{ whiteSpace: 'nowrap' }}>{c.purchases} compras / {c.cookies} cookies</span>
-                                <strong style={{ whiteSpace: 'nowrap' }}><MaskedMoney value={c.spent} /></strong>
-                              </div>
-                            ))}
-            </div>
-          )}
-        </div>
+    {pages > 1 && <div className="pagination"><span>{activePage + 1} / {pages}</span><button className="btn btn-secondary btn-sm" disabled={!activePage} onClick={() => setPage(activePage - 1)}>Anterior</button><button className="btn btn-secondary btn-sm" disabled={activePage === pages - 1} onClick={() => setPage(activePage + 1)}>Próxima</button></div>}
 
-        <div className="card">
-          <h3 className="card-title">Status dos clientes</h3>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--sp-3)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)' }}>
-              <CheckCircle2 size={20} color="var(--ok-500)" />
-              <span style={{ flex: 1 }}>Clientes Pagos</span>
-              <strong>{paidCount}</strong>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)' }}>
-              <AlertCircle size={20} color="var(--warn-500)" />
-              <span style={{ flex: 1 }}>Pendentes</span>
-              <strong>{pendingCount}</strong>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)' }}>
-              <AlertCircle size={20} color="var(--danger-500)" />
-              <span style={{ flex: 1 }}>Debitados</span>
-              <strong>{debitedCount}</strong>
-            </div>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-3)', opacity: 0.6 }}>
-              <Users size={20} color="var(--tx-3)" />
-              <span style={{ flex: 1 }}>Sem compras</span>
-              <strong>{noSalesCount}</strong>
-            </div>
-          </div>
-        </div>
-
-        <div className="card">
-          <h3 className="card-title">Total de clientes</h3>
-          <div className="stat-card">
-            <span className="stat-value">{customers.length}</span>
-            <span className="stat-label">clientes cadastrados</span>
-          </div>
-        </div>
+    <details className="cb-summary-disclosure">
+      <summary>Resumo dos clientes</summary>
+      <div className="cb-summary-content">
+        <section><small>Total de clientes</small><strong>{customers.length}</strong><small>cadastros</small></section>
+        <section><small>Pendências</small><strong>{statusCounts.Pendente}</strong><small>clientes com saldo em aberto</small></section>
+        <section><small>Presentes</small><strong>{statusCounts.Presente}</strong><small>compras classificadas como presente</small></section>
       </div>
-
-      <div className="card">
-        <div className="report-toolbar">
-          <SearchInput label="Buscar cliente por nome ou telefone" placeholder="Nome ou telefone…" value={search} onChange={value => { setSearch(value); setPage(0) }} />
-          <select aria-label="Status dos clientes" value={statusFilter} onChange={event => { setStatusFilter(event.target.value); setPage(0) }}><option value="all">Todos os clientes</option>{['Pago', 'Pendente', 'Debitado', 'Sem vendas'].map(status => <option key={status}>{status}</option>)}<option value="with-phone">Números cadastrados</option><option value="with-phone-pending">Números cadastrados pendentes</option><option value="without-phone-pending">Sem número pendentes</option></select>
-          <span className="badge badge-neutral">{visible.length} clientes</span>
-        </div>
-        {visible.length === 0 ? (
-          <div className="empty-state"><Users className="icon" size={40} /><p>{customers.length ? 'Nenhum cliente encontrado para esta busca ou filtro.' : 'Nenhum cliente cadastrado.'}</p></div>
-        ) : (
-          <div className="table-wrap customers-table-wrap">
-            <table className="table customers-table">
-              <thead><tr><th>Nome</th><th>Contato</th><th>Cadastro</th><th>Compras / Cookies</th><th className="text-right">Total gasto</th><th className="text-right">Ações</th></tr></thead>
-              <tbody>
-                {visible.slice(activePage * 25, (activePage + 1) * 25).map(c => (
-                  <tr key={c.id}>
-                    <td data-label="Cliente" style={{ fontWeight: 600 }}>{c.name}</td>
-                    <td data-label="Telefone" className="customer-phone"><MaskedPII value={c.contact || ''} type="phone" /></td>
-                    <td data-label="Cadastro">{new Date(c.createdAt).toLocaleDateString('pt-BR', { timeZone: 'America/Sao_Paulo' })}</td>
-                    <td data-label="Compras / Cookies"><span className="badge badge-brand">{countOf(c.id)} / {cookiesOf(c.id)}</span></td>
-                    <td data-label="Total gasto" className="text-right" style={{ fontWeight: 700 }}><MaskedMoney value={spendOf(c.id)} /></td>
-                    <td data-label="Ações" className="text-right customer-actions">
-                      {statusFilter === 'with-phone-pending' && billingWhatsApp(c,sales) && <a className="btn btn-secondary btn-sm" aria-label={`Cobrar ${c.name} pelo WhatsApp`} href={billingWhatsApp(c,sales)!} target="_blank" rel="noopener noreferrer">WhatsApp</a>}
-                      <button className="btn btn-secondary btn-sm" aria-label={`Editar ${c.name}`} onClick={() => openEdit(c)}><Pencil size={14} /></button>
-                      <button className="btn btn-danger btn-sm" aria-label={`Excluir ${c.name}`} onClick={() => remove(c.id)}><Trash2 size={14} /></button>
-                      {onSaleTransfer && countOf(c.id) > 0 && <button className="btn btn-secondary btn-sm customer-transfer" aria-label={`Transferir venda de ${c.name}`} onClick={() => setTransferCustomer(c)}><ShoppingBag size={14} /> Transferir venda</button>}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
+      {top.length > 0 && <ol className="cb-rank-list" aria-label="Ranking de clientes">
+        {top.map((customer, index) => <li key={customer.id}><span>{index + 1}º</span><span className="cb-rank-name">{customer.name}</span><span><MaskedMoney value={customer.spent} /></span></li>)}
+      </ol>}
+      <div className="cb-summary-content">
+        <section><small>Pagos</small><strong>{statusCounts.Pago}</strong></section>
+        <section><small>Debitados</small><strong>{statusCounts.Debitado}</strong></section>
+        <section><small>Sem compras</small><strong>{statusCounts['Sem vendas']}</strong></section>
       </div>
+    </details>
 
-      {transferCustomer && onSaleTransfer && <SaleTransferDialog customer={transferCustomer} customers={customers} sales={sales} onTransfer={onSaleTransfer} onClose={() => setTransferCustomer(null)} />}
+    {activeProfile && <CustomerProfile customer={activeProfile} sales={sales} onClose={() => setProfile(null)} onEdit={() => openEdit(activeProfile)} onSaveContact={saveContact} />}
+    {messageCustomer && <BillingMessagePreview customer={messageCustomer} sales={sales.filter(sale => sale.customerId === messageCustomer.id)} onClose={() => setMessageCustomer(null)} pushToast={pushToast} />}
+    {transferCustomer && onSaleTransfer && <SaleTransferDialog customer={transferCustomer} customers={customers} sales={sales} onTransfer={onSaleTransfer} onClose={() => setTransferCustomer(null)} />}
 
-      {mergePrompt && <Modal label="Combinar clientes" onClose={() => setMergePrompt(null)}>
-          <div className="modal-header"><h3>Tem certeza de que quer combinar clientes?</h3><button className="modal-close" aria-label="Voltar à edição" onClick={() => setMergePrompt(null)}><X size={20} /></button></div>
-          <div className="form">
-            <p>Ao trocar “{mergePrompt.source.name}” por “{mergePrompt.name}”, encontramos outros cadastros parecidos. Se for a mesma pessoa, escolha onde reunir tudo:</p>
-            <fieldset style={{ border: 0, padding: 0 }}><legend>Cliente que será mantido</legend>
-              {mergePrompt.candidates.map(customer => <label key={customer.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 10 }}>
-                <input type="radio" name="merge-customer" checked={mergeTarget === customer.id} onChange={() => { setMergeTarget(customer.id); setMergePhone('') }} />
-                <span><strong>{customer.name}</strong> · <MaskedPII value={customer.contact} type="phone" /> · {countOf(customer.id)} compras · cadastro {new Date(customer.createdAt).toLocaleDateString('pt-BR')}</span>
-              </label>)}
-            </fieldset>
-            {target && <p>O cadastro <strong>{target.name}</strong> será mantido. As {countOf(mergePrompt.source.id)} compras de <strong>{mergePrompt.source.name}</strong>, incluindo pendências e pagamentos, serão transferidas para ele. O cadastro separado de {mergePrompt.source.name} deixará de aparecer. Valores, datas e estoque permanecem iguais.</p>}
-            {phoneConflict && <fieldset style={{ border: 0, padding: 0 }}><legend>Os telefones são diferentes. Qual deseja manter?</legend>
-              <label style={{ display: 'block', padding: 8 }}><input type="radio" name="merge-phone" checked={mergePhone === 'target'} onChange={() => setMergePhone('target')} /> Telefone de {target?.name}: <MaskedPII value={target?.contact || ''} type="phone" /></label>
-              <label style={{ display: 'block', padding: 8 }}><input type="radio" name="merge-phone" checked={mergePhone === 'source'} onChange={() => setMergePhone('source')} /> Telefone de {mergePrompt.source.name}: <MaskedPII value={mergePrompt.contact} type="phone" /></label>
-            </fieldset>}
-            <div className="modal-actions">
-              <button className="btn btn-secondary" onClick={() => setMergePrompt(null)}>Voltar à edição</button>
-              {!mergePrompt.candidates.some(customer => normalizeCustomerName(customer.name) === normalizeCustomerName(mergePrompt.name)) && <button className="btn btn-secondary" onClick={() => { setMergePrompt(null); submit(true) }}>Só renomear, sem combinar</button>}
-              <button className="btn btn-primary" disabled={!target || (phoneConflict && !mergePhone)} onClick={confirmMerge}>Sim, combinar clientes</button>
-            </div>
-          </div>
-      </Modal>}
+    {mergePrompt && <Modal label="Combinar clientes" onClose={() => setMergePrompt(null)}>
+      <div className="modal-header"><h3>Tem certeza de que quer combinar clientes?</h3><button className="modal-close" aria-label="Voltar à edição" onClick={() => setMergePrompt(null)}><X size={20} /></button></div>
+      <div className="form">
+        <p>Ao trocar “{mergePrompt.source.name}” por “{mergePrompt.name}”, encontramos outros cadastros parecidos. Se for a mesma pessoa, escolha onde reunir tudo:</p>
+        <fieldset style={{ border: 0, padding: 0 }}><legend>Cliente que será mantido</legend>
+          {mergePrompt.candidates.map(customer => <label key={customer.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: 10 }}><input type="radio" name="merge-customer" checked={mergeTarget === customer.id} onChange={() => { setMergeTarget(customer.id); setMergePhone('') }} /><span><strong>{customer.name}</strong> · <MaskedPII value={customer.contact} type="phone" /> · {countOf(customer.id)} compras · cadastro {new Date(customer.createdAt).toLocaleDateString('pt-BR')}</span></label>)}
+        </fieldset>
+        {target && <p>O cadastro <strong>{target.name}</strong> será mantido. As {countOf(mergePrompt.source.id)} compras de <strong>{mergePrompt.source.name}</strong>, incluindo pendências e pagamentos, serão transferidas para ele. O cadastro separado deixará de aparecer. Valores e datas permanecem iguais.</p>}
+        {phoneConflict && <fieldset style={{ border: 0, padding: 0 }}><legend>Os telefones são diferentes. Qual deseja manter?</legend><label style={{ display: 'block', padding: 8 }}><input type="radio" name="merge-phone" checked={mergePhone === 'target'} onChange={() => setMergePhone('target')} /> Telefone de {target?.name}: <MaskedPII value={target?.contact || ''} type="phone" /></label><label style={{ display: 'block', padding: 8 }}><input type="radio" name="merge-phone" checked={mergePhone === 'source'} onChange={() => setMergePhone('source')} /> Telefone de {mergePrompt.source.name}: <MaskedPII value={mergePrompt.contact} type="phone" /></label></fieldset>}
+        <div className="modal-actions"><button className="btn btn-secondary" onClick={() => setMergePrompt(null)}>Voltar à edição</button>{!mergePrompt.candidates.some(customer => normalizeCustomerName(customer.name) === normalizeCustomerName(mergePrompt.name)) && <button className="btn btn-secondary" onClick={() => { setMergePrompt(null); submit(true) }}>Só renomear, sem combinar</button>}<button className="btn btn-primary" disabled={!target || (phoneConflict && !mergePhone)} onClick={confirmMerge}>Sim, combinar clientes</button></div>
+      </div>
+    </Modal>}
 
-      {pages > 1 && <div className="pagination"><span>{activePage + 1} / {pages}</span><button className="btn btn-secondary btn-sm" disabled={!activePage} onClick={() => setPage(activePage - 1)}>Anterior</button><button className="btn btn-secondary btn-sm" disabled={activePage === pages - 1} onClick={() => setPage(activePage + 1)}>Próxima</button></div>}
-      {showModal && !mergePrompt && (
-              <Modal label={editing ? 'Editar cliente' : 'Novo cliente'} onClose={() => setShowModal(false)}>
-                  <div className="modal-header">
-                    <h3>{editing ? 'Editar Cliente' : 'Novo Cliente'}</h3>
-                    <button className="modal-close" aria-label="Fechar" onClick={() => setShowModal(false)}><X size={20} /></button>
-                  </div>
-                  <div className="form">
-                    <div className="field"><label>Nome</label><input aria-label="Nome" value={form.name} maxLength={120} autoComplete="name" onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Nome do cliente" /></div>
-                    <div className="field"><label>Telefone com DDD (opcional)</label><input aria-label="Telefone com DDD (opcional)" value={form.contact} maxLength={15} autoComplete="tel" inputMode="tel" onChange={e => setForm(f => ({ ...f, contact: formatPhone(e.target.value) }))} placeholder="(11) 99999-0000" /><span className="hint">Se deixar vazio, aparecerá “Não informado”.</span></div>
-                    <div className="modal-actions">
-                      <button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancelar</button>
-                      <button className="btn btn-primary" onClick={() => submit()}>{editing ? 'Salvar' : 'Adicionar'}</button>
-                    </div>
-                  </div>
-              </Modal>
-            )}
+    {showModal && !mergePrompt && <Modal label={editing ? 'Editar cliente' : 'Novo cliente'} onClose={() => setShowModal(false)}>
+      <div className="modal-header"><h3>{editing ? 'Editar Cliente' : 'Novo Cliente'}</h3><button className="modal-close" aria-label="Fechar" onClick={() => setShowModal(false)}><X size={20} /></button></div>
+      <div className="form">
+        <div className="field"><label htmlFor="customer-name">Nome</label><input id="customer-name" aria-label="Nome" value={form.name} maxLength={120} autoComplete="name" onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Nome do cliente" /></div>
+        <div className="field"><label htmlFor="customer-phone">Telefone com DDD (opcional)</label><input id="customer-phone" aria-label="Telefone com DDD (opcional)" value={form.contact} maxLength={15} autoComplete="tel" inputMode="tel" onChange={e => setForm(f => ({ ...f, contact: formatPhone(e.target.value) }))} placeholder="(11) 99999-0000" /><span className="hint">Se deixar vazio, aparecerá “Não informado”.</span></div>
+        <div className="modal-actions"><button className="btn btn-secondary" onClick={() => setShowModal(false)}>Cancelar</button><button className="btn btn-primary" onClick={() => submit()}>{editing ? 'Salvar' : 'Adicionar'}</button></div>
+      </div>
+    </Modal>}
 
-            {deleteConfirm && (
-              <DeleteConfirmation
-                onClose={() => setDeleteConfirm(null)}
-                onConfirm={confirmDelete}
-                title="Excluir cliente"
-                message="Esta ação não pode ser desfeita. O cliente será removido permanentemente."
-                itemName={deleteConfirm.name}
-              />
-            )}
-          </>
-        )
-      }
+    {deleteConfirm && <DeleteConfirmation onClose={() => setDeleteConfirm(null)} onConfirm={confirmDelete} title="Excluir cliente" message="Esta ação não pode ser desfeita. O cliente será removido permanentemente." itemName={deleteConfirm.name} />}
+  </div>
+}

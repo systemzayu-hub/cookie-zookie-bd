@@ -3,13 +3,13 @@ import { formatAuditValue } from './audit-changes'
 import { OWNER_KEY_EMAIL } from './owner-access'
 
 const actions: Record<string, string> = {
-  alteracao: 'Alteração de dados', venda: 'Venda registrada', desfazer: 'Reversão',
+  alteracao: 'Alteração de dados', venda: 'Venda registrada', recebimento: 'Recebimento', financeiro: 'Financeiro', desfazer: 'Reversão',
   equipe: 'Acesso da equipe', custo: 'Custo', perda: 'Perda', produto: 'Produto',
   cliente: 'Cliente', estoque: 'Estoque', cobranca: 'Cobrança', pagamento: 'Pagamento',
   backup: 'Backup', login: 'Acesso ao sistema', 'venda-rapida': 'Venda importada',
 }
 const titles: Record<string, string> = {
-  alteracao: 'Alteração de dados', venda: 'Venda registrada', desfazer: 'Reversão aplicada',
+  alteracao: 'Alteração de dados', venda: 'Venda registrada', recebimento: 'Recebimento registrado', financeiro: 'Registro financeiro atualizado', desfazer: 'Reversão aplicada',
   equipe: 'Acesso da equipe alterado', custo: 'Custo atualizado', perda: 'Perda registrada',
   produto: 'Produto atualizado', cliente: 'Cadastro de cliente atualizado', estoque: 'Estoque atualizado',
   cobranca: 'Cobrança atualizada', pagamento: 'Pagamento atualizado', backup: 'Backup', login: 'Acesso ao sistema',
@@ -17,7 +17,8 @@ const titles: Record<string, string> = {
 }
 const categories: Record<string, string> = {
   produto: 'Produtos e estoque', estoque: 'Produtos e estoque',
-  venda: 'Vendas e recebimentos', cobranca: 'Vendas e recebimentos', pagamento: 'Vendas e recebimentos', 'venda-rapida': 'Vendas e recebimentos',
+  venda: 'Vendas e recebimentos', recebimento: 'Vendas e recebimentos', cobranca: 'Vendas e recebimentos', pagamento: 'Vendas e recebimentos', 'venda-rapida': 'Vendas e recebimentos',
+  financeiro: 'Financeiro',
   cliente: 'Clientes', equipe: 'Equipe', custo: 'Custos e perdas', perda: 'Custos e perdas',
   alteracao: 'Outras alterações', desfazer: 'Outras alterações', backup: 'Outras alterações', login: 'Outras alterações',
 }
@@ -67,6 +68,13 @@ export function auditEventPresentation(entry: AuditEntry): { title: string; desc
   let category = categories[entry.action] || 'Outras alterações'
   let description = cleanDetail(typeof entry.detail === 'string' ? entry.detail : '')
 
+  if (entry.action === 'financeiro') {
+    title = entry.source === 'purchase' ? 'Compra financeira alterada' : entry.source === 'payment' ? 'Pagamento financeiro alterado' : title
+    if (entry.source === 'cost') title = 'Custo de produção alterado'
+    if (entry.source === 'loss') title = /^Perda (?:registrada|registrado)/i.test(description) ? 'Perda registrada' : /^Perda removida/i.test(description) ? 'Perda removida' : 'Perda atualizada'
+    category = 'Financeiro'
+  }
+
   if (entry.action === 'alteracao') {
     if (/^Venda editada:/i.test(description)) {
       title = 'Venda editada'
@@ -115,6 +123,18 @@ export function auditCompactTitle(entry: AuditEntry): string {
   const hasSaleContext = /^Venda (?:editada:|excluída; estoque recomposto:)/i.test(detail)
   if (['Produtos e estoque atualizados', 'Clientes atualizados', 'Vendas e recebimentos atualizados'].includes(baseTitle)) return compactTitle(baseTitle)
   if (entry.action === 'alteracao' && !hasSaleContext && detailKinds(detail).size > 1) return compactTitle(baseTitle)
+
+  if (entry.action === 'financeiro' && entry.source === 'cost') {
+    const match = /^Custo de (.+?) (registrado|removido|alterado):/i.exec(detail)
+    const name = compactName(match?.[1])
+    return compactTitle(name ? `Custo de ${name} ${match![2].toLowerCase()}` : 'Custo de produção alterado')
+  }
+  if (entry.action === 'financeiro' && entry.source === 'loss') {
+    const match = /^Perda (?:registrada|registrado|removida|atualizada):\s*([^·]+)/i.exec(detail)
+    const name = compactName(match?.[1])
+    const operation = /^Perda removida/i.test(detail) ? 'removida' : /^Perda atualizada/i.test(detail) ? 'atualizada' : 'registrada'
+    return compactTitle(name ? `Perda de ${name} ${operation}` : `Perda ${operation}`)
+  }
 
   if (entry.action === 'alteracao' || entry.action === 'venda' || entry.action === 'cliente') {
     if (/^Venda editada:/i.test(detail)) title = 'Venda editada'

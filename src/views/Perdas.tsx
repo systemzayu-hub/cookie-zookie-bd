@@ -3,15 +3,15 @@ import { DeleteConfirmation } from '../components/DeleteConfirmation'
 import { SearchInput } from '../components/SearchInput'
 import { matchesSearch } from '../search'
 import { useTrackedState } from '../useTrackedState'
-import { useState, useEffect, useMemo } from 'react'
+import { useRef, useState, useMemo } from 'react'
 import { Plus, Trash2, AlertTriangle, Package, X } from 'lucide-react'
 import { SEED_PERDAS, CUSTOS_PRODUCAO } from '../pendencias-avancado'
 import { load, save } from '../data'
 import { usePasswordGuard } from '../components/PasswordGate'
-import { logAction } from '../audit'
 import { MaskedMoney } from '../components/MaskedMoney'
 import { MaskedPII } from '../components/MaskedPII'
 import { uid } from '../types'
+import { commitLocalFinancialChanges } from '../local-financial-cloud'
 
 export interface Perda {
   id: string
@@ -30,39 +30,52 @@ export function PerdasView() {
   const [showForm, setShowForm] = useState(false)
   const [form, setForm] = useState({ date: '', produto: '', qtd: '', motivo: '', custoUnit: '' })
   const [deleteConfirm, setDeleteConfirm] = useState<{ id: string; name: string } | null>(null)
+  const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
+  const pendingLoss = useRef<{ signature: string; value: Perda } | null>(null)
   const { guard } = usePasswordGuard()
   const productionCosts = load<Array<{ id: string; name: string; custoUnitario: number }>>('cc_custos', [...CUSTOS_PRODUCAO])
-
-  useEffect(() => {
-    save('cc_perdas', perdas)
-  }, [perdas])
 
   const totalUnidades = useMemo(() => perdas.reduce((sum, p) => sum + p.qtd, 0), [perdas])
   const totalCusto = useMemo(() => perdas.reduce((sum, p) => sum + p.custoTotal, 0), [perdas])
   const totalRegistros = perdas.length
 
   const submitForm = () => {
+    if (busyRef.current) return
     const date = form.date
     const produto = form.produto.trim()
     const qtd = Number(form.qtd)
     const motivo = form.motivo.trim()
     const custoUnit = Number(form.custoUnit)
     if (!date || !produto || !Number.isSafeInteger(qtd) || qtd <= 0 || !motivo || !Number.isFinite(custoUnit) || custoUnit < 0 || form.custoUnit === '') { setError('Informe data, produto, quantidade inteira positiva, motivo e custo válido.'); return }
-    setError('')
-    const nova: Perda = {
-      id: uid(),
-      date,
-      produto,
-      qtd,
-      motivo,
-      custoUnit,
-      custoTotal: qtd * custoUnit,
+    const signature = JSON.stringify({ date, produto, qtd, motivo, custoUnit })
+    const nova = pendingLoss.current?.signature === signature ? pendingLoss.current.value : {
+      id: uid(), date, produto, qtd, motivo, custoUnit, custoTotal: qtd * custoUnit,
     }
+    pendingLoss.current = { signature, value: nova }
+    const before = perdas.map(row => ({ ...row }))
+    const after = [nova, ...before]
     guard('Registrar perda', () => {
-      setPerdas(prev => [nova, ...prev])
-      setForm({ date: '', produto: '', qtd: '', motivo: '', custoUnit: '' })
-      setShowForm(false)
-      logAction('perda', `Registrou perda de ${qtd} un de "${produto}" (${fmtBRL_audit(Number(qtd) * Number(custoUnit))}) — ${motivo}`)
+      if (busyRef.current) return
+      busyRef.current = true
+      setBusy(true)
+      setError('')
+      void (async () => {
+        try {
+          await commitLocalFinancialChanges('loss', before as unknown as Record<string, unknown>[], after as unknown as Record<string, unknown>[])
+          if (!save('cc_perdas', after)) throw new Error('Não foi possível salvar a alteração neste aparelho.')
+          setPerdas(after)
+          setForm({ date: '', produto: '', qtd: '', motivo: '', custoUnit: '' })
+          setShowForm(false)
+          pendingLoss.current = null
+        } catch (cause) {
+          const message = cause instanceof Error ? cause.message : 'Não foi possível registrar a perda.'
+          setError(`${message} O formulário permanece aberto para tentar novamente.`)
+        } finally {
+          busyRef.current = false
+          setBusy(false)
+        }
+      })()
     })
   }
 
@@ -82,16 +95,33 @@ export function PerdasView() {
   }
 
   const confirmDelete = () => {
-    if (!deleteConfirm) return
+    if (!deleteConfirm || busyRef.current) return
+    const id = deleteConfirm.id
+    const before = perdas.map(row => ({ ...row }))
+    const after = before.filter(row => row.id !== id)
     guard('Excluir perda', () => {
-      setPerdas(prev => prev.filter(p => p.id !== deleteConfirm.id))
-      logAction('perda', `Excluiu perda${perdas.find(x => x.id === deleteConfirm.id) ? ` de ${perdas.find(x => x.id === deleteConfirm.id)?.qtd} un de "${perdas.find(x => x.id === deleteConfirm.id)?.produto}"` : ''}`)
-      setDeleteConfirm(null)
+      if (busyRef.current) return
+      busyRef.current = true
+      setBusy(true)
+      setError('')
+      void (async () => {
+        try {
+          await commitLocalFinancialChanges('loss', before as unknown as Record<string, unknown>[], after as unknown as Record<string, unknown>[])
+          if (!save('cc_perdas', after)) throw new Error('Não foi possível salvar a alteração neste aparelho.')
+          setPerdas(after)
+          setDeleteConfirm(null)
+        } catch (cause) {
+          const message = cause instanceof Error ? cause.message : 'Não foi possível excluir a perda.'
+          setError(`${message} O registro foi preservado; tente novamente.`)
+        } finally {
+          busyRef.current = false
+          setBusy(false)
+        }
+      })()
     })
   }
 
   const fmtBRL = (v: number) => v.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })
-  const fmtBRL_audit = fmtBRL
 
   const visible = perdas.filter(p => matchesSearch(search, p.produto, p.motivo)).sort((a, b) => b.date.localeCompare(a.date))
   return (
@@ -100,8 +130,9 @@ export function PerdasView() {
         <div className="page-title">
           <h2>Perdas e Desperdícios</h2>
           <p>Registre perdas de produção e acompanhe o custo total</p>
+          <p className="hint" role="status">Registro financeiro deste aparelho.{busy ? ' Registrando alteração…' : ''}</p>
         </div>
-        <button className="btn btn-primary" onClick={() => setShowForm(true)}>
+        <button className="btn btn-primary" disabled={busy} onClick={() => { setError(''); setShowForm(true) }}>
           <Plus size={16} /> Registrar perda
         </button>
       </div>
@@ -125,6 +156,7 @@ export function PerdasView() {
       </div>
 
       <div className="list-toolbar card"><SearchInput label="Buscar perda" placeholder="Produto ou motivo…" value={search} onChange={setSearch} /><span className="result-count" role="status">{visible.length} de {perdas.length} registros · totais acima incluem todo o histórico</span></div>
+      {error && !showForm && <p role="alert" className="login-error">{error}</p>}
       {visible.length === 0 ? (
         <div className="card empty-state"><Package className="icon" size={48} /><p>{perdas.length ? 'Nenhuma perda corresponde à busca.' : 'Nenhuma perda registrada.'}</p></div>
       ) : (
@@ -174,7 +206,7 @@ export function PerdasView() {
               {error && <p role="alert" className="login-error">{error}</p>}
               <div className="field">
                 <label>Data</label>
-                <input aria-label="Data" type="date" value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
+                <input aria-label="Data" type="date" disabled={busy} value={form.date} onChange={e => setForm(f => ({ ...f, date: e.target.value }))} />
               </div>
               <div className="form-grid">
                 <div className="field">
@@ -182,6 +214,7 @@ export function PerdasView() {
                   <select aria-label="Produto"
                     className="num-input"
                     value={form.produto}
+                    disabled={busy}
                     onChange={e => pickProduto(e.target.value)}
                     style={{ width: '100%' }}
                   >
@@ -193,20 +226,20 @@ export function PerdasView() {
                 </div>
                 <div className="field">
                   <label>Quantidade</label>
-                  <input aria-label="Quantidade" type="number" min={1} className="num-input" value={form.qtd} onChange={e => setForm(f => ({ ...f, qtd: e.target.value }))} />
+                  <input aria-label="Quantidade" type="number" min={1} className="num-input" disabled={busy} value={form.qtd} onChange={e => setForm(f => ({ ...f, qtd: e.target.value }))} />
                 </div>
               </div>
               <div className="field">
                 <label>Motivo</label>
-                <input aria-label="Motivo" value={form.motivo} onChange={e => setForm(f => ({ ...f, motivo: e.target.value }))} placeholder="ex: Queimou, Caiu no chão, Comi" />
+                <input aria-label="Motivo" disabled={busy} value={form.motivo} onChange={e => setForm(f => ({ ...f, motivo: e.target.value }))} placeholder="ex: Queimou, Caiu no chão, Comi" />
               </div>
               <div className="field">
                 <label>Custo Unitário (R$)</label>
-                <input aria-label="Custo Unitário (R$)" type="number" min={0} step="0.01" className="num-input" value={form.custoUnit} onChange={e => setForm(f => ({ ...f, custoUnit: e.target.value }))} placeholder="0.00" />
+                <input aria-label="Custo Unitário (R$)" type="number" min={0} step="0.01" className="num-input" disabled={busy} value={form.custoUnit} onChange={e => setForm(f => ({ ...f, custoUnit: e.target.value }))} placeholder="0.00" />
               </div>
               <div className="modal-actions">
-                <button className="btn btn-secondary" onClick={() => setShowForm(false)}>Cancelar</button>
-                <button className="btn btn-primary" onClick={submitForm}>Registrar</button>
+                <button className="btn btn-secondary" disabled={busy} onClick={() => setShowForm(false)}>Cancelar</button>
+                <button className="btn btn-primary" disabled={busy} onClick={submitForm}>{busy ? 'Registrando…' : 'Registrar'}</button>
               </div>
             </div>
               </Modal>
@@ -217,7 +250,7 @@ export function PerdasView() {
           onClose={() => setDeleteConfirm(null)}
           onConfirm={confirmDelete}
           title="Excluir perda"
-          message="Esta ação não pode ser desfeita. O registro de perda será removido permanentemente."
+          message={error || 'Esta ação não pode ser desfeita. O registro de perda será removido permanentemente.'}
           itemName={deleteConfirm.name}
         />
       )}

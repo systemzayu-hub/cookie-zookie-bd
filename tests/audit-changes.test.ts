@@ -75,3 +75,10 @@ test('formata status, forma de pagamento e datas sem deslocar o dia', () => {
   assert.equal(formatAuditValue('2026-10-01', 'date'), '01/10/2026')
   assert.equal(formatAuditValue('pix', 'payment'), 'Pix')
 })
+
+test('formata custo, lucro e margem em linguagem financeira', () => {
+  assert.equal(formatAuditValue(4.5, 'custoUnitario'), 'R$ 4,50')
+  assert.equal(formatAuditValue(9, 'precoVenda'), 'R$ 9,00')
+  assert.equal(formatAuditValue(4.5, 'lucroUnitario'), 'R$ 4,50')
+  assert.equal(formatAuditValue(0.5, 'margem'), '50%')
+})

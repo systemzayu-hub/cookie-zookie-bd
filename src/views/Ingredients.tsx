@@ -1,3 +1,4 @@
+import { commitPurchasePhotos } from '../purchase-photos'
 import { useConfirmation } from '../components/useConfirmation'
 import { SearchInput } from '../components/SearchInput'
 import { matchesSearch } from '../search'
@@ -83,9 +84,11 @@ function OwnerPurchases({ owner, sales = [] }: { owner: string; sales?: Sale[] }
   const persist = async (transform: (old: IngredientPurchase[]) => IngredientPurchase[]) => {
     if (!cloudReady) throw Error('Conecte as compras ao servidor antes de alterar registros. Seu rascunho está preservado.')
     const next=transform(purchases)
-    photos.current=Object.fromEntries(next.filter(p=>p.photo).map(p=>[p.id,p.photo!]))
-    await set(key+':photos',photos.current)
-    await commitPurchases(purchases,next)
+    const nextPhotos = Object.fromEntries(next.filter(p=>p.photo).map(p=>[p.id,p.photo!]))
+    const cleaned = await commitPurchasePhotos({ ...photos.current }, nextPhotos,
+      index => set(key+':photos',index), () => commitPurchases(purchases,next,(done,total) => { if (total > 4 && alive.current) setMessage(`Confirmando compras: ${done} de ${total}.`) }),
+      index => { photos.current = index })
+    if (!cleaned) setSyncMessage('Compra confirmada. As fotos foram preservadas na cópia de recuperação deste aparelho.')
     // The realtime listener is the source of truth; do not overwrite newer remote data here.
   }
   const process = (text: string) => {
@@ -171,7 +174,7 @@ function OwnerPurchases({ owner, sales = [] }: { owner: string; sales?: Sale[] }
       const incoming = readPurchasesBackup(await file.text()); let added = 0
       await persist(old => { const fresh = incoming.filter(p => !old.some(o => o.id === p.id)); added = fresh.length; return [...old, ...fresh] })
       setMessage(`Backup importado: ${added} compras adicionadas. ${incoming.length - added} já existentes foram preservadas, sem duplicar.`)
-    } catch { setMessage('Não foi possível importar. Confira o backup e o espaço disponível.') }
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Não foi possível importar. Confira o backup e o espaço disponível.') }
     finally { lock.current = false; setBusy(false) }
   }
   const invalidPeriod = !!from && !!to && from > to

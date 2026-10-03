@@ -52,13 +52,18 @@ export function previewUndo(id: string): { source: UndoSource; count: number }[]
   reversePatches(currentState(), record.patches)
   return undoSources.map(source => ({ source, count: record.patches.filter(patch => patch.source === source).length })).filter(item => item.count)
 }
-export function performUndo(id: string) {
+export async function performUndo(id: string, commit?: (source: 'custos' | 'perdas', before: UndoRow[], after: UndoRow[]) => Promise<void>) {
   if (!owner || !adapter) throw new Error('Entre na conta que registrou a ação.')
   const list = records(), record = list.find(item => item.id === id)
   if (!record || record.undone) throw new Error('Esta ação já foi desfeita ou não está disponível neste aparelho.')
   const next = reversePatches(currentState(), record.patches)
   const store = validateStoreData(next)
   if (!store) throw new Error('A reversão produziria dados inválidos.')
+  for (const source of ['custos', 'perdas'] as const) {
+    if (record.patches.some(patch => patch.source === source) && commit) {
+      await commit(source, load<UndoRow[]>(`cc_${source}`, []), next[source])
+    }
+  }
   // Reserve the reversal before applying it, preventing a double click or another tab from replaying it.
   if (!save(key(), list.map(item => item.id === id ? { ...item, undone: true } : item))) throw new Error('Não foi possível salvar a reversão neste aparelho.')
   for (const source of ['custos', 'perdas'] as const) {
@@ -67,7 +72,7 @@ export function performUndo(id: string) {
       throw new Error('Não foi possível salvar os dados restaurados.')
     }
   }
-  // Local expense reversals must never generate a second shared-store commit.
+  // Reversed local expense data is journaled remotely before it is applied here.
   void store
   emit()
 }

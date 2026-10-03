@@ -1,5 +1,5 @@
-import { combineCustomers, type CustomerMerge } from './combine-customers'
-import { payCustomer, transferSale, type CustomerPayment, type SaleTransfer } from './sale-adjustments'
+import type { CustomerMerge } from './combine-customers'
+import { transferSale, type CustomerPayment, type SaleTransfer } from './sale-adjustments'
 import type { SaleEdit } from './edit-sale'
 import type { DebitChange } from './debit-change'
 import { useEffect, useRef, useState, Suspense, lazy } from 'react'
@@ -8,7 +8,9 @@ import { Product, Sale, Customer, Tab, Pendencia, fmtBRL } from './types'
 import { seedProducts, seedCustomers, seedSales, load, save, STORAGE_ERROR_EVENT } from './data'
 import { baixarBackup, aplicarBackup } from './db'
 import { useConfirmation } from './components/useConfirmation'
-import { authLoginGoogle, authLogout, authOnChange, authReauthenticateGoogle, deleteSaleRemote, editSaleRemote, firebaseReady, callBackend } from './sync'
+import { authLoginGoogle, authLogout, authOnChange, authReauthenticateGoogle, deleteSaleRemote, editSaleRemote, firebaseReady, callBackend, exportCustomerReceipts } from './sync'
+import { commitLocalFinancialChanges } from './local-financial-cloud'
+import { CUSTOS_PRODUCAO } from './pendencias-avancado'
 import { PasswordProvider } from './components/PasswordGate'
 import { ErrorBoundary } from './components/ErrorBoundary'
 import { SensitiveData } from './components/SensitiveData'
@@ -25,7 +27,7 @@ import { EmployeeSales } from './views/EmployeeSales'
 import { configureUndoStore, setUndoOwner } from './undo'
 import { useStoreSync } from './useStoreSync'
 import { recordSale, recordSalesBatch } from './record-sale'
-import { validateCustomers, validateProducts, validateSales, validateStoreData } from './validation'
+import { validateCustomers, validateProducts, validateSales, validateStoreData, type StoreData } from './validation'
 import { getAppShell } from './app-environment'
 import logoUrl from './assets/logo.png'
 
@@ -344,14 +346,11 @@ export default function App() {
     return true
   }
 
-  const handleCustomerPayment = (request: CustomerPayment) => {
+  const handleCustomerPayment = async (request: CustomerPayment): Promise<boolean> => {
     if (!can(role, 'manage')) return false
+    if (!online || syncState !== 'synced') { pushToast('Aguarde a conexão e a sincronização antes de registrar o recebimento.', 'error'); return false }
     try {
-      const next = payCustomer(saleState.current, request)
-      saleState.current = next
-      setSales(next.sales)
-      const customer = next.customers.find(item => item.id === request.customerId)
-      logAction('cobranca', `Registrou ${fmtBRL(request.amount)} para ${customer?.name || request.customerId}`)
+      await transact(() => callBackend<StoreData>('payCustomer', request))
       return true
     } catch (error) { pushToast((error as Error).message, 'error'); return false }
   }
@@ -368,12 +367,11 @@ export default function App() {
     } catch (error) { pushToast((error as Error).message, 'error'); return false }
   }
 
-  const handleCustomersCombined = (request: CustomerMerge) => {
+  const handleCustomersCombined = async (request: CustomerMerge): Promise<boolean> => {
+    if (!can(role, 'manage')) return false
+    if (!online || syncState !== 'synced') { pushToast('Aguarde a conexão e a sincronização antes de combinar clientes.', 'error'); return false }
     try {
-      const next = combineCustomers(saleState.current, request)
-      saleState.current = next
-      setCustomers(next.customers); setSales(next.sales)
-      logAction('cliente', `Combinou "${request.source.name}" com "${request.target.name}" e transferiu seu histórico`)
+      await transact(() => callBackend<StoreData>('combineCustomers', request))
       return true
     } catch (error) { pushToast((error as Error).message, 'error'); return false }
   }
@@ -389,16 +387,28 @@ export default function App() {
 
   const onImport = async (file: File) => {
     if (!can(role, 'backup')) return
+    let restoredStore = false
     try {
       await aplicarBackup(file, async (data) => {
         if (!await confirm(`Este arquivo contém ${data.products.length} produtos, ${data.customers.length} clientes e ${data.sales.length} vendas. A restauração substituirá os registros atuais. Exporte um backup antes de continuar.`, 'Restaurar backup?')) return false
         await authReauthenticateGoogle()
         await transact(() => callBackend('commitStore', { base: saleState.current, local: { products: data.products, sales: data.sales, customers: data.customers } }))
-        logAction('backup', `Restaurou backup com ${data.sales.length} vendas, ${data.customers.length} clientes e ${data.products.length} produtos`)
-        pushToast('Backup restaurado com sucesso!')
+        restoredStore = true
+      }, async extras => {
+        const asRecords = (rows: unknown[]) => {
+          if (rows.some(row => !row || typeof row !== 'object' || Array.isArray(row))) throw new Error('Os custos ou perdas do backup têm registros inválidos.')
+          return rows as Record<string, unknown>[]
+        }
+        await commitLocalFinancialChanges('cost', asRecords(load<unknown[]>('cc_custos', CUSTOS_PRODUCAO.map(row => ({ ...row })))), asRecords(extras.custos))
+        await commitLocalFinancialChanges('loss', asRecords(load<unknown[]>('cc_perdas', [])), asRecords(extras.perdas))
       })
+      if (restoredStore) {
+        logAction('backup', 'Restaurou os dados do backup; o histórico de recebimentos permanece preservado no servidor')
+        pushToast('Backup restaurado com sucesso!')
+      }
     } catch (e) {
-      pushToast((e as Error).message, 'error')
+      const message = (e as Error).message
+      pushToast(restoredStore ? `Clientes e vendas foram restaurados. Custos e perdas não foram concluídos: ${message} Repita a restauração com o mesmo arquivo.` : message, 'error')
     }
   }
 
@@ -406,11 +416,16 @@ export default function App() {
     if (!can(role, 'backup')) return
     try {
       await authReauthenticateGoogle()
-      baixarBackup(products, sales, customers)
-      logAction('backup', 'Exportou um backup completo do painel')
+      const customerReceipts: Record<string, Awaited<ReturnType<typeof exportCustomerReceipts>>> = {}
+      for (let offset = 0; offset < customers.length; offset += 5) {
+        const histories = await Promise.all(customers.slice(offset, offset + 5).map(async customer => ({ id: customer.id, rows: await exportCustomerReceipts(customer.id) })))
+        for (const { id, rows } of histories) if (rows.length) customerReceipts[id] = rows
+      }
+      baixarBackup(products, sales, customers, { customerReceipts })
+      logAction('backup', 'Exportou os dados do painel e o histórico detalhado de recebimentos para consulta')
       pushToast('Backup exportado com segurança.')
-    } catch {
-      pushToast('Confirmação Google cancelada. O backup não foi exportado.', 'error')
+    } catch (error) {
+      pushToast(`${error instanceof Error ? error.message : 'Não foi possível confirmar a exportação.'} O backup não foi exportado.`, 'error')
     }
   }
 
@@ -529,6 +544,7 @@ export default function App() {
         <button ref={menuButtonRef} className={`menu-toggle ${isMenuOpen ? 'is-open' : ''}`} aria-label={isMenuOpen ? 'Fechar menu' : 'Abrir menu'} aria-expanded={isMenuOpen} aria-controls="main-navigation" onClick={() => setIsMenuOpen(!isMenuOpen)}>
                           {isMenuOpen ? <X className="icon" /> : <Menu className="icon" />}
                         </button>
+        {!isMobileApp && <div className="browser-mobile-bar"><span>Cookie Zookie</span><strong>{activeNav?.label || 'Início'}</strong></div>}
         <div className={`sidebar-overlay ${isMenuOpen ? 'open' : ''}`} aria-hidden="true" onClick={() => setIsMenuOpen(false)} />
         <aside ref={sidebarRef} id="main-navigation" className={`sidebar ${isMenuOpen ? 'open' : ''}`} aria-label="Navegação principal">
         <div className="brand">
@@ -594,7 +610,7 @@ export default function App() {
           </div>
           <InstallApp />
           </details>
-          <div className="sidebar-version">Versão do app · 1.1.8</div>
+          <div className="sidebar-version">Versão do app · 1.1.9</div>
         </div>
       </aside>
 

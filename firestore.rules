@@ -27,6 +27,40 @@ service cloud.firestore {
         && getAfter(/databases/$(database)/documents/saleRegistry/ids).data.revision == s.auditId
         && getAfter(/databases/$(database)/documents/dashboard/public).data.revision == s.auditId;
     }
+    function financialRecord(source, id) {
+      return source == 'purchase' ? getAfter(/databases/$(database)/documents/ownerPurchases/$(id)) : getAfter(/databases/$(database)/documents/ownerPayments/$(id));
+    }
+    function financialValid(source, recordId, auditId) {
+      return validId(auditId) && event(auditId).action == 'financeiro' && event(auditId).source == source
+        && event(auditId).recordId == recordId && event(auditId).actorUid == request.auth.uid
+        && event(auditId).createdAt == request.time && financialRecord(source, recordId).data.auditId == auditId
+        && existsAfter(/databases/$(database)/documents/auditSnapshots/$(auditId)/versions/before)
+        && existsAfter(/databases/$(database)/documents/auditSnapshots/$(auditId)/versions/after);
+    }
+    function oldFinancialRecord(source, recordId) {
+      return source == 'purchase'
+        ? (exists(/databases/$(database)/documents/ownerPurchases/$(recordId))
+          ? (get(/databases/$(database)/documents/ownerPurchases/$(recordId)).data.deleted
+            ? {'deleted': true} : {'data': get(/databases/$(database)/documents/ownerPurchases/$(recordId)).data.data, 'deleted': false}) : null)
+        : (exists(/databases/$(database)/documents/ownerPayments/$(recordId))
+          ? (get(/databases/$(database)/documents/ownerPayments/$(recordId)).data.deleted
+            ? {'deleted': true} : {'data': get(/databases/$(database)/documents/ownerPayments/$(recordId)).data.data, 'deleted': false}) : null);
+    }
+    function newFinancialRecord(source, recordId) {
+      return source == 'purchase'
+        ? (getAfter(/databases/$(database)/documents/ownerPurchases/$(recordId)).data.deleted
+          ? {'deleted': true} : {'data': getAfter(/databases/$(database)/documents/ownerPurchases/$(recordId)).data.data, 'deleted': false})
+        : (getAfter(/databases/$(database)/documents/ownerPayments/$(recordId)).data.deleted
+          ? {'deleted': true} : {'data': getAfter(/databases/$(database)/documents/ownerPayments/$(recordId)).data.data, 'deleted': false});
+    }
+    function linkedPaymentValid(recordId, auditId) {
+      return validId(auditId) && event(auditId).action == 'alteracao' && event(auditId).source == 'payment'
+        && event(auditId).recordId == recordId && event(auditId).actorUid == request.auth.uid
+        && event(auditId).createdAt == request.time && tiedToStore(auditId)
+        && event(auditId).financialBefore == oldFinancialRecord('payment', recordId)
+        && event(auditId).financialAfter == newFinancialRecord('payment', recordId)
+        && financialRecord('payment', recordId).data.auditId == auditId;
+    }
     function baseStoreValid(s) {
       return s.products is list && s.products.size() <= 500 && s.sales is list && s.sales.size() <= 5000
         && s.customers is list && s.customers.size() <= 2000 && s.schemaVersion == 2
@@ -90,7 +124,8 @@ service cloud.firestore {
     }
     match /ownerPayments/{id} {
       allow read: if manager();
-      allow create, update: if manager() && request.resource.data.keys().hasOnly(['data','deleted','updatedAt'])
+      allow create, update: if manager() && request.resource.data.keys().hasOnly(['data','deleted','updatedAt','auditId'])
+        && (financialValid('payment', id, request.resource.data.auditId) || linkedPaymentValid(id, request.resource.data.auditId))
         && request.resource.data.updatedAt == request.time && request.resource.data.deleted is bool
         && (request.resource.data.deleted == true || (request.resource.data.data is map
           && request.resource.data.data.id == id && request.resource.data.data.amount is number
@@ -102,7 +137,8 @@ service cloud.firestore {
     }
     match /ownerPurchases/{id} {
       allow read: if owner();
-      allow create, update: if owner() && request.resource.data.keys().hasOnly(['data','deleted','updatedAt'])
+      allow create, update: if owner() && request.resource.data.keys().hasOnly(['data','deleted','updatedAt','auditId'])
+        && financialValid('purchase', id, request.resource.data.auditId)
         && request.resource.data.updatedAt == request.time && request.resource.data.deleted is bool
         && (request.resource.data.deleted == true || (request.resource.data.data is map
           && request.resource.data.data.id == id && request.resource.data.data.items is list
@@ -110,11 +146,78 @@ service cloud.firestore {
           && !('photo' in request.resource.data.data)));
       allow delete: if false;
     }
+    match /customerReceipts/{customerId}/entries/{receiptId} {
+      allow read: if manager();
+      allow create: if manager() && request.resource.data.keys().hasOnly(['id','customerId','amount','payment','date','recordedAt','actor','actorUid','allocations','kind','auditId','requestHash'])
+        && request.resource.data.id == receiptId && request.resource.data.customerId == customerId
+        && request.resource.data.recordedAt == request.time && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.actor is string && request.resource.data.actor.size() > 0 && request.resource.data.actor.size() <= 120
+        && request.resource.data.auditId is string && request.resource.data.allocations is list
+        && request.resource.data.allocations.size() > 0 && request.resource.data.allocations.size() <= 1000
+        && request.resource.data.allocations[0].saleId is string
+        && (request.resource.data.kind == 'receipt'
+          ? request.resource.data.amount is number && request.resource.data.amount > 0 && request.resource.data.amount <= 1000000
+            && request.resource.data.payment in ['dinheiro','cartão','pix']
+            && request.resource.data.date is string && request.resource.data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+            && request.resource.data.requestHash is string && request.resource.data.requestHash.size() <= 20
+            && event(request.resource.data.auditId).action == 'recebimento'
+            && event(request.resource.data.auditId).receiptId == receiptId
+            && event(request.resource.data.auditId).customerId == customerId
+            && event(request.resource.data.auditId).amount == request.resource.data.amount
+            && event(request.resource.data.auditId).allocations == request.resource.data.allocations
+            && event(request.resource.data.auditId).requestHash == request.resource.data.requestHash
+          : request.resource.data.kind == 'adjustment' && request.resource.data.amount is number
+            && request.resource.data.amount >= -1000000 && request.resource.data.amount <= 1000000
+            && !('payment' in request.resource.data) && !('date' in request.resource.data)
+            && event(request.resource.data.auditId).action in ['alteracao','desfazer']
+            && event(request.resource.data.auditId).actorUid == request.auth.uid);
+      allow update, delete: if false;
+    }
+    match /customerReceiptAliases/{customerId} {
+      allow read: if manager();
+      allow create: if manager() && request.resource.data.keys().hasOnly(['customerId','sources','auditId','updatedAt','actorUid'])
+        && request.resource.data.customerId == customerId && request.resource.data.sources is list && request.resource.data.sources.size() <= 350
+        && request.resource.data.updatedAt == request.time && request.resource.data.actorUid == request.auth.uid
+        && validId(request.resource.data.auditId) && event(request.resource.data.auditId).action == 'alteracao'
+        && event(request.resource.data.auditId).actorUid == request.auth.uid;
+      allow update: if manager() && request.resource.data.keys().hasOnly(['customerId','sources','auditId','updatedAt','actorUid'])
+        && request.resource.data.customerId == customerId && request.resource.data.sources is list && request.resource.data.sources.size() <= 350
+        && request.resource.data.sources.hasAll(resource.data.sources) && request.resource.data.updatedAt == request.time
+        && request.resource.data.actorUid == request.auth.uid && validId(request.resource.data.auditId)
+        && event(request.resource.data.auditId).action == 'alteracao' && event(request.resource.data.auditId).actorUid == request.auth.uid;
+      allow delete: if false;
+    }
+    match /deviceFinancial/{uid}/devices/{deviceId} {
+      allow read: if manager() && request.auth.uid == uid;
+      allow create, update: if manager() && request.auth.uid == uid && deviceId.matches('^[a-f0-9-]{36}$');
+      allow delete: if false;
+      match /records/{recordKey} {
+        allow read: if manager();
+        allow create, update: if manager() && request.auth.uid == uid
+          && request.resource.data.keys().hasOnly(['source','recordId','deviceId','actorUid','lastAuditId','data','deleted','updatedAt'])
+          && request.resource.data.source in ['cost','loss'] && request.resource.data.recordId is string
+          && request.resource.data.deviceId == deviceId && request.resource.data.actorUid == request.auth.uid
+          && request.resource.data.lastAuditId is string && request.resource.data.updatedAt == request.time
+          && request.resource.data.deleted is bool
+          && (request.resource.data.deleted ? request.resource.data.data == null : request.resource.data.data is map)
+          && event(request.resource.data.lastAuditId).action == 'financeiro'
+          && event(request.resource.data.lastAuditId).source == request.resource.data.source
+          && event(request.resource.data.lastAuditId).recordKey == recordKey
+          && event(request.resource.data.lastAuditId).recordId == request.resource.data.recordId
+          && event(request.resource.data.lastAuditId).deviceId == deviceId
+          && event(request.resource.data.lastAuditId).originUid == uid
+          && event(request.resource.data.lastAuditId).actorUid == request.auth.uid
+          && event(request.resource.data.lastAuditId).createdAt == request.time
+          && event(request.resource.data.lastAuditId).after == request.resource.data.data
+          && getAfter(/databases/$(database)/documents/auditSnapshots/$(request.resource.data.lastAuditId)/versions/after).data.record == request.resource.data.data;
+        allow delete: if false;
+      }
+    }
     match /loja/dados {
       allow read: if manager();
       allow update: if staff() && baseStoreValid(request.resource.data) && changedStore(request.resource.data)
         && (event(request.resource.data.auditId).action == 'venda' ? validSale(resource.data, request.resource.data) :
-          manager() && event(request.resource.data.auditId).action in ['alteracao','desfazer']
+          manager() && event(request.resource.data.auditId).action in ['alteracao','desfazer','recebimento']
           && getAfter(/databases/$(database)/documents/catalog/customers).data.revision == request.resource.data.auditId);
       allow create, delete: if false;
     }
@@ -157,16 +260,70 @@ service cloud.firestore {
           && getAfter(/databases/$(database)/documents/teamAccess/$(request.resource.data.targetEmail)).data.updatedAt == request.time
           && request.resource.data.afterRole == getAfter(/databases/$(database)/documents/teamAccess/$(request.resource.data.targetEmail)).data.role
           && request.resource.data.beforeRole == (exists(/databases/$(database)/documents/teamAccess/$(request.resource.data.targetEmail)) ? get(/databases/$(database)/documents/teamAccess/$(request.resource.data.targetEmail)).data.role : 'blocked')
-        : tiedToStore(id) && request.resource.data.keys().hasOnly(['id','actorUid','actor','email','createdAt','action','detail','hasUndo','undoOf','saleId','sale','beforeProducts','afterProducts'])
+        : request.resource.data.action == 'financeiro'
+          ? request.resource.data.keys().hasOnly(['id','actorUid','actor','email','createdAt','action','detail','hasUndo','undoOf','source','recordId','originUid','deviceId','recordKey','baselineDeclared','before','after'])
+            && request.resource.data.hasUndo == false && request.resource.data.undoOf == ''
+            && request.resource.data.source in ['purchase','payment','cost','loss'] && request.resource.data.recordId is string
+            && (request.resource.data.source in ['cost','loss']
+              ? manager() && request.resource.data.originUid == request.auth.uid
+                && request.resource.data.deviceId is string && request.resource.data.deviceId.matches('^[a-f0-9-]{36}$')
+                && request.resource.data.recordKey is string
+                && request.resource.data.baselineDeclared is bool
+                && (request.resource.data.before == null || request.resource.data.before is map)
+                && (request.resource.data.after == null || request.resource.data.after is map)
+                && existsAfter(/databases/$(database)/documents/deviceFinancial/$(request.auth.uid)/devices/$(request.resource.data.deviceId)/records/$(request.resource.data.recordKey))
+                && getAfter(/databases/$(database)/documents/deviceFinancial/$(request.auth.uid)/devices/$(request.resource.data.deviceId)/records/$(request.resource.data.recordKey)).data.lastAuditId == id
+                && getAfter(/databases/$(database)/documents/deviceFinancial/$(request.auth.uid)/devices/$(request.resource.data.deviceId)/records/$(request.resource.data.recordKey)).data.recordId == request.resource.data.recordId
+                && getAfter(/databases/$(database)/documents/deviceFinancial/$(request.auth.uid)/devices/$(request.resource.data.deviceId)/records/$(request.resource.data.recordKey)).data.data == request.resource.data.after
+                && getAfter(/databases/$(database)/documents/deviceFinancial/$(request.auth.uid)/devices/$(request.resource.data.deviceId)/records/$(request.resource.data.recordKey)).data.deleted == (request.resource.data.after == null)
+              : request.resource.data.source == 'purchase'
+              ? owner() && getAfter(/databases/$(database)/documents/ownerPurchases/$(request.resource.data.recordId)).data.auditId == id
+              : manager() && getAfter(/databases/$(database)/documents/ownerPayments/$(request.resource.data.recordId)).data.auditId == id)
+            && existsAfter(/databases/$(database)/documents/auditSnapshots/$(id)/versions/before)
+            && existsAfter(/databases/$(database)/documents/auditSnapshots/$(id)/versions/after)
+          : request.resource.data.action == 'alteracao' && request.resource.data.get('source', '') == 'payment'
+            ? tiedToStore(id) && manager() && request.resource.data.keys().hasOnly(['id','actorUid','actor','email','createdAt','action','detail','hasUndo','undoOf','source','recordId','financialBefore','financialAfter'])
+              && request.resource.data.hasUndo == false && request.resource.data.undoOf == ''
+              && request.resource.data.recordId is string && request.resource.data.financialBefore == oldFinancialRecord('payment', request.resource.data.recordId)
+              && request.resource.data.financialAfter == newFinancialRecord('payment', request.resource.data.recordId)
+              && getAfter(/databases/$(database)/documents/ownerPayments/$(request.resource.data.recordId)).data.auditId == id
+          : tiedToStore(id) && (request.resource.data.action == 'recebimento'
+          ? request.resource.data.keys().hasOnly(['id','actorUid','actor','email','createdAt','action','detail','hasUndo','undoOf','receiptId','customerId','amount','payment','date','allocations','requestHash'])
+            && manager() && request.resource.data.hasUndo == false && request.resource.data.undoOf == ''
+            && request.resource.data.receiptId is string && request.resource.data.customerId is string
+            && request.resource.data.amount is number && request.resource.data.payment in ['dinheiro','cartão','pix']
+            && request.resource.data.date is string && request.resource.data.allocations is list && request.resource.data.requestHash is string
+          : request.resource.data.keys().hasOnly(['id','actorUid','actor','email','createdAt','action','detail','hasUndo','undoOf','saleId','sale','beforeProducts','afterProducts'])
           && (request.resource.data.action != 'venda' || (request.resource.data.beforeProducts == oldShop().products && request.resource.data.afterProducts == newShop().products && request.resource.data.sale == ticket(request.resource.data.saleId).sale))
           && (request.resource.data.action == 'desfazer' ? owner() && request.resource.data.hasUndo == false
             && getAfter(/databases/$(database)/documents/auditReversals/$(request.resource.data.undoOf)).data.auditId == id
-            : request.resource.data.action in ['venda','alteracao'] && request.resource.data.hasUndo == true && request.resource.data.undoOf == ''));
+            : request.resource.data.action in ['venda','alteracao'] && request.resource.data.hasUndo == true && request.resource.data.undoOf == '')));
       allow update, delete: if false;
     }
     match /auditSnapshots/{id}/versions/{version} {
-      allow read: if manager();
-      allow create: if tiedToStore(id) && version in ['before','after']
+      allow read: if manager() && !exists(/databases/$(database)/documents/auditV2/$(id))
+        || manager() && exists(/databases/$(database)/documents/auditV2/$(id)) && (event(id).action != 'financeiro' || event(id).source != 'purchase')
+        || owner() && event(id).action == 'financeiro' && event(id).source == 'purchase';
+      allow create: if event(id).action == 'financeiro' && event(id).source in ['cost','loss']
+        ? version in ['before','after'] && request.resource.data.keys().hasOnly(['source','recordId','deviceId','baselineDeclared','recordKey','record'])
+          && request.resource.data.source == event(id).source && request.resource.data.recordId == event(id).recordId
+          && request.resource.data.deviceId == event(id).deviceId && request.resource.data.baselineDeclared == event(id).baselineDeclared
+          && request.resource.data.recordKey == event(id).recordKey && manager()
+          && event(id).originUid == request.auth.uid && event(id).recordKey.matches('^(cost|loss)_.{1,400}$')
+          && (version == 'before'
+            ? (exists(/databases/$(database)/documents/deviceFinancial/$(request.auth.uid)/devices/$(event(id).deviceId)/records/$(event(id).recordKey))
+              ? !event(id).baselineDeclared && request.resource.data.record == get(/databases/$(database)/documents/deviceFinancial/$(request.auth.uid)/devices/$(event(id).deviceId)/records/$(event(id).recordKey)).data.data
+              : event(id).baselineDeclared)
+            : request.resource.data.record == event(id).after)
+          && (version != 'before' || request.resource.data.record == event(id).before)
+        : event(id).action == 'financeiro'
+        ? version in ['before','after'] && request.resource.data.keys().hasOnly(['source','recordId','record'])
+          && request.resource.data.source == event(id).source && request.resource.data.recordId == event(id).recordId
+          && (event(id).source == 'purchase' ? owner() : manager())
+          && request.resource.data.record == (version == 'before'
+            ? oldFinancialRecord(event(id).source, event(id).recordId) : newFinancialRecord(event(id).source, event(id).recordId))
+          && financialValid(event(id).source, event(id).recordId, id)
+        : tiedToStore(id) && version in ['before','after']
         && (version == 'before' ? request.resource.data == (event(id).action == 'venda' ?
           { 'products': oldShop().products, 'sales': [], 'customers': [] } : core(oldShop())) :
           request.resource.data == (event(id).action == 'venda' ?

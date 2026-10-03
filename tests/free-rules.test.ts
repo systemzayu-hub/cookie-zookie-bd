@@ -6,6 +6,7 @@ import { doc, getDocFromServer, getDocs, collection, setDoc, updateDoc, deleteDo
 import { createFreeStore, catalogCustomers, dashboardSale } from '../src/free-store'
 import { validateStoreData } from '../src/validation'
 import { salePaidAmount } from '../src/types'
+import { commitFinancialChanges } from '../src/financial-audit'
 import type { CashPayment } from '../src/payments'
 setLogLevel('silent')
 let env: Awaited<ReturnType<typeof initializeTestEnvironment>>
@@ -200,7 +201,10 @@ test('debit settlement and reopening atomically update sale, history and route r
   assert.equal(salePaidAmount(settled.sales[0]),12)
   const snapshot = await getDocFromServer(doc(client('owner'),'ownerPayments',payment.id))
   assert.equal(snapshot.data()?.data.sourceSaleId,debit.id)
-  assert.equal((await audits()).find(row => row.id === request.operationId)?.hasUndo,true)
+  assert.equal((await audits()).find(row => row.id === request.operationId)?.hasUndo,false)
+  const paidDetails=await api('owner').auditDetails({id:request.operationId})
+  assert.ok(paidDetails.changes.some((change:any)=>change.entity==='Pagamento: Cliente teste'&&change.field==='amount'&&change.after===12))
+  assert.ok(paidDetails.changes.some((change:any)=>change.entity?.startsWith('Venda')&&['status','paidAmount'].includes(change.field)))
   await assert.rejects(api('owner').undoAction({id:request.operationId}), /área Pagamentos/)
   await assert.rejects(api('owner').changeDebit(request), /já foi aplicada/)
   const reopened = await assertSucceeds(api('owner').changeDebit({sale:settled.sales[0],payment:snapshot.data()!.data,reopen:true,operationId:'v2-'+crypto.randomUUID()}))
@@ -219,16 +223,155 @@ test('competing debit receipts cannot create duplicate payments, and staff canno
   assert.equal((await getDocs(collection(client('owner'),'ownerPayments'))).docs.length,1)
   assert.equal((await readStore()).sales[0].status,'Pago')
 })
-test('purchases sync across owner sessions and remain private to owner', async () => {
- const a=client('owner'), b=client('owner')
- const data={id:'purchase-test',date:'2026-09-12',shop:'Mercado',items:[{name:'Sem detalhamento',total:2650}],paymentStatus:'pending',paidAmount:650}
- await assertSucceeds(setDoc(doc(a,'ownerPurchases',data.id),{data,deleted:false,updatedAt:serverTimestamp()}))
- assert.equal((await getDocFromServer(doc(b,'ownerPurchases',data.id))).data()?.data.paidAmount,650)
+test('financial records require a tied immutable audit; purchase snapshots remain owner-only', async () => {
+ const write = async (identity:'owner'|'admin',source:'purchase'|'payment',recordId:string,record:any,before:any=null) => {
+  const db=client(identity),who=user(identity),id='v2-'+crypto.randomUUID(),collectionName=source==='purchase'?'ownerPurchases':'ownerPayments'
+  const afterRecord=record?{data:record,deleted:false}:{deleted:true}
+  await runTransaction(db,async tx=>{
+   tx.set(doc(db,collectionName,recordId),{...(record?{data:record}:{}),deleted:!record,updatedAt:serverTimestamp(),auditId:id})
+   tx.set(doc(db,'auditV2',id),{id,actorUid:who.uid,actor:who.displayName,email:who.email,createdAt:serverTimestamp(),action:'financeiro',detail:'Registro financeiro',hasUndo:false,undoOf:'',source,recordId})
+   tx.set(doc(db,'auditSnapshots',id,'versions','before'),{source,recordId,record:before})
+   tx.set(doc(db,'auditSnapshots',id,'versions','after'),{source,recordId,record:afterRecord})
+  })
+  return id
+ }
+ const purchase={id:'purchase-test',date:'2026-09-12',shop:'Mercado',items:[{name:'Sem detalhamento',total:2650}],paymentStatus:'pending',paidAmount:650}
+ await assertFails(setDoc(doc(client('owner'),'ownerPurchases',purchase.id),{data:purchase,deleted:false,updatedAt:serverTimestamp()}))
+ const purchaseAudit=await assertSucceeds(write('owner','purchase',purchase.id,purchase))
+ assert.equal((await getDocFromServer(doc(client('owner'),'ownerPurchases',purchase.id))).data()?.data.paidAmount,650)
  for(const id of ['admin','employee','blocked','missing']) {
   await assertFails(getDocs(collection(client(id),'ownerPurchases')))
-  await assertFails(setDoc(doc(client(id),'ownerPurchases',data.id),{data,deleted:false,updatedAt:serverTimestamp()}))
+  await assertFails(setDoc(doc(client(id),'ownerPurchases',purchase.id),{data:purchase,deleted:false,updatedAt:serverTimestamp()}))
  }
- await assertSucceeds(setDoc(doc(a,'ownerPurchases',data.id),{deleted:true,updatedAt:serverTimestamp()}))
- assert.equal((await getDocFromServer(doc(b,'ownerPurchases',data.id))).data()?.deleted,true)
- await assertFails(deleteDoc(doc(a,'ownerPurchases',data.id)))
+ await assertFails(getDocFromServer(doc(client('admin'),'auditSnapshots',purchaseAudit,'versions','after')))
+ const update={...purchase,paidAmount:1000}
+ await assertSucceeds(write('owner','purchase',purchase.id,update,{data:purchase,deleted:false}))
+ await assertFails(deleteDoc(doc(client('owner'),'ownerPurchases',purchase.id)))
+
+ const payment={id:'payment-test',amount:25,description:'Frete',person:'Mercado',date:'2026-10-02'}
+ const paymentAudit=await assertSucceeds(write('admin','payment',payment.id,payment))
+ assert.equal((await getDocFromServer(doc(client('admin'),'ownerPayments',payment.id))).data()?.data.amount,25)
+ await assertSucceeds(getDocFromServer(doc(client('admin'),'auditSnapshots',paymentAudit,'versions','after')))
+ await assertFails(getDocFromServer(doc(client('employee'),'ownerPayments',payment.id)))
+})
+
+test('financial commit helper writes eight rows in bounded chunks, retries safely, and stops before a conflicting second chunk', async () => {
+ const db=client('owner'), who=user('owner')
+ const changes=Array.from({length:8},(_,index)=>({id:`chunk-${index}`,after:{id:`chunk-${index}`,date:'2026-10-02',shop:'Mercado',items:[{name:'Item',total:index+10}],paymentStatus:'paid',paidAmount:index+10}}))
+ const progress:Array<[number,number]>=[]
+ await commitFinancialChanges(db,who,'purchase',changes,(done,total)=>progress.push([done,total]))
+ assert.deepEqual(progress,[[4,8],[8,8]])
+ assert.equal((await getDocs(collection(db,'ownerPurchases'))).size,8)
+ assert.equal((await getDocs(collection(db,'auditV2'))).size,8)
+ const replay:Array<[number,number]>=[]
+ await commitFinancialChanges(db,who,'purchase',changes,(done,total)=>replay.push([done,total]))
+ assert.deepEqual(replay,[[4,8],[8,8]])
+ assert.equal((await getDocs(collection(db,'auditV2'))).size,8)
+
+ const seeded=Array.from({length:4},(_,index)=>({id:`conflict-${index}`,after:{id:`conflict-${index}`,date:'2026-10-02',shop:'Seed',items:[{name:'Old',total:5}],paymentStatus:'paid',paidAmount:5}}))
+ await commitFinancialChanges(db,who,'purchase',seeded)
+ const attempted=[...Array.from({length:4},(_,index)=>({id:`partial-${index}`,after:{id:`partial-${index}`,date:'2026-10-02',shop:'New',items:[{name:'New',total:9}],paymentStatus:'paid',paidAmount:9}})),
+  ...seeded.map(item=>({...item,after:{...item.after,shop:'Replacement'}}))]
+ const partialProgress:Array<[number,number]>=[]
+ await assert.rejects(commitFinancialChanges(db,who,'purchase',attempted,(done,total)=>partialProgress.push([done,total])),/Progresso: 4 de 8/)
+ assert.deepEqual(partialProgress,[[4,8]])
+ for(let index=0;index<4;index++) assert.equal((await getDocFromServer(doc(db,'ownerPurchases',`partial-${index}`))).data()?.data.shop,'New')
+ for(let index=0;index<4;index++) assert.equal((await getDocFromServer(doc(db,'ownerPurchases',`conflict-${index}`))).data()?.data.shop,'Seed')
+
+ const restored={id:'restore-tombstone',date:'2026-10-02',shop:'Backup',items:[{name:'Restored',total:12}],paymentStatus:'paid',paidAmount:12}
+ await commitFinancialChanges(db,who,'purchase',[{id:restored.id,after:restored}])
+ await commitFinancialChanges(db,who,'purchase',[{id:restored.id,before:restored}])
+ assert.equal((await getDocFromServer(doc(db,'ownerPurchases',restored.id))).data()?.deleted,true)
+ await commitFinancialChanges(db,who,'purchase',[{id:restored.id,after:restored}])
+ assert.deepEqual((await getDocFromServer(doc(db,'ownerPurchases',restored.id))).data()?.data,restored)
+})
+
+test('device financial mirror ties immutable events to manager-owned local records', async () => {
+ const db=client('admin'), uid='admin', device=crypto.randomUUID(), auditId='v2-'+crypto.randomUUID()
+ const recordKey='loss_loss-1', recordRef=doc(db,'deviceFinancial',uid,'devices',device,'records',recordKey)
+ const auditRef=doc(db,'auditV2',auditId)
+ const before={id:'loss-1',date:'2026-10-02',produto:'Nutella',qtd:2,motivo:'Queimado',custoUnit:4,custoTotal:8}
+ const after={...before,qtd:3,custoTotal:12}
+ const commitLocal=async(id:string,previous:any,next:any,baseline:boolean)=>{
+  const beforeRef=doc(db,'auditSnapshots',id,'versions','before'), afterRef=doc(db,'auditSnapshots',id,'versions','after')
+  const ref=doc(db,'auditV2',id)
+  await runTransaction(db,async tx=>{
+   tx.set(ref,{id,actorUid:uid,actor:'admin',email:'admin@example.test',createdAt:serverTimestamp(),action:'financeiro',detail:'Perda registrada: Nutella · 3 un · Queimado · R$ 12,00',hasUndo:false,undoOf:'',source:'loss',recordId:'loss-1',originUid:uid,deviceId:device,recordKey,baselineDeclared:baseline,before:previous,after:next})
+   tx.set(beforeRef,{source:'loss',recordId:'loss-1',deviceId:device,baselineDeclared:baseline,recordKey,record:previous})
+   tx.set(afterRef,{source:'loss',recordId:'loss-1',deviceId:device,baselineDeclared:baseline,recordKey,record:next})
+   tx.set(recordRef,{source:'loss',recordId:'loss-1',deviceId:device,actorUid:uid,lastAuditId:id,data:next,deleted:next===null,updatedAt:serverTimestamp()})
+  })
+ }
+ await assertSucceeds(runTransaction(db,async tx=>{
+  tx.set(auditRef,{id:auditId,actorUid:uid,actor:'admin',email:'admin@example.test',createdAt:serverTimestamp(),action:'financeiro',detail:'Perda registrada: Nutella · 3 un · Queimado · R$ 12,00',hasUndo:false,undoOf:'',source:'loss',recordId:'loss-1',originUid:uid,deviceId:device,recordKey,baselineDeclared:true,before,after})
+  tx.set(doc(db,'auditSnapshots',auditId,'versions','before'),{source:'loss',recordId:'loss-1',deviceId:device,baselineDeclared:true,recordKey,record:before})
+  tx.set(doc(db,'auditSnapshots',auditId,'versions','after'),{source:'loss',recordId:'loss-1',deviceId:device,baselineDeclared:true,recordKey,record:after})
+  tx.set(recordRef,{source:'loss',recordId:'loss-1',deviceId:device,actorUid:uid,lastAuditId:auditId,data:after,deleted:false,updatedAt:serverTimestamp()})
+ }))
+ assert.deepEqual((await getDocFromServer(recordRef)).data()?.data,after)
+ await assertFails(updateDoc(auditRef,{detail:'alterado'}))
+ await assertFails(updateDoc(recordRef,{data:before}))
+ await assertFails(getDocFromServer(doc(client('employee'),'deviceFinancial',uid,'devices',device,'records',recordKey)))
+ assert.equal((await getDocFromServer(doc(client('owner'),'deviceFinancial',uid,'devices',device,'records',recordKey))).data()?.actorUid,uid)
+ await assertFails(getDocFromServer(doc(client('admin'),'auditV2',auditId)))
+ assert.equal((await getDocFromServer(doc(client('admin'),'auditSnapshots',auditId,'versions','after'))).data()?.record.qtd,3)
+ const details=await api('owner').auditDetails({id:auditId})
+ assert.ok(details.changes.some((change:any)=>change.field==='Registro anterior' && String(change.after).includes('Estado inicial informado')))
+ assert.ok(details.changes.some((change:any)=>change.field==='custoTotal' && change.before===8 && change.after===12))
+
+ const undoAudit='v2-'+crypto.randomUUID()
+ await assertSucceeds(commitLocal(undoAudit,after,before,false))
+ assert.deepEqual((await getDocFromServer(recordRef)).data()?.data,before)
+
+ await assertFails(updateDoc(recordRef,{data:after,lastAuditId:'v2-'+crypto.randomUUID(),updatedAt:serverTimestamp()}))
+ await assertFails(runTransaction(db,async tx=>{
+  tx.set(recordRef,{source:'loss',recordId:'loss-1',deviceId:device,actorUid:uid,lastAuditId:'v2-'+crypto.randomUUID(),data:after,deleted:false,updatedAt:serverTimestamp()})
+ }))
+ await assertFails(updateDoc(recordRef,{lastAuditId:auditId,updatedAt:serverTimestamp()}))
+ const forgedId='v2-'+crypto.randomUUID()
+ await assertFails(runTransaction(db,async tx=>{
+  tx.set(doc(db,'auditV2',forgedId),{id:forgedId,actorUid:uid,actor:'admin',email:'admin@example.test',createdAt:serverTimestamp(),action:'financeiro',detail:'Perda adulterada',hasUndo:false,undoOf:'',source:'loss',recordId:'loss-1',originUid:uid,deviceId:device,recordKey,baselineDeclared:false,before:after,after})
+  tx.set(doc(db,'auditSnapshots',forgedId,'versions','before'),{source:'loss',recordId:'loss-1',deviceId:device,baselineDeclared:false,recordKey,record:after})
+  tx.set(doc(db,'auditSnapshots',forgedId,'versions','after'),{source:'loss',recordId:'loss-1',deviceId:device,baselineDeclared:false,recordKey,record:after})
+  tx.set(recordRef,{source:'loss',recordId:'loss-1',deviceId:device,actorUid:uid,lastAuditId:forgedId,data:after,deleted:false,updatedAt:serverTimestamp()})
+ }))
+})
+
+test('customer receipts are immutable, idempotent, and sale removal creates a non-cash adjustment', async () => {
+ const pending={...sale('receipt-sale'),status:'Pendente',customerId:'c1',paidAmount:0}
+ const started=await api('admin').commitStore({base,local:{...base,sales:[pending]}})
+ const request={customerId:'c1',amount:5,sales:started.sales,payment:'pix',date:'2026-10-02',receiptId:'receipt-one'} as any
+ const after=await assertSucceeds(api('admin').payCustomer(request))
+ assert.equal(after.sales[0].paidAmount,5)
+ const receiptRef=doc(client('owner'),'customerReceipts','c1','entries','receipt-one')
+ const receipt=(await getDocFromServer(receiptRef)).data()!
+ assert.equal(receipt.amount,5); assert.equal(receipt.kind,'receipt'); assert.equal(receipt.payment,'pix')
+ assert.equal((await api('admin').payCustomer(request)).sales[0].paidAmount,5)
+ await assert.rejects(api('admin').payCustomer({...request,amount:4}))
+ await assertFails(updateDoc(receiptRef,{amount:1}))
+ await assertFails(deleteDoc(receiptRef))
+ await assertFails(getDocFromServer(doc(client('employee'),'customerReceipts','c1','entries','receipt-one')))
+ await api('admin').deleteSale({sale:after.sales[0]})
+ const rows=await getDocs(collection(client('admin'),'customerReceipts','c1','entries'))
+ const adjustment=rows.docs.map(row=>row.data()).find(row=>row.kind==='adjustment')
+ assert.equal(adjustment?.amount,-5); assert.equal(adjustment?.payment,undefined); assert.equal(adjustment?.date,undefined)
+})
+
+test('customer receipt source indexes flatten repeated merges, including customers with no current sales', async () => {
+ const customers=[c,{...c,id:'c2',name:'Cliente B'},{...c,id:'c3',name:'Cliente C'}]
+ const initial={...base,customers}
+ const pending={...sale('receipt-merge-sale'),status:'Pendente',customerId:'c3',paidAmount:0}
+ const started=await api('admin').commitStore({base,local:{...initial,sales:[pending]}})
+ const paid=await api('admin').payCustomer({customerId:'c3',amount:3,sales:started.sales,payment:'dinheiro',date:'2026-10-02',receiptId:'receipt-merge',} as any)
+ await api('admin').deleteSale({sale:paid.sales[0]})
+ await api('admin').combineCustomers({source:customers[2],target:customers[1],contact:customers[1].contact})
+ const mergedB=(await getDocFromServer(doc(client('admin'),'customerReceiptAliases','c2'))).data()!
+ assert.deepEqual(mergedB.sources,['c3'])
+ await api('admin').combineCustomers({source:customers[1],target:customers[0],contact:customers[0].contact})
+ const mergedA=(await getDocFromServer(doc(client('admin'),'customerReceiptAliases','c1'))).data()!
+ assert.deepEqual(new Set(mergedA.sources),new Set(['c2','c3']))
+ const original=await getDocFromServer(doc(client('admin'),'customerReceipts','c3','entries','receipt-merge'))
+ assert.equal(original.data()?.customerId,'c3')
+ const beforeCount=(await getDocs(collection(client('admin'),'customerReceipts','c3','entries'))).size
+ assert.equal(beforeCount,2)
 })

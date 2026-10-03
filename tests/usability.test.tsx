@@ -10,7 +10,7 @@ import { changeDebit, type DebitChange } from '../src/debit-change'
 import { salePaidAmount } from '../src/types'
 import { PasswordProvider } from '../src/components/PasswordGate'
 import { salesCSV } from '../src/views/Reports'
-import { aplicarBackup } from '../src/db'
+import { aplicarBackup, exportarDados } from '../src/db'
 
 test('name searches ignore accents, word order and spacing and match unformatted phones', () => {
   assert.equal(matchesSearch('silva joao', 'João da Silva'), true)
@@ -25,6 +25,29 @@ test('searching a select preserves its chosen customer when another name is sear
   act(() => root.root.findByType('input').props.onChange({target:{value:'lara'}}))
   assert.equal(root.root.findByType('select').props.value, 'a')
   assert.deepEqual(root.root.findAllByType('option').map((option: any) => option.props.value), ['', 'a', 'b'])
+  act(() => root.unmount())
+})
+test('combo seleciona a primeira opção com teclado, anuncia foco e mostra o nome escolhido', () => {
+  let root: any
+  let selected = ''
+  const render = () => <SearchableSelect label="Cliente" value={selected} onChange={value => { selected = value }} options={[{ id: 'a', name: 'João' }, { id: 'b', name: 'Lara' }]} required />
+  act(() => { root = create(render()) })
+  let input = root.root.findByType('input')
+  assert.equal(input.props.value, '')
+  act(() => { input.props.onKeyDown({ key: 'ArrowDown', preventDefault() {} }) })
+  input = root.root.findByType('input')
+  const options = root.root.findAllByProps({ role: 'option' })
+  assert.equal(input.props['aria-activedescendant'], options[0].props.id)
+  assert.equal(options[0].props.className, 'is-active')
+  act(() => { input.props.onKeyDown({ key: 'Enter', preventDefault() {} }) })
+  assert.equal(selected, 'a')
+  act(() => { root.update(render()) })
+  input = root.root.findByType('input')
+  assert.equal(input.props.value, 'João')
+  assert.equal(input.props['aria-expanded'], false)
+  assert.equal(input.props.required, true)
+  assert.equal(input.props['aria-required'], true)
+  assert.equal(root.root.findByType('select').props.required, false)
   act(() => root.unmount())
 })
 test('renaming an existing product to a known flavor preserves its custom selling price', () => {
@@ -75,10 +98,11 @@ test('cancelled or failed backup confirmation leaves local extras untouched', as
   const original = Object.getOwnPropertyDescriptor(globalThis, 'FileReader')
   const costs = localStorage.getItem('cc_custos')
   const losses = localStorage.getItem('cc_perdas')
+  const validCost = { id: 'replacement', name: 'Nutella', precoVenda: 8.5, custoUnitario: 3, lucroUnitario: 5.5, margem: 5.5 / 8.5 }
   class Reader {
     result = ''
     onload?: () => void
-    readAsText() { this.result = JSON.stringify({...store,version:2,extras:{custos:[{id:'replacement'}],perdas:[]}}); this.onload?.() }
+    readAsText() { this.result = JSON.stringify({...store,version:2,extras:{custos:[validCost],perdas:[]}}); this.onload?.() }
   }
   Object.defineProperty(globalThis,'FileReader',{value:Reader,configurable:true})
   try {
@@ -90,5 +114,60 @@ test('cancelled or failed backup confirmation leaves local extras untouched', as
   } finally {
     if (original) Object.defineProperty(globalThis,'FileReader',original)
     else Reflect.deleteProperty(globalThis,'FileReader')
+  }
+})
+
+test('backup exporta recibos como histórico somente leitura e rejeita extras inválidos antes do callback', async () => {
+  const receipt = { id: 'receipt-1', customerId: 'c', amount: 2, recordedAt: 1, actor: 'Conta', actorUid: 'u', allocations: [{ saleId: 's', amount: 2 }], kind: 'receipt', auditId: 'v2-00000000-0000-4000-8000-000000000000', payment: 'pix', date: '2026-10-01' } as any
+  const exported = exportarDados(store.products, store.sales, store.customers, { customerReceipts: { c: [receipt] } })
+  const payload = JSON.parse(exported)
+  assert.equal(payload.version, 2)
+  assert.equal(payload.receiptHistory.c[0].id, 'receipt-1')
+
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'FileReader')
+  try {
+    let imported: any
+    class Reader {
+      onload?: () => void
+      readAsText() { this.onload?.() }
+      get result() { return exported }
+    }
+    Object.defineProperty(globalThis, 'FileReader', { value: Reader, configurable: true })
+    await aplicarBackup({ size: exported.length } as File, data => { imported = data; return false })
+    assert.equal(imported.receiptHistory, undefined)
+
+    const invalid = JSON.stringify({ ...store, version: 2, extras: { custos: [{ id: 'broken', name: 'Sem valores' }], perdas: [] } })
+    let called = false
+    class InvalidReader {
+      onload?: () => void
+      readAsText() { this.onload?.() }
+      get result() { return invalid }
+    }
+    Object.defineProperty(globalThis, 'FileReader', { value: InvalidReader, configurable: true })
+    await assert.rejects(aplicarBackup({ size: invalid.length } as File, () => { called = true }), /extras|custos inválidos/)
+    assert.equal(called, false)
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'FileReader', original)
+    else Reflect.deleteProperty(globalThis, 'FileReader')
+  }
+})
+
+test('backup preserva custo com lucro e margem negativos quando os valores são finitos', async () => {
+  const negativeCost = { id: 'below-margin', name: 'Nutella', precoVenda: 8.5, custoUnitario: 10, lucroUnitario: -1.5, margem: -1.5 / 8.5 }
+  const backup = JSON.stringify({ ...store, version: 2, extras: { custos: [negativeCost], perdas: [] } })
+  const original = Object.getOwnPropertyDescriptor(globalThis, 'FileReader')
+  try {
+    let imported: any
+    class Reader {
+      onload?: () => void
+      readAsText() { this.onload?.() }
+      get result() { return backup }
+    }
+    Object.defineProperty(globalThis, 'FileReader', { value: Reader, configurable: true })
+    await aplicarBackup({ size: backup.length } as File, data => { imported = data; return false })
+    assert.deepEqual(imported.extras?.custos, [negativeCost])
+  } finally {
+    if (original) Object.defineProperty(globalThis, 'FileReader', original)
+    else Reflect.deleteProperty(globalThis, 'FileReader')
   }
 })

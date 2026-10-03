@@ -1,13 +1,13 @@
 import { SearchInput } from '../components/SearchInput'
 import { matchesSearch } from '../search'
 import { useTrackedState } from '../useTrackedState'
-import { useState, useEffect, useMemo } from 'react'
+import { useRef, useState, useMemo } from 'react'
 import { Edit2, Package, TrendingUp, Calculator } from 'lucide-react'
 import { CUSTOS_PRODUCAO } from '../pendencias-avancado'
 import { load, save } from '../data'
 import { usePasswordGuard } from '../components/PasswordGate'
-import { logAction } from '../audit'
 import { MaskedMoney } from '../components/MaskedMoney'
+import { commitLocalFinancialChanges } from '../local-financial-cloud'
 
 export interface CustoProducao {
   id: string
@@ -26,11 +26,9 @@ export function CustosView() {
   const [error, setError] = useState('')
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
+  const [busy, setBusy] = useState(false)
+  const busyRef = useRef(false)
   const { guard } = usePasswordGuard()
-
-  useEffect(() => {
-    save('cc_custos', custos)
-  }, [custos])
 
   const avgLucro = useMemo(() =>
     custos.length > 0 ? custos.reduce((sum, c) => sum + c.lucroUnitario, 0) / custos.length : 0,
@@ -51,21 +49,38 @@ export function CustosView() {
   }
 
   const saveEdit = (id: string) => {
+    if (busyRef.current) return
     const novoCusto = Number(editValue.replace(',', '.'))
     if (!editValue.trim() || !Number.isFinite(novoCusto) || novoCusto < 0) {setError('Informe um custo válido, maior ou igual a zero.'); return}
-    setError('')
     const c = custos.find(x => x.id === id)
+    if (!c) { setError('Este custo não está mais disponível. Recarregue a tela e tente novamente.'); return }
+    const before = custos.map(row => ({ ...row }))
+    const after = before.map(row => {
+      if (row.id !== id) return row
+      const precoVenda = row.precoVenda
+      const lucroUnitario = precoVenda - novoCusto
+      const margem = precoVenda > 0 ? lucroUnitario / precoVenda : 0
+      return { ...row, custoUnitario: novoCusto, lucroUnitario, margem }
+    })
     guard('Alterar custo de produção', () => {
-      setCustos(prev => prev.map(cc => {
-        if (cc.id !== id) return cc
-        const precoVenda = cc.precoVenda
-        const lucroUnitario = precoVenda - novoCusto
-        const margem = precoVenda > 0 ? lucroUnitario / precoVenda : 0
-        return { ...cc, custoUnitario: novoCusto, lucroUnitario, margem }
-      }))
-      setEditingId(null)
-      setEditValue('')
-      logAction('custo', `Alterou custo de "${c?.name || id}" para ${novoCusto.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}`)
+      busyRef.current = true
+      setBusy(true)
+      setError('')
+      void (async () => {
+        try {
+          await commitLocalFinancialChanges('cost', before as unknown as Record<string, unknown>[], after as unknown as Record<string, unknown>[])
+          if (!save('cc_custos', after)) throw new Error('Não foi possível salvar a alteração neste aparelho.')
+          setCustos(after)
+          setEditingId(null)
+          setEditValue('')
+        } catch (cause) {
+          const message = cause instanceof Error ? cause.message : 'Não foi possível registrar a alteração.'
+          setError(`${message} O custo permanece aberto para tentar novamente.`)
+        } finally {
+          busyRef.current = false
+          setBusy(false)
+        }
+      })()
     })
   }
 
@@ -82,6 +97,7 @@ export function CustosView() {
       <div className="page-header">
         <h2>Custos de Produção</h2>
         <p>Configure o custo unitário por sabor e visualize lucro e margem</p>
+        <p className="hint" role="status">Registro financeiro deste aparelho.{busy ? ' Registrando alteração…' : ''}</p>
       </div>
 
       <div className="grid grid-stats" style={{ marginBottom: 'var(--sp-6)' }}>
@@ -131,12 +147,13 @@ export function CustosView() {
                         style={{ width: '100%', minWidth: '100px' }}
                         value={editValue}
                         onChange={e => setEditValue(e.target.value)}
+                        disabled={busy}
                         aria-label={`Custo unitário de ${c.name}`}
                         onKeyDown={e => {if (e.key === 'Enter') saveEdit(c.id); if (e.key === 'Escape') cancelEdit()}}
                         autoFocus
-                      /><button className="btn btn-primary btn-sm" onClick={() => saveEdit(c.id)}>Salvar</button><button className="btn btn-ghost btn-sm" onClick={cancelEdit}>Cancelar</button></div>
+                      /><button className="btn btn-primary btn-sm" disabled={busy} onClick={() => saveEdit(c.id)}>{busy ? 'Salvando…' : 'Salvar'}</button><button className="btn btn-ghost btn-sm" disabled={busy} onClick={cancelEdit}>Cancelar</button></div>
                     ) : (
-                      <button className="btn btn-ghost btn-sm" aria-label={`Editar custo de ${c.name}`} onClick={() => startEdit(c)}>
+                      <button className="btn btn-ghost btn-sm" disabled={busy} aria-label={`Editar custo de ${c.name}`} onClick={() => startEdit(c)}>
                         {fmtBRL(c.custoUnitario)}
                         <Edit2 size={14} style={{ marginLeft: 'var(--sp-2)', verticalAlign: 'middle', opacity: 0.5 }} />
                       </button>

@@ -1,33 +1,34 @@
 import type { CustomerMerge } from '../combine-customers'
 import { useState } from 'react'
 import { Users, HandCoins } from 'lucide-react'
-import { Customer, Sale } from '../types'
+import type { Customer, Sale } from '../types'
 import { CustomersView } from './Customers'
 import { CobrancaView } from './Cobranca'
 import { SensitiveData } from '../components/SensitiveData'
 import type { CustomerPayment, SaleTransfer } from '../sale-adjustments'
+import '../customer-billing.css'
 
-export function CustomersBillingView({ customers, setCustomers, sales, setSales, pushToast, onCustomersCombined, onCustomerPayment, onSaleTransfer }: {
-  onCustomerPayment: (request: CustomerPayment) => boolean; onSaleTransfer: (request: SaleTransfer) => boolean
-  onCustomersCombined: (request: CustomerMerge) => boolean; customers: Customer[]; setCustomers: React.Dispatch<React.SetStateAction<Customer[]>>; sales: Sale[]; setSales: React.Dispatch<React.SetStateAction<Sale[]>>; pushToast: (m: string, t?: 'success' | 'error') => void
+type PaymentRequest = CustomerPayment & { payment: Sale['payment']; date: string; receiptId: string; saleId?: string }
+
+export function CustomersBillingView({ customers, setCustomers, sales, setSales: _setSales, pushToast, onCustomersCombined, onCustomerPayment, onSaleTransfer }: {
+  onCustomerPayment: (request: PaymentRequest) => boolean | Promise<boolean>
+  onSaleTransfer: (request: SaleTransfer) => boolean
+  onCustomersCombined: (request: CustomerMerge) => boolean | Promise<boolean>
+  customers: Customer[]
+  setCustomers: React.Dispatch<React.SetStateAction<Customer[]>>
+  sales: Sale[]
+  setSales: React.Dispatch<React.SetStateAction<Sale[]>>
+  pushToast: (m: string, t?: 'success' | 'error') => void
 }) {
   const [section, setSection] = useState<'clientes' | 'cobranca'>('clientes')
 
-  return (
-    <SensitiveData label="Clientes e cobrança" level="financial">
-      <div style={{ display: 'flex', gap: 'var(--sp-2)', flexWrap: 'wrap', marginBottom: 'var(--sp-4)' }}>
-        <button aria-pressed={section === 'clientes'} className={`btn ${section === 'clientes' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setSection('clientes')} style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
-          <Users size={16} /> Clientes
-        </button>
-        <button aria-pressed={section === 'cobranca'} className={`btn ${section === 'cobranca' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setSection('cobranca')} style={{ display: 'flex', alignItems: 'center', gap: 'var(--sp-2)' }}>
-          <HandCoins size={16} /> Cobrança
-        </button>
+  return <SensitiveData label="Clientes e cobrança" level="financial">
+    <div className="customer-billing-view">
+      <div className="cb-section-switcher" role="tablist" aria-label="Área de clientes e cobrança">
+        <button role="tab" aria-selected={section === 'clientes'} className={`btn ${section === 'clientes' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setSection('clientes')}><Users size={16} /> Clientes</button>
+        <button role="tab" aria-selected={section === 'cobranca'} className={`btn ${section === 'cobranca' ? 'btn-primary' : 'btn-ghost'}`} onClick={() => setSection('cobranca')}><HandCoins size={16} /> Cobrança</button>
       </div>
-      {section === 'clientes' ? (
-        <CustomersView onCustomersCombined={onCustomersCombined} onSaleTransfer={onSaleTransfer} customers={customers} setCustomers={setCustomers} sales={sales} pushToast={pushToast} />
-      ) : (
-        <CobrancaView sales={sales} setSales={setSales} customers={customers} pushToast={pushToast} onCustomerPayment={onCustomerPayment} onSaleTransfer={onSaleTransfer} />
-      )}
-    </SensitiveData>
-  )
+      {section === 'clientes' ? <CustomersView onCustomersCombined={onCustomersCombined} onSaleTransfer={onSaleTransfer} customers={customers} setCustomers={setCustomers} sales={sales} pushToast={pushToast} /> : <CobrancaView sales={sales} setSales={_setSales} customers={customers} setCustomers={setCustomers} pushToast={pushToast} onCustomerPayment={onCustomerPayment} onSaleTransfer={onSaleTransfer} />}
+    </div>
+  </SensitiveData>
 }

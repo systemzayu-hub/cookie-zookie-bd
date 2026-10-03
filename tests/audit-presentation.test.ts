@@ -71,6 +71,9 @@ test('gera títulos compactos de negócio sem métricas, com fallback honesto', 
   assert.equal(compact('Produto Nutella atualizado: estoque de 35 para 40 · Produto Oreo atualizado: preço de R$ 4,00 para R$ 5,00'), 'Produtos e estoque atualizados')
   assert.equal(compact('comentário legado com preço de R$ 8,50 para R$ 9,00'), 'Alteração de dados')
   assert.equal(compact('acesso da equipe atualizado', 'equipe'), 'Acesso da equipe alterado')
+  assert.equal(auditEventPresentation(entry({ action: 'financeiro', source: 'cost', detail: 'Custo de Nutella alterado: R$ 4,00 para R$ 5,00' })).category, 'Financeiro')
+  assert.equal(auditCompactTitle(entry({ action: 'financeiro', source: 'cost', detail: 'Custo de Nutella alterado: R$ 4,00 para R$ 5,00' })), 'Custo de Nutella alterado')
+  assert.equal(auditCompactTitle(entry({ action: 'financeiro', source: 'loss', detail: 'Perda registrada: Nutella · 3 un · Queimado · R$ 12,00' })), 'Perda de Nutella registrada')
 })
 
 test('troca JSON legado por texto de campos e explica detalhes vazios', () => {

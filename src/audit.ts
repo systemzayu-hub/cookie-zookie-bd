@@ -1,6 +1,7 @@
 import { auditPullPage, type AuditEntryDB, type AuditPage, type AuditPageCursor } from './sync'
 import { captureUndo, performUndo, undoStatus } from './undo'
 import { isUnlocked } from './auth'
+import { commitLocalFinancialChanges } from './local-financial-cloud'
 export type AuditEntry = AuditEntryDB
 let actor: string | null = null, actorEmail: string | null = null
 export function setAuditActor(name: string | null, email: string | null) { actor = name || email; actorEmail = email }
@@ -31,8 +32,8 @@ export function canUndoAction(id: string) { return isUnlocked('audit') && undoSt
 export async function undoAuditAction(entry: AuditEntry) {
   if (!isUnlocked('audit')) throw new Error('Seu cargo não permite desfazer ações.')
   if (!navigator.locks) throw new Error('Use um navegador atualizado para desfazer registros locais.')
-  await navigator.locks.request('cookie-zookie-local-undo', () => {
+  await navigator.locks.request('cookie-zookie-local-undo', async () => {
     if (!isUnlocked('audit')) throw new Error('Seu acesso mudou.')
-    performUndo(entry.id)
+    await performUndo(entry.id, (source, before, after) => commitLocalFinancialChanges(source === 'custos' ? 'cost' : 'loss', before, after))
   })
 }
